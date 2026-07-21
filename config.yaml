@@ -1,0 +1,21 @@
+# BetterCode 配置文件 - LLM 供应商管理
+providers:
+  - name: deepseek-v4
+    protocol: openai
+    model: deepseek-v4-pro
+    base_url: https://api.deepseek.com
+    api_key: sk-d2d51cbfd6e24d89a311e534b5350063
+    default: true
+
+  - name: claude-sonnet
+    protocol: anthropic
+    model: claude-sonnet-5-20251001
+    base_url: https://api.anthropic.com
+    api_key: ${ANTHROPIC_API_KEY}
+    thinking: false
+
+  - name: gpt-4o
+    protocol: openai
+    model: gpt-4o
+    base_url: https://api.openai.com/v1
+    api_key: ${OPENAI_API_KEY}

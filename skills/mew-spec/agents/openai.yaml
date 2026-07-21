@@ -1,0 +1,4 @@
+interface:
+  display_name: "MEW Spec"
+  short_description: "Drive development through four approved spec stages"
+  default_prompt: "Use $mew-spec to turn this feature idea into approved specifications before implementation."
