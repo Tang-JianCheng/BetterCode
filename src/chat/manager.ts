@@ -1,147 +1,128 @@
-import { serializeToolResult } from '../tool/output-limit.js';
-import type { ToolCall } from '../tool/types.js';
-import { ToolRegistry } from '../tool/registry.js';
+import { AgentLoop } from '../agent/loop.js';
+import { createEventStream } from '../agent/event-stream.js';
+import { buildExecutePlanRequest, buildPlanRequest } from '../agent/prompts.js';
 import type {
-  LLMProvider,
-  Message,
-  StreamEvent,
-  ToolDefinition,
-} from '../provider/types.js';
+  AgentEvent,
+  AgentLoopOptions,
+  AgentRunOptions,
+  SavedPlan,
+} from '../agent/types.js';
+import type { LLMProvider, Message } from '../provider/types.js';
+import { ToolRegistry } from '../tool/registry.js';
 
-const MULTI_TOOL_LIMIT_MESSAGE = '当前版本一次只支持一个工具调用，未执行任何工具。';
-const SECOND_TOOL_LIMIT_MESSAGE = '工具结果已返回，但当前版本不会继续执行下一次工具调用。';
-
-interface TurnResult {
-  text: string;
-  toolCalls: ToolCall[];
+export class NoPlanError extends Error {
+  constructor() {
+    super('当前会话没有可执行的计划，请先使用 /plan <任务>');
+    this.name = 'NoPlanError';
+  }
 }
 
 export class ChatManager {
   private history: Message[] = [];
+  private latestPlan: SavedPlan | undefined;
+  private active = false;
+  private readonly loop: AgentLoop;
 
   constructor(
-    private readonly toolRegistry: ToolRegistry,
+    toolRegistry: ToolRegistry,
+    options: Partial<AgentLoopOptions> = {},
     systemPrompt?: string,
   ) {
-    if (systemPrompt) {
-      this.history.push({ role: 'user', content: systemPrompt });
-    }
+    this.loop = new AgentLoop(toolRegistry, options);
+    if (systemPrompt) this.history.push({ role: 'user', content: systemPrompt });
+  }
+
+  run(
+    userInput: string,
+    provider: LLMProvider,
+    options: AgentRunOptions = {},
+  ): AsyncIterable<AgentEvent> {
+    const mode = options.mode ?? 'act';
+    const modelInput = mode === 'plan' ? buildPlanRequest(userInput) : userInput;
+    return this.start(modelInput, provider, mode, options.signal, mode === 'plan' ? userInput : undefined);
+  }
+
+  executeLatestPlan(
+    provider: LLMProvider,
+    signal?: AbortSignal,
+  ): AsyncIterable<AgentEvent> {
+    if (!this.latestPlan) throw new NoPlanError();
+    const plan = { ...this.latestPlan };
+    return this.start(buildExecutePlanRequest(plan), provider, 'act', signal);
   }
 
   getHistory(): ReadonlyArray<Message> {
     return [...this.history];
   }
 
-  async send(
-    userInput: string,
-    provider: LLMProvider,
-    onThinkingDelta: (token: string) => void,
-    onTextDelta: (token: string) => void,
-    onError: (err: string) => void,
-  ): Promise<string> {
-    this.history.push({ role: 'user', content: userInput });
-
-    const first = await this.requestTurn(
-      provider,
-      this.history,
-      this.toolRegistry.definitions(),
-      onThinkingDelta,
-      onTextDelta,
-      onError,
-    );
-
-    if (first.toolCalls.length === 0) {
-      this.appendAssistant(first.text);
-      return first.text;
-    }
-
-    if (first.toolCalls.length > 1) {
-      this.history.push({ role: 'assistant', content: MULTI_TOOL_LIMIT_MESSAGE });
-      onError(MULTI_TOOL_LIMIT_MESSAGE);
-      return first.text;
-    }
-
-    const [toolCall] = first.toolCalls;
-    this.history.push({
-      role: 'assistant',
-      content: first.text,
-      toolCalls: [toolCall],
-    });
-
-    const toolResult = await this.toolRegistry.execute(toolCall);
-    this.history.push({
-      role: 'tool',
-      toolCallId: toolCall.id,
-      toolName: toolCall.name,
-      content: serializeToolResult(toolResult),
-      isError: !toolResult.ok,
-    });
-
-    const second = await this.requestTurn(
-      provider,
-      this.history,
-      [],
-      onThinkingDelta,
-      onTextDelta,
-      onError,
-    );
-
-    if (second.toolCalls.length > 0) {
-      const finalText = second.text
-        ? `${second.text}\n\n${SECOND_TOOL_LIMIT_MESSAGE}`
-        : SECOND_TOOL_LIMIT_MESSAGE;
-      this.appendAssistant(finalText);
-      onError(SECOND_TOOL_LIMIT_MESSAGE);
-      return `${first.text}${second.text}`;
-    }
-
-    this.appendAssistant(second.text);
-    return `${first.text}${second.text}`;
+  getLatestPlan(): Readonly<SavedPlan> | undefined {
+    return this.latestPlan ? { ...this.latestPlan } : undefined;
   }
 
   clear(): void {
     this.history = [];
+    this.latestPlan = undefined;
   }
 
   get turnCount(): number {
     return this.history.filter(message => message.role === 'user').length;
   }
 
-  private async requestTurn(
+  private start(
+    userMessage: string,
     provider: LLMProvider,
-    messages: Message[],
-    tools: ToolDefinition[],
-    onThinkingDelta: (token: string) => void,
-    onTextDelta: (token: string) => void,
-    onError: (err: string) => void,
-  ): Promise<TurnResult> {
-    let text = '';
-    const toolCalls: ToolCall[] = [];
-
-    await provider.chat(messages, tools, (event: StreamEvent) => {
-      switch (event.type) {
-        case 'text_delta':
-          text += event.content;
-          onTextDelta(event.content);
-          break;
-        case 'thinking_delta':
-          onThinkingDelta(event.content);
-          break;
-        case 'tool_call':
-          toolCalls.push(event.call);
-          break;
-        case 'error':
-          onError(event.content);
-          break;
-        case 'done':
-          break;
+    mode: 'act' | 'plan',
+    signal = new AbortController().signal,
+    planTask?: string,
+  ): AsyncIterable<AgentEvent> {
+    return createEventStream(async emit => {
+      if (this.active) {
+        emit({ type: 'error', iteration: 0, message: '已有 Agent 任务正在运行' });
+        emit({
+          type: 'stopped',
+          reason: 'stream_error',
+          iterations: 0,
+          finalText: '',
+        });
+        return;
       }
+
+      this.active = true;
+      let terminalEvent: Extract<AgentEvent, { type: 'stopped' }> | undefined;
+      try {
+        const outcome = await this.loop.execute({
+          history: this.history,
+          userMessage,
+          mode,
+          provider,
+          signal,
+        }, event => {
+          if (event.type === 'stopped') terminalEvent = event;
+          else emit(event);
+        });
+
+        this.history = [...outcome.history];
+        if (mode === 'plan' && planTask !== undefined &&
+            outcome.reason === 'completed' && outcome.finalText.trim()) {
+          this.latestPlan = { task: planTask, content: outcome.finalText };
+        }
+      } catch (error) {
+        emit({
+          type: 'error',
+          iteration: 0,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        terminalEvent = {
+          type: 'stopped',
+          reason: 'stream_error',
+          iterations: 0,
+          finalText: '',
+        };
+      } finally {
+        this.active = false;
+      }
+
+      if (terminalEvent) emit(terminalEvent);
     });
-
-    return { text, toolCalls };
-  }
-
-  private appendAssistant(content: string): void {
-    if (content) this.history.push({ role: 'assistant', content });
   }
 }

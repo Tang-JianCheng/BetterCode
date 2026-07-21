@@ -3,6 +3,7 @@ import type {
   LLMProvider,
   Message,
   StreamEvent,
+  TokenUsage,
   ToolCall,
   ToolDefinition,
 } from './types.js';
@@ -24,6 +25,11 @@ interface OpenAIChunk {
     };
     finish_reason?: string | null;
   }>;
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+  } | null;
 }
 
 type FetchLike = typeof fetch;
@@ -98,10 +104,9 @@ export class OpenAIProvider implements LLMProvider {
       model: this.model,
       messages: messages.map(mapMessage),
       stream: true,
+      stream_options: { include_usage: true },
     };
-    if (tools.length > 0) {
-      body.tools = tools.map(mapToolDefinition);
-    }
+    if (tools.length > 0) body.tools = tools.map(mapToolDefinition);
 
     let response: Response;
     try {
@@ -114,12 +119,9 @@ export class OpenAIProvider implements LLMProvider {
         body: JSON.stringify(body),
         signal,
       });
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') {
-        onEvent({ type: 'done', content: '' });
-        return;
-      }
-      onEvent({ type: 'error', content: `网络请求失败: ${(err as Error).message}` });
+    } catch (error) {
+      if ((error as Error).name === 'AbortError' || signal?.aborted) return;
+      onEvent({ type: 'error', content: `网络请求失败: ${(error as Error).message}` });
       return;
     }
 
@@ -146,41 +148,36 @@ export class OpenAIProvider implements LLMProvider {
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let sawDone = false;
+    let usage: TokenUsage | undefined;
     const calls = new Map<number, { id: string; name: string; arguments: string }>();
-    let hadError = false;
-
-    const emitToolCalls = () => {
-      for (const [index, call] of calls) {
-        try {
-          const parsed: unknown = JSON.parse(call.arguments || '{}');
-          if (!isJsonObject(parsed)) throw new Error('工具参数必须是 JSON 对象');
-          const toolCall: ToolCall = {
-            id: call.id || `call-${index}`,
-            name: call.name,
-            arguments: parsed,
-          };
-          onEvent({ type: 'tool_call', call: toolCall });
-        } catch (error) {
-          hadError = true;
-          onEvent({
-            type: 'error',
-            content: `工具调用参数解析失败: ${(error as Error).message}`,
-          });
-        }
-      }
-    };
 
     const handleLine = (line: string) => {
       const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith('data:')) return;
+      if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) return;
       const data = trimmed.slice(5).trim();
-      if (!data || data === '[DONE]') return;
+      if (!data) return;
+      if (data === '[DONE]') {
+        sawDone = true;
+        return;
+      }
+      if (sawDone) return;
 
       let parsed: OpenAIChunk;
       try {
         parsed = JSON.parse(data) as OpenAIChunk;
       } catch {
-        return;
+        throw new Error('OpenAI SSE JSON 解析失败');
+      }
+
+      if (parsed.usage) {
+        const inputTokens = parsed.usage.prompt_tokens ?? 0;
+        const outputTokens = parsed.usage.completion_tokens ?? 0;
+        usage = {
+          inputTokens,
+          outputTokens,
+          totalTokens: parsed.usage.total_tokens ?? inputTokens + outputTokens,
+        };
       }
 
       const choice = parsed.choices?.[0];
@@ -189,11 +186,7 @@ export class OpenAIProvider implements LLMProvider {
       if (content) onEvent({ type: 'text_delta', content });
 
       for (const delta of choice.delta?.tool_calls ?? []) {
-        const current = calls.get(delta.index) ?? {
-          id: '',
-          name: '',
-          arguments: '',
-        };
+        const current = calls.get(delta.index) ?? { id: '', name: '', arguments: '' };
         if (delta.id) current.id = delta.id;
         if (delta.function?.name) current.name += delta.function.name;
         if (delta.function?.arguments) current.arguments += delta.function.arguments;
@@ -212,14 +205,31 @@ export class OpenAIProvider implements LLMProvider {
       }
       buffer += decoder.decode();
       if (buffer) handleLine(buffer);
-      emitToolCalls();
+      if (!sawDone) throw new Error('OpenAI 响应流提前结束');
+
+      const completedCalls: ToolCall[] = [...calls.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([index, call]) => {
+          const parsed: unknown = JSON.parse(call.arguments || '{}');
+          if (!isJsonObject(parsed)) throw new Error('工具参数必须是 JSON 对象');
+          return {
+            id: call.id || `call-${index}`,
+            name: call.name,
+            arguments: parsed,
+          };
+        });
+      for (const call of completedCalls) onEvent({ type: 'tool_call', call });
+      if (usage) onEvent({ type: 'usage', usage });
       onEvent({ type: 'done', content: '' });
-    } catch (err) {
-      hadError = true;
-      onEvent({ type: 'error', content: `流式读取中断: ${(err as Error).message}` });
+    } catch (error) {
+      if (!signal?.aborted) {
+        onEvent({
+          type: 'error',
+          content: `流式读取失败: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
     } finally {
       reader.releaseLock();
-      void hadError;
     }
   }
 }

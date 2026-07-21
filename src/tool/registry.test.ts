@@ -10,10 +10,14 @@ function makeRoot(): string {
   return mkdtempSync(path.join(tmpdir(), 'mew-registry-'));
 }
 
-function makeTool(name: string, execute: Tool['execute']): Tool {
+function makeTool(
+  name: string,
+  execute: Tool['execute'],
+  effect: Tool['effect'] = 'read_only',
+): Tool {
   return {
     name,
-    effect: 'read_only',
+    effect,
     description: `${name} tool`,
     inputSchema: {
       type: 'object',
@@ -52,6 +56,20 @@ test('registry registers, validates and executes tools', async t => {
   assert.throws(() => registry.register(makeTool('one', async () => createToolSuccess('x'))));
 });
 
+test('registry filters definitions by effect without exposing local metadata', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  registry.register(makeTool('read', async () => createToolSuccess('read')));
+  registry.register(makeTool('write', async () => createToolSuccess('write'), 'side_effect'));
+
+  assert.equal(registry.effectOf('missing'), undefined);
+  assert.equal(registry.effectOf('write'), 'side_effect');
+  assert.deepEqual(registry.definitions('read_only').map(item => item.name), ['read']);
+  assert.deepEqual(registry.definitions('side_effect').map(item => item.name), ['write']);
+  assert.equal('effect' in registry.definitions()[0], false);
+});
+
 test('registry converts exceptions and timeouts to structured results', async t => {
   const root = makeRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -71,4 +89,23 @@ test('registry converts exceptions and timeouts to structured results', async t 
   const timeout = await registry.execute({ id: '2', name: 'waits', arguments: { value: 'x' } });
   assert.equal(timeout.ok, false);
   assert.equal(timeout.error?.code, 'TIMEOUT');
+});
+
+test('registry distinguishes external cancellation from its timeout', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root, { timeoutMs: 1000 });
+  registry.register(makeTool('waits', async (_input, context) => new Promise(resolve => {
+    context.signal.addEventListener('abort', () => resolve(createToolSuccess('late')), { once: true });
+  })));
+  const controller = new AbortController();
+  const pending = registry.execute(
+    { id: '1', name: 'waits', arguments: { value: 'x' } },
+    controller.signal,
+  );
+  controller.abort();
+  const result = await pending;
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error?.code, 'CANCELLED');
 });

@@ -46,6 +46,7 @@ async function main() {
     // 6. 启动 TUI
     const { waitUntilExit } = render(
       React.createElement(App, { provider, chatManager }),
+      { exitOnCtrlC: false },
     );
 
     await waitUntilExit();

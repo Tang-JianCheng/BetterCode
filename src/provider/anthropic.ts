@@ -3,6 +3,7 @@ import type {
   LLMProvider,
   Message,
   StreamEvent,
+  TokenUsage,
   ToolCall,
   ToolDefinition,
 } from './types.js';
@@ -20,6 +21,16 @@ interface AnthropicEvent {
     type?: string;
     id?: string;
     name?: string;
+  };
+  message?: {
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+    };
+  };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
   };
   error?: {
     type?: string;
@@ -117,9 +128,7 @@ export class AnthropicProvider implements LLMProvider {
       max_tokens: 4096,
     };
     if (tools.length > 0) body.tools = tools.map(mapToolDefinition);
-    if (this.thinking) {
-      body.thinking = { type: 'enabled', budget_tokens: 4000 };
-    }
+    if (this.thinking) body.thinking = { type: 'enabled', budget_tokens: 4000 };
 
     let response: Response;
     try {
@@ -133,12 +142,9 @@ export class AnthropicProvider implements LLMProvider {
         body: JSON.stringify(body),
         signal,
       });
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') {
-        onEvent({ type: 'done', content: '' });
-        return;
-      }
-      onEvent({ type: 'error', content: `网络请求失败: ${(err as Error).message}` });
+    } catch (error) {
+      if ((error as Error).name === 'AbortError' || signal?.aborted) return;
+      onEvent({ type: 'error', content: `网络请求失败: ${(error as Error).message}` });
       return;
     }
 
@@ -166,48 +172,43 @@ export class AnthropicProvider implements LLMProvider {
     const decoder = new TextDecoder();
     let buffer = '';
     let sawMessageStop = false;
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
     const toolBlocks = new Map<number, { id: string; name: string; partialJson: string }>();
+    const completedCalls = new Map<number, ToolCall>();
 
-    const emitToolCall = (index: number) => {
+    const completeToolCall = (index: number) => {
       const block = toolBlocks.get(index);
       if (!block) return;
       toolBlocks.delete(index);
-      try {
-        const parsed: unknown = JSON.parse(block.partialJson || '{}');
-        if (!isJsonObject(parsed)) throw new Error('工具参数必须是 JSON 对象');
-        const call: ToolCall = {
-          id: block.id || `tool-${index}`,
-          name: block.name,
-          arguments: parsed,
-        };
-        onEvent({ type: 'tool_call', call });
-      } catch (error) {
-        onEvent({
-          type: 'error',
-          content: `工具调用参数解析失败: ${(error as Error).message}`,
-        });
-      }
-    };
-
-    const emitPendingToolCalls = () => {
-      for (const index of [...toolBlocks.keys()]) emitToolCall(index);
+      const parsed: unknown = JSON.parse(block.partialJson || '{}');
+      if (!isJsonObject(parsed)) throw new Error('工具参数必须是 JSON 对象');
+      completedCalls.set(index, {
+        id: block.id || `tool-${index}`,
+        name: block.name,
+        arguments: parsed,
+      });
     };
 
     const handleLine = (line: string) => {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith(':') || !trimmed.startsWith('data:')) return;
       const data = trimmed.slice(5).trim();
-      if (!data) return;
+      if (!data || sawMessageStop) return;
 
       let event: AnthropicEvent;
       try {
         event = JSON.parse(data) as AnthropicEvent;
       } catch {
-        return;
+        throw new Error('Anthropic SSE JSON 解析失败');
       }
 
       switch (event.type) {
-        case 'content_block_start': {
+        case 'message_start':
+          inputTokens = event.message?.usage?.input_tokens ?? inputTokens;
+          outputTokens = event.message?.usage?.output_tokens ?? outputTokens;
+          break;
+        case 'content_block_start':
           if (event.index !== undefined && event.content_block?.type === 'tool_use') {
             toolBlocks.set(event.index, {
               id: event.content_block.id ?? '',
@@ -216,7 +217,6 @@ export class AnthropicProvider implements LLMProvider {
             });
           }
           break;
-        }
         case 'content_block_delta': {
           const delta = event.delta;
           if (!delta) break;
@@ -231,16 +231,18 @@ export class AnthropicProvider implements LLMProvider {
           break;
         }
         case 'content_block_stop':
-          if (event.index !== undefined) emitToolCall(event.index);
+          if (event.index !== undefined) completeToolCall(event.index);
+          break;
+        case 'message_delta':
+          inputTokens = event.usage?.input_tokens ?? inputTokens;
+          outputTokens = event.usage?.output_tokens ?? outputTokens;
           break;
         case 'message_stop':
+          if (toolBlocks.size > 0) throw new Error('Anthropic 工具调用未完整结束');
           sawMessageStop = true;
-          emitPendingToolCalls();
-          onEvent({ type: 'done', content: '' });
           break;
         case 'error':
-          onEvent({ type: 'error', content: event.error?.message ?? '未知 API 错误' });
-          break;
+          throw new Error(event.error?.message ?? '未知 API 错误');
       }
     };
 
@@ -255,12 +257,27 @@ export class AnthropicProvider implements LLMProvider {
       }
       buffer += decoder.decode();
       if (buffer) handleLine(buffer);
-      if (!sawMessageStop) {
-        emitPendingToolCalls();
-        onEvent({ type: 'done', content: '' });
+      if (!sawMessageStop) throw new Error('Anthropic 响应流提前结束');
+
+      for (const [, call] of [...completedCalls.entries()].sort(([left], [right]) => left - right)) {
+        onEvent({ type: 'tool_call', call });
       }
-    } catch (err) {
-      onEvent({ type: 'error', content: `流式读取中断: ${(err as Error).message}` });
+      if (inputTokens !== undefined || outputTokens !== undefined) {
+        const usage: TokenUsage = {
+          inputTokens: inputTokens ?? 0,
+          outputTokens: outputTokens ?? 0,
+          totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
+        };
+        onEvent({ type: 'usage', usage });
+      }
+      onEvent({ type: 'done', content: '' });
+    } catch (error) {
+      if (!signal?.aborted) {
+        onEvent({
+          type: 'error',
+          content: `流式读取失败: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
     } finally {
       reader.releaseLock();
     }

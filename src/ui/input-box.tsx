@@ -19,6 +19,7 @@ export function InputBox({ onSubmit, disabled }: Props) {
   useInput(
     (inputChar, key) => {
       if (disabled) return;
+      if (key.ctrl) return;
 
       if (key.return) {
         const trimmed = input.trim();
@@ -28,7 +29,7 @@ export function InputBox({ onSubmit, disabled }: Props) {
         }
       } else if (key.backspace || key.delete) {
         setInput(prev => prev.slice(0, -1));
-      } else if (inputChar) {
+      } else if (inputChar && !/[\u0000-\u001f\u007f]/.test(inputChar)) {
         // 过滤控制字符（方向键等不会产生 inputChar）
         setInput(prev => prev + inputChar);
       }
