@@ -82,7 +82,11 @@ test('agent loop replays tool results and continues without another user message
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(path.join(root, 'note.txt'), 'hello');
   const provider = new FakeProvider([
-    [toolCall('read-1', 'read_file', { path: 'note.txt' }), done()],
+    [
+      toolCall('read-1', 'read_file', { path: 'note.txt' }),
+      { type: 'usage', usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 } },
+      done(),
+    ],
     [
       { type: 'text_delta', content: 'The file says hello.' },
       { type: 'usage', usage: { inputTokens: 7, outputTokens: 3, totalTokens: 10 } },
@@ -99,6 +103,28 @@ test('agent loop replays tool results and continues without another user message
   assert.equal(outcome.finalText, 'The file says hello.');
   const result = events.find(event => event.type === 'tool_result');
   assert.ok(result && result.type === 'tool_result' && result.call.id === 'read-1');
+  const usageEvents = events.filter(event => event.type === 'usage');
+  assert.equal(usageEvents.length, 2);
+  assert.deepEqual(usageEvents.at(-1)?.type === 'usage'
+    ? usageEvents.at(-1)?.cumulative
+    : undefined, { inputTokens: 10, outputTokens: 5, totalTokens: 15 });
+});
+
+test('agent loop lets the model recover from a structured tool failure', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'present.txt'), 'value');
+  const provider = new FakeProvider([
+    [toolCall('missing', 'read_file', { path: 'missing.txt' }), done()],
+    [toolCall('corrected', 'read_file', { path: 'present.txt' }), done()],
+    [{ type: 'text_delta', content: 'Recovered with value.' }, done()],
+  ]);
+  const { outcome } = await run(root, provider);
+  const toolMessages = outcome.history.filter(message => message.role === 'tool');
+
+  assert.equal(outcome.reason, 'completed');
+  assert.match(toolMessages[0].content, /FILE_NOT_FOUND/);
+  assert.match(toolMessages[1].content, /value/);
 });
 
 test('agent loop completes a read, edit, verify workflow from one user request', async t => {
@@ -167,6 +193,49 @@ test('agent loop stops on a stream error without appending the incomplete turn',
   assert.deepEqual(outcome.history.map(message => message.role), ['user']);
   assert.equal(outcome.finalText, '');
   assert.equal(events.some(event => event.type === 'error'), true);
+});
+
+test('agent loop preserves completed rounds when a later model stream fails', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'note.txt'), 'hello');
+  const provider = new FakeProvider([
+    [toolCall('read-1', 'read_file', { path: 'note.txt' }), done()],
+    [{ type: 'text_delta', content: 'partial' }, { type: 'error', content: 'broken' }],
+  ]);
+  const { outcome } = await run(root, provider);
+
+  assert.equal(outcome.reason, 'stream_error');
+  assert.deepEqual(outcome.history.map(message => message.role), ['user', 'assistant', 'tool']);
+});
+
+test('plan mode blocks all side-effect tools even when the model guesses their names', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'source.txt'), 'old');
+  const provider = new FakeProvider([[
+    toolCall('write', 'write_file', { path: 'new.txt', content: 'new' }),
+    toolCall('edit', 'edit_file', { path: 'source.txt', old_text: 'old', new_text: 'changed' }),
+    toolCall('command', 'run_command', { command: 'touch command.txt' }),
+    done(),
+  ]]);
+  const events: AgentEvent[] = [];
+  const outcome = await new AgentLoop(createCoreToolRegistry(root)).execute({
+    history: [],
+    userMessage: 'make a plan',
+    mode: 'plan',
+    provider,
+    signal: new AbortController().signal,
+  }, event => events.push(event));
+
+  assert.equal(outcome.reason, 'unknown_tool_limit');
+  assert.equal(readFileSync(path.join(root, 'source.txt'), 'utf8'), 'old');
+  assert.equal(provider.calls[0].tools.length, 3);
+  assert.deepEqual(
+    events.filter(event => event.type === 'tool_result')
+      .map(event => event.type === 'tool_result' ? event.result.error?.code : ''),
+    ['TOOL_UNAVAILABLE', 'TOOL_UNAVAILABLE', 'TOOL_UNAVAILABLE'],
+  );
 });
 
 test('agent loop cancellation during a model stream does not append the partial turn', async t => {

@@ -70,16 +70,22 @@ test('ChatManager streams a multi-round tool task and commits complete history',
 test('ChatManager saves only successful non-empty plans and exposes read-only tools', async t => {
   const root = makeRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const successful = new FakeProvider([[
-    { type: 'text_delta', content: '1. Inspect\n2. Edit' },
-    done(),
-  ]]);
+  writeFileSync(path.join(root, 'parser.ts'), 'export {};');
+  const successful = new FakeProvider([
+    [{
+      type: 'tool_call',
+      call: { id: 'read-1', name: 'read_file', arguments: { path: 'parser.ts' } },
+    }, done()],
+    [{ type: 'text_delta', content: '1. Inspect\n2. Edit' }, done()],
+  ]);
   const manager = new ChatManager(createCoreToolRegistry(root));
   await collect(manager.run('fix parser', successful, { mode: 'plan' }));
 
-  assert.deepEqual(successful.calls[0].tools.map(tool => tool.name), [
-    'read_file', 'find_files', 'search_code',
-  ]);
+  for (const call of successful.calls) {
+    assert.deepEqual(call.tools.map(tool => tool.name), [
+      'read_file', 'find_files', 'search_code',
+    ]);
+  }
   assert.deepEqual(manager.getLatestPlan(), {
     task: 'fix parser',
     content: '1. Inspect\n2. Edit',
@@ -155,6 +161,26 @@ test('ChatManager keeps the previous successful plan after a max-iteration plan'
     },
     done(),
   ]]), { mode: 'plan' }));
+
+  await collect(manager.run('empty task', new FakeProvider([[done()]]), { mode: 'plan' }));
+
+  const controller = new AbortController();
+  const blockingProvider: LLMProvider = {
+    name: 'blocking',
+    model: 'blocking-model',
+    async chat(_messages, _tools, _emit, signal) {
+      await new Promise<void>(resolve => {
+        signal?.addEventListener('abort', () => resolve(), { once: true });
+      });
+    },
+  };
+  const cancelled = collect(manager.run('cancelled task', blockingProvider, {
+    mode: 'plan',
+    signal: controller.signal,
+  }));
+  await new Promise(resolve => setTimeout(resolve, 5));
+  controller.abort();
+  await cancelled;
 
   assert.equal(manager.getLatestPlan()?.task, 'good task');
 });

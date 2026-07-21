@@ -31,6 +31,7 @@ test('Anthropic provider maps tools and aggregates input_json_delta', async () =
     request = JSON.parse(String(init?.body)) as Record<string, unknown>;
     return responseFor([
       'data: {"type":"message_start","message":{"usage":{"input_tokens":8,"output_tokens":0}}}\n\n',
+      'data: {"type":"content_block_delta","index":2,"delta":{"type":"thinking_delta","thinking":"checking"}}\n\n',
       'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-1","name":"read_file"}}\n\n',
       'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"path\\":\\"a"}}\n\n',
       'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":".txt\\"}"}}\n\n',
@@ -50,6 +51,7 @@ test('Anthropic provider maps tools and aggregates input_json_delta', async () =
   const bodyTools = request?.tools as Array<{ name: string; input_schema: unknown }>;
   assert.equal(bodyTools[0].name, 'read_file');
   assert.deepEqual(request?.thinking, { type: 'enabled', budget_tokens: 4000 });
+  assert.equal(events.some(event => event.type === 'thinking_delta' && event.content === 'checking'), true);
   const call = events.find(event => event.type === 'tool_call');
   assert.ok(call && call.type === 'tool_call');
   assert.equal(call.call.id, 'tool-1');
@@ -73,18 +75,24 @@ test('Anthropic provider maps tool result messages', async () => {
     {
       role: 'assistant',
       content: '',
-      toolCalls: [{ id: 'tool-1', name: 'read_file', arguments: { path: 'a.txt' } }],
+      toolCalls: [
+        { id: 'tool-1', name: 'read_file', arguments: { path: 'a.txt' } },
+        { id: 'tool-2', name: 'find_files', arguments: { pattern: '*.ts' } },
+      ],
     },
     { role: 'tool', toolCallId: 'tool-1', toolName: 'read_file', content: '{"ok":true}', isError: false },
+    { role: 'tool', toolCallId: 'tool-2', toolName: 'find_files', content: '{"ok":true}', isError: false },
   ];
   await provider.chat(messages, [], () => undefined);
   const mapped = request?.messages as Array<Record<string, unknown>>;
-  assert.deepEqual(mapped[1].content, [{
-    type: 'tool_use', id: 'tool-1', name: 'read_file', input: { path: 'a.txt' },
-  }]);
-  assert.deepEqual(mapped[2].content, [{
-    type: 'tool_result', tool_use_id: 'tool-1', content: '{"ok":true}',
-  }]);
+  assert.deepEqual(mapped[1].content, [
+    { type: 'tool_use', id: 'tool-1', name: 'read_file', input: { path: 'a.txt' } },
+    { type: 'tool_use', id: 'tool-2', name: 'find_files', input: { pattern: '*.ts' } },
+  ]);
+  assert.deepEqual(mapped[2].content, [
+    { type: 'tool_result', tool_use_id: 'tool-1', content: '{"ok":true}' },
+    { type: 'tool_result', tool_use_id: 'tool-2', content: '{"ok":true}' },
+  ]);
 });
 
 test('Anthropic provider preserves multiple tool calls in model order', async () => {

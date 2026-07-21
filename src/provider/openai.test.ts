@@ -74,18 +74,30 @@ test('OpenAI provider maps assistant tool calls and tool results', async () => {
     {
       role: 'assistant',
       content: '',
-      toolCalls: [{ id: 'call-1', name: 'read_file', arguments: { path: 'a.txt' } }],
+      toolCalls: [
+        { id: 'call-1', name: 'read_file', arguments: { path: 'a.txt' } },
+        { id: 'call-2', name: 'find_files', arguments: { pattern: '*.ts' } },
+      ],
     },
     { role: 'tool', toolCallId: 'call-1', toolName: 'read_file', content: '{"ok":true}', isError: false },
+    { role: 'tool', toolCallId: 'call-2', toolName: 'find_files', content: '{"ok":true}', isError: false },
   ];
   await provider.chat(messages, [], () => undefined);
   const mapped = request?.messages as Array<Record<string, unknown>>;
-  assert.deepEqual(mapped[1].tool_calls, [{
-    id: 'call-1',
-    type: 'function',
-    function: { name: 'read_file', arguments: '{"path":"a.txt"}' },
-  }]);
+  assert.deepEqual(mapped[1].tool_calls, [
+    {
+      id: 'call-1',
+      type: 'function',
+      function: { name: 'read_file', arguments: '{"path":"a.txt"}' },
+    },
+    {
+      id: 'call-2',
+      type: 'function',
+      function: { name: 'find_files', arguments: '{"pattern":"*.ts"}' },
+    },
+  ]);
   assert.deepEqual(mapped[2], { role: 'tool', tool_call_id: 'call-1', content: '{"ok":true}' });
+  assert.deepEqual(mapped[3], { role: 'tool', tool_call_id: 'call-2', content: '{"ok":true}' });
   assert.equal('tools' in (request ?? {}), false);
 });
 
@@ -117,6 +129,15 @@ test('OpenAI provider rejects malformed and incomplete streams without done', as
   await incomplete.chat([], [], event => incompleteEvents.push(event));
   assert.equal(incompleteEvents.at(-1)?.type, 'error');
   assert.equal(incompleteEvents.some(event => event.type === 'done'), false);
+
+  const invalidArguments = new OpenAIProvider(config(), async () => responseFor([
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"bad","function":{"name":"read_file","arguments":"{"}}]}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]));
+  const invalidEvents: StreamEvent[] = [];
+  await invalidArguments.chat([], [], event => invalidEvents.push(event));
+  assert.equal(invalidEvents.at(-1)?.type, 'error');
+  assert.equal(invalidEvents.some(event => event.type === 'tool_call'), false);
 });
 
 test('OpenAI provider treats abort as cancellation rather than a stream error', async () => {
