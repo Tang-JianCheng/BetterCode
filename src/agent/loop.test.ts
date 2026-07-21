@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -101,6 +101,27 @@ test('agent loop replays tool results and continues without another user message
   assert.ok(result && result.type === 'tool_result' && result.call.id === 'read-1');
 });
 
+test('agent loop completes a read, edit, verify workflow from one user request', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'note.txt'), 'hello');
+  const provider = new FakeProvider([
+    [toolCall('read-1', 'read_file', { path: 'note.txt' }), done()],
+    [toolCall('edit-1', 'edit_file', {
+      path: 'note.txt', old_text: 'hello', new_text: 'world',
+    }), done()],
+    [toolCall('read-2', 'read_file', { path: 'note.txt' }), done()],
+    [{ type: 'text_delta', content: 'Updated and verified.' }, done()],
+  ]);
+  const { outcome } = await run(root, provider);
+
+  assert.equal(outcome.reason, 'completed');
+  assert.equal(provider.calls.length, 4);
+  assert.equal(readFileSync(path.join(root, 'note.txt'), 'utf8'), 'world');
+  assert.equal(outcome.history.filter(message => message.role === 'tool').length, 3);
+  assert.equal(outcome.finalText, 'Updated and verified.');
+});
+
 test('agent loop executes the final tool batch and stops at the iteration limit', async t => {
   const root = makeRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -168,6 +189,7 @@ test('agent loop cancellation during a model stream does not append the partial 
   const { events, outcome } = await pending;
 
   assert.equal(outcome.reason, 'cancelled');
+  assert.equal(outcome.iterations, 1);
   assert.deepEqual(outcome.history.map(message => message.role), ['user']);
   assert.equal(events.filter(event => event.type === 'stopped').length, 1);
 });
@@ -207,6 +229,7 @@ test('agent loop cancellation during tools preserves a complete cancelled tool r
   const outcome = await pending;
 
   assert.equal(outcome.reason, 'cancelled');
+  assert.equal(outcome.iterations, 1);
   assert.deepEqual(outcome.history.map(message => message.role), ['user', 'assistant', 'tool']);
   const toolMessage = outcome.history.at(-1);
   assert.equal(toolMessage?.role, 'tool');

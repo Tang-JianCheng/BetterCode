@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -112,6 +112,51 @@ test('ChatManager executes the latest plan with all tools in the same conversati
   assert.match(latestUser?.content ?? '', /second task/);
   assert.match(latestUser?.content ?? '', /second plan/);
   assert.equal(executor.calls[0].messages.length > 4, true);
+});
+
+test('ChatManager plan then do can execute tools without repeating the task', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manager = new ChatManager(createCoreToolRegistry(root));
+  await collect(manager.run('create result.txt', new FakeProvider([[
+    { type: 'text_delta', content: 'Write result.txt with complete.' }, done(),
+  ]]), { mode: 'plan' }));
+
+  const executor = new FakeProvider([
+    [{
+      type: 'tool_call',
+      call: {
+        id: 'write-1',
+        name: 'write_file',
+        arguments: { path: 'result.txt', content: 'complete' },
+      },
+    }, done()],
+    [{ type: 'text_delta', content: 'Execution complete.' }, done()],
+  ]);
+  await collect(manager.executeLatestPlan(executor));
+
+  assert.equal(existsSync(path.join(root, 'result.txt')), true);
+  assert.equal(readFileSync(path.join(root, 'result.txt'), 'utf8'), 'complete');
+  assert.equal(executor.calls.length, 2);
+});
+
+test('ChatManager keeps the previous successful plan after a max-iteration plan', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'file.txt'), 'value');
+  const manager = new ChatManager(createCoreToolRegistry(root), { maxIterations: 1 });
+  await collect(manager.run('good task', new FakeProvider([[
+    { type: 'text_delta', content: 'good plan' }, done(),
+  ]]), { mode: 'plan' }));
+  await collect(manager.run('unfinished task', new FakeProvider([[
+    {
+      type: 'tool_call',
+      call: { id: 'read-1', name: 'read_file', arguments: { path: 'file.txt' } },
+    },
+    done(),
+  ]]), { mode: 'plan' }));
+
+  assert.equal(manager.getLatestPlan()?.task, 'good task');
 });
 
 test('ChatManager rejects do without a plan and clear removes history and plan', async t => {

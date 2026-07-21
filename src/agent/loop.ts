@@ -47,6 +47,7 @@ export class AgentLoop {
     let finalText = '';
     let unknownToolStreak = 0;
     let completedIterations = 0;
+    let startedIterations = 0;
 
     const finish = (reason: AgentStopReason, iterations: number): AgentOutcome => {
       emit({ type: 'stopped', reason, iterations, finalText });
@@ -62,6 +63,7 @@ export class AgentLoop {
     try {
       for (let iteration = 1; iteration <= this.options.maxIterations; iteration += 1) {
         if (request.signal.aborted) return finish('cancelled', completedIterations);
+        startedIterations = iteration;
 
         emit({
           type: 'progress',
@@ -81,14 +83,14 @@ export class AgentLoop {
           emit,
         );
 
-        if (turn.status === 'cancelled') return finish('cancelled', completedIterations);
+        if (turn.status === 'cancelled') return finish('cancelled', startedIterations);
         if (turn.status === 'stream_error') {
           emit({
             type: 'error',
             iteration,
             message: turn.error ?? '模型响应流错误',
           });
-          return finish('stream_error', completedIterations);
+          return finish('stream_error', startedIterations);
         }
 
         completedIterations = iteration;
@@ -162,10 +164,10 @@ export class AgentLoop {
     } catch (error) {
       emit({
         type: 'error',
-        iteration: completedIterations + 1,
+        iteration: Math.max(1, startedIterations),
         message: error instanceof Error ? error.message : String(error),
       });
-      return finish('stream_error', completedIterations);
+      return finish('stream_error', startedIterations);
     }
 
     return finish('max_iterations', completedIterations);
