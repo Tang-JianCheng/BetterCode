@@ -13,6 +13,7 @@ function makeRoot(): string {
 function makeTool(name: string, execute: Tool['execute']): Tool {
   return {
     name,
+    effect: 'read_only',
     description: `${name} tool`,
     inputSchema: {
       type: 'object',

@@ -10,6 +10,7 @@ import {
   type ToolCall,
   type ToolDefinition,
   type ToolResult,
+  type ToolEffect,
   type ToolRuntimeOptions,
 } from './types.js';
 import { PathGuard } from './path-guard.js';
@@ -44,15 +45,21 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
-  definitions(): ToolDefinition[] {
-    return [...this.tools.values()].map(tool => ({
+  definitions(effect?: ToolEffect): ToolDefinition[] {
+    return [...this.tools.values()]
+      .filter(tool => effect === undefined || tool.effect === effect)
+      .map(tool => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.inputSchema,
-    }));
+      }));
   }
 
-  async execute(call: ToolCall): Promise<ToolResult> {
+  effectOf(name: string): ToolEffect | undefined {
+    return this.tools.get(name)?.effect;
+  }
+
+  async execute(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
     const tool = this.tools.get(call.name);
     if (!tool) {
       return createToolError('TOOL_NOT_FOUND', `未找到工具: ${call.name}`);
@@ -66,24 +73,44 @@ export class ToolRegistry {
       );
     }
 
-    const controller = new AbortController();
+    if (signal?.aborted) {
+      return createToolError('CANCELLED', '工具执行已由用户取消');
+    }
+
+    const timeoutController = new AbortController();
+    const executionSignal = signal
+      ? AbortSignal.any([timeoutController.signal, signal])
+      : timeoutController.signal;
     let timedOut = false;
     let timeoutResultTimer: NodeJS.Timeout | undefined;
     const timeoutResult = new Promise<ToolResult>(resolve => {
       timeoutResultTimer = setTimeout(() => {
         timedOut = true;
-        controller.abort();
+        timeoutController.abort();
         resolve(createToolError('TIMEOUT', `工具执行超过 ${this.options.timeoutMs}ms`));
       }, this.options.timeoutMs);
+    });
+
+    let onCancel: (() => void) | undefined;
+    const cancellationResult = new Promise<ToolResult>(resolve => {
+      if (!signal) return;
+      onCancel = () => resolve(createToolError('CANCELLED', '工具执行已由用户取消'));
+      signal.addEventListener('abort', onCancel, { once: true });
     });
 
     const execution = Promise.resolve()
       .then(() => tool.execute(call.arguments, {
         rootDir: this.rootDir,
-        signal: controller.signal,
+        signal: executionSignal,
         maxOutputBytes: this.options.maxOutputBytes,
       }))
       .catch(error => {
+        if (signal?.aborted && !timedOut) {
+          return createToolError('CANCELLED', '工具执行已由用户取消');
+        }
+        if (timedOut) {
+          return createToolError('TIMEOUT', `工具执行超过 ${this.options.timeoutMs}ms`);
+        }
         if (isToolFailure(error)) {
           return createToolError(error.code, error.message, error.metadata, error.output);
         }
@@ -92,7 +119,13 @@ export class ToolRegistry {
       });
 
     try {
-      const result = await Promise.race([execution, timeoutResult]);
+      const result = await Promise.race([execution, timeoutResult, cancellationResult]);
+      if (signal?.aborted && !timedOut) {
+        return limitToolResult(
+          createToolError('CANCELLED', '工具执行已由用户取消'),
+          this.options.maxOutputBytes,
+        );
+      }
       if (timedOut) {
         return limitToolResult(
           createToolError('TIMEOUT', `工具执行超过 ${this.options.timeoutMs}ms`),
@@ -102,6 +135,7 @@ export class ToolRegistry {
       return limitToolResult(result, this.options.maxOutputBytes);
     } finally {
       if (timeoutResultTimer) clearTimeout(timeoutResultTimer);
+      if (signal && onCancel) signal.removeEventListener('abort', onCancel);
     }
   }
 }

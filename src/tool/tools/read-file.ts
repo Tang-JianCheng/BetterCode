@@ -11,6 +11,7 @@ import { PathGuard } from '../path-guard.js';
 
 export class ReadFileTool implements Tool {
   readonly name = 'read_file';
+  readonly effect = 'read_only' as const;
   readonly description = '读取项目根目录内的 UTF-8 文本文件';
   readonly inputSchema = {
     type: 'object',

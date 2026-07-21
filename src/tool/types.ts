@@ -1,5 +1,6 @@
 export type JsonObject = Record<string, unknown>;
 export type JsonSchema = Record<string, unknown>;
+export type ToolEffect = 'read_only' | 'side_effect';
 
 export interface ToolDefinition {
   name: string;
@@ -35,6 +36,7 @@ export interface Tool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: JsonSchema;
+  readonly effect: ToolEffect;
 
   execute(input: JsonObject, context: ToolContext): Promise<ToolResult>;
 }
@@ -47,6 +49,8 @@ export interface ToolRuntimeOptions {
 export type ToolErrorCode =
   | 'INVALID_ARGUMENTS'
   | 'TOOL_NOT_FOUND'
+  | 'TOOL_UNAVAILABLE'
+  | 'CANCELLED'
   | 'PATH_OUTSIDE_ROOT'
   | 'FILE_NOT_FOUND'
   | 'NOT_TEXT_FILE'

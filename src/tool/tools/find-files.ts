@@ -19,6 +19,7 @@ function assertPattern(pattern: string): void {
 
 export class FindFilesTool implements Tool {
   readonly name = 'find_files';
+  readonly effect = 'read_only' as const;
   readonly description = '按 glob 模式查找项目根目录内的文件和目录';
   readonly inputSchema = {
     type: 'object',

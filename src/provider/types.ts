@@ -2,6 +2,12 @@ import type { ToolCall, ToolDefinition } from '../tool/types.js';
 
 export type { ToolCall, ToolDefinition } from '../tool/types.js';
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 /** 一条对话消息，包含模型文本、工具调用和工具结果 */
 export type Message =
   | { role: 'user'; content: string }
@@ -19,6 +25,7 @@ export type StreamEvent =
   | { type: 'text_delta'; content: string }
   | { type: 'thinking_delta'; content: string }
   | { type: 'tool_call'; call: ToolCall }
+  | { type: 'usage'; usage: TokenUsage }
   | { type: 'error'; content: string }
   | { type: 'done'; content: '' };
 

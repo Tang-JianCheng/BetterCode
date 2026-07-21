@@ -20,6 +20,7 @@ function assertGlob(glob: string): void {
 
 export class SearchCodeTool implements Tool {
   readonly name = 'search_code';
+  readonly effect = 'read_only' as const;
   readonly description = '在项目内按文本或正则表达式搜索代码内容';
   readonly inputSchema = {
     type: 'object',
