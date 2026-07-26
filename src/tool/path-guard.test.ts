@@ -7,7 +7,7 @@ import { ToolFailure } from './errors.js';
 import { PathGuard } from './path-guard.js';
 
 function makeRoot(): string {
-  return mkdtempSync(path.join(tmpdir(), 'mew-path-'));
+  return mkdtempSync(path.join(tmpdir(), 'bettercode-path-'));
 }
 
 function assertFailure(action: () => unknown, code: string): void {

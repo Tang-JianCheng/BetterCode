@@ -2,6 +2,7 @@ import type { ProviderConfig } from '../config/types.js';
 import type {
   LLMProvider,
   Message,
+  ProviderRequest,
   StreamEvent,
   TokenUsage,
   ToolCall,
@@ -29,6 +30,10 @@ interface OpenAIChunk {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+    } | null;
+    prompt_cache_hit_tokens?: number;
   } | null;
 }
 
@@ -48,6 +53,7 @@ function mapToolDefinition(tool: ToolDefinition) {
 function mapMessage(message: Message) {
   switch (message.role) {
     case 'user':
+    case 'instruction':
       return { role: 'user', content: message.content || ' ' };
     case 'assistant':
       return {
@@ -75,6 +81,12 @@ function mapMessage(message: Message) {
   }
 }
 
+function tokenCount(value: number | undefined): number {
+  return Number.isFinite(value) && value !== undefined
+    ? Math.max(0, Math.floor(value))
+    : 0;
+}
+
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -95,18 +107,20 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async chat(
-    messages: Message[],
-    tools: ToolDefinition[],
+    request: ProviderRequest,
     onEvent: (event: StreamEvent) => void,
     signal?: AbortSignal,
   ): Promise<void> {
     const body: Record<string, unknown> = {
       model: this.model,
-      messages: messages.map(mapMessage),
+      messages: [
+        { role: 'system', content: request.systemPrompt || ' ' },
+        ...request.messages.map(mapMessage),
+      ],
       stream: true,
       stream_options: { include_usage: true },
     };
-    if (tools.length > 0) body.tools = tools.map(mapToolDefinition);
+    if (request.tools.length > 0) body.tools = request.tools.map(mapToolDefinition);
 
     let response: Response;
     try {
@@ -171,12 +185,18 @@ export class OpenAIProvider implements LLMProvider {
       }
 
       if (parsed.usage) {
-        const inputTokens = parsed.usage.prompt_tokens ?? 0;
-        const outputTokens = parsed.usage.completion_tokens ?? 0;
+        const inputTokens = tokenCount(parsed.usage.prompt_tokens);
+        const outputTokens = tokenCount(parsed.usage.completion_tokens);
+        const cacheReadInputTokens = tokenCount(
+          parsed.usage.prompt_tokens_details?.cached_tokens
+          ?? parsed.usage.prompt_cache_hit_tokens,
+        );
         usage = {
           inputTokens,
           outputTokens,
-          totalTokens: parsed.usage.total_tokens ?? inputTokens + outputTokens,
+          totalTokens: tokenCount(parsed.usage.total_tokens) || inputTokens + outputTokens,
+          cacheCreationInputTokens: 0,
+          cacheReadInputTokens,
         };
       }
 

@@ -37,8 +37,9 @@ export class ToolRegistry {
     if (this.tools.has(tool.name)) {
       throw new Error(`工具名称重复: ${tool.name}`);
     }
+    const validator = this.ajv.compile(tool.inputSchema);
     this.tools.set(tool.name, tool);
-    this.validators.set(tool.name, this.ajv.compile(tool.inputSchema));
+    this.validators.set(tool.name, validator);
   }
 
   get(name: string): Tool | undefined {
@@ -59,7 +60,7 @@ export class ToolRegistry {
     return this.tools.get(name)?.effect;
   }
 
-  async execute(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
+  validate(call: ToolCall): ToolResult | undefined {
     const tool = this.tools.get(call.name);
     if (!tool) {
       return createToolError('TOOL_NOT_FOUND', `未找到工具: ${call.name}`);
@@ -72,6 +73,15 @@ export class ToolRegistry {
         `工具参数无效: ${this.ajv.errorsText(validate?.errors)}`,
       );
     }
+
+    return undefined;
+  }
+
+  async execute(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
+    const validationError = this.validate(call);
+    if (validationError) return validationError;
+
+    const tool = this.tools.get(call.name)!;
 
     if (signal?.aborted) {
       return createToolError('CANCELLED', '工具执行已由用户取消');

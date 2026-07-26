@@ -2,9 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type {
   LLMProvider,
-  Message,
+  ProviderRequest,
   StreamEvent,
-  ToolDefinition,
 } from '../provider/types.js';
 import type { AgentEvent } from './types.js';
 import { StreamCollector } from './stream-collector.js';
@@ -21,8 +20,7 @@ class FakeProvider implements LLMProvider {
   ) {}
 
   async chat(
-    _messages: Message[],
-    _tools: ToolDefinition[],
+    _request: ProviderRequest,
     onEvent: (event: StreamEvent) => void,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -35,10 +33,17 @@ function collectWith(
   signal: AbortSignal = new AbortController().signal,
 ) {
   const events: AgentEvent[] = [];
+  const request: ProviderRequest = {
+    systemPrompt: 'stable system',
+    messages: [
+      { role: 'user', content: 'test' },
+      { role: 'instruction', content: '<system-reminder>test</system-reminder>' },
+    ],
+    tools: [],
+  };
   const result = new StreamCollector().collect(
     provider,
-    [{ role: 'user', content: 'test' }],
-    [],
+    request,
     2,
     signal,
     event => events.push(event),
@@ -64,7 +69,13 @@ test('collector forwards deltas while collecting a complete response', async () 
     });
     emit({
       type: 'usage',
-      usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        totalTokens: 15,
+        cacheCreationInputTokens: 2,
+        cacheReadInputTokens: 4,
+      },
     });
     emit({ type: 'done', content: '' });
   });
@@ -79,8 +90,47 @@ test('collector forwards deltas while collecting a complete response', async () 
   assert.equal(turn.text, 'hello world');
   assert.equal(turn.thinking, 'think ');
   assert.deepEqual(turn.toolCalls.map(call => call.id), ['one', 'two']);
-  assert.deepEqual(turn.usage, { inputTokens: 10, outputTokens: 5, totalTokens: 15 });
+  assert.deepEqual(turn.usage, {
+    inputTokens: 10,
+    outputTokens: 5,
+    totalTokens: 15,
+    cacheCreationInputTokens: 2,
+    cacheReadInputTokens: 4,
+  });
   assert.ok(events.every(event => 'iteration' in event && event.iteration === 2));
+});
+
+test('collector forwards the complete provider request without mutation', async () => {
+  let captured: ProviderRequest | undefined;
+  const provider: LLMProvider = {
+    name: 'capture',
+    model: 'capture-model',
+    async chat(request, emit) {
+      captured = structuredClone(request);
+      emit({ type: 'done', content: '' });
+    },
+  };
+  const request: ProviderRequest = {
+    systemPrompt: 'stable system',
+    messages: [
+      { role: 'user', content: 'hello' },
+      { role: 'instruction', content: '<system-reminder>runtime</system-reminder>' },
+    ],
+    tools: [{ name: 'read_file', description: 'read', inputSchema: { type: 'object' } }],
+  };
+  const events: AgentEvent[] = [];
+
+  const turn = await new StreamCollector().collect(
+    provider,
+    request,
+    1,
+    new AbortController().signal,
+    event => events.push(event),
+  );
+
+  assert.equal(turn.status, 'completed');
+  assert.deepEqual(captured, request);
+  assert.deepEqual(request.messages.map(message => message.role), ['user', 'instruction']);
 });
 
 test('collector classifies provider errors, thrown failures and missing done', async () => {

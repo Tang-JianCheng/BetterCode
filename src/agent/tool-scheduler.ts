@@ -1,4 +1,6 @@
 import { ToolRegistry } from '../tool/registry.js';
+import type { PermissionManager } from '../permission/manager.js';
+import type { PermissionDecider } from '../permission/types.js';
 import {
   createToolError,
   type ToolCall,
@@ -24,6 +26,7 @@ export interface ToolScheduleOptions {
   unknownToolLimit: number;
   maxIterations: number;
   signal: AbortSignal;
+  permissionDecider?: PermissionDecider;
   onProgress: (event: AgentEvent) => void;
 }
 
@@ -36,7 +39,10 @@ const cancelledResult = (message: string): ToolResult =>
   createToolError('CANCELLED', message, { cancelled: true });
 
 export class ToolScheduler {
-  constructor(private readonly registry: ToolRegistry) {}
+  constructor(
+    private readonly registry: ToolRegistry,
+    private readonly permissionManager: PermissionManager,
+  ) {}
 
   async executeBatch(
     calls: ToolCall[],
@@ -55,11 +61,11 @@ export class ToolScheduler {
         continue;
       }
 
-      const effect = this.registry.effectOf(call.name);
-      if (effect === undefined) {
+      const tool = this.registry.get(call.name);
+      if (!tool) {
         results.set(index, createToolError('TOOL_NOT_FOUND', `未找到工具: ${call.name}`));
         unknownToolStreak += 1;
-      } else if (options.mode === 'plan' && effect === 'side_effect') {
+      } else if (options.mode === 'plan' && tool.effect === 'side_effect') {
         results.set(index, createToolError(
           'TOOL_UNAVAILABLE',
           `Plan Mode 不允许使用工具: ${call.name}`,
@@ -67,7 +73,51 @@ export class ToolScheduler {
         unknownToolStreak += 1;
       } else {
         unknownToolStreak = 0;
-        (effect === 'read_only' ? readOnly : sideEffects).push({ index, call });
+        const validationError = this.registry.validate(call);
+        if (validationError) {
+          results.set(index, validationError);
+        } else {
+          options.onProgress({
+            type: 'progress',
+            iteration,
+            maxIterations: options.maxIterations,
+            stage: 'checking_permissions',
+            toolName: call.name,
+            toolCallId: call.id,
+          });
+          const authorization = await this.permissionManager.authorize(call, tool, {
+            signal: options.signal,
+            decider: options.permissionDecider,
+            onRequest: request => {
+              options.onProgress({ type: 'permission_request', iteration, request });
+              options.onProgress({
+                type: 'progress',
+                iteration,
+                maxIterations: options.maxIterations,
+                stage: 'waiting_permission',
+                toolName: call.name,
+                toolCallId: call.id,
+              });
+            },
+          });
+          options.onProgress({
+            type: 'permission_decision',
+            iteration,
+            ...(authorization.requestId ? { requestId: authorization.requestId } : {}),
+            toolCallId: call.id,
+            toolName: call.name,
+            allowed: authorization.allowed,
+            source: authorization.source,
+            ...('choice' in authorization && authorization.choice
+              ? { choice: authorization.choice }
+              : {}),
+          });
+          if (authorization.allowed) {
+            (tool.effect === 'read_only' ? readOnly : sideEffects).push({ index, call });
+          } else {
+            results.set(index, authorization.result);
+          }
+        }
       }
 
       if (unknownToolStreak >= options.unknownToolLimit) {

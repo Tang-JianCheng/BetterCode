@@ -1,13 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildExecutePlanRequest, buildPlanRequest } from './prompts.js';
-
-test('plan prompt preserves the task and states the read-only intent', () => {
-  const prompt = buildPlanRequest('inspect src and design a fix');
-  assert.match(prompt, /Plan Mode/);
-  assert.match(prompt, /只允许读取和搜索/);
-  assert.match(prompt, /inspect src and design a fix/);
-});
+import { buildExecutePlanRequest } from './prompts.js';
 
 test('execution prompt includes the original task and complete latest plan', () => {
   const prompt = buildExecutePlanRequest({

@@ -12,7 +12,13 @@ import { PathGuard } from '../path-guard.js';
 export class ReadFileTool implements Tool {
   readonly name = 'read_file';
   readonly effect = 'read_only' as const;
-  readonly description = '读取项目根目录内的 UTF-8 文本文件';
+  readonly permission = {
+    targetArgument: 'path',
+    targetKind: 'path',
+    pathIntent: 'existing',
+    risk: 'read',
+  } as const;
+  readonly description = '读取项目根目录内的 UTF-8 文本文件。读取文件优先使用本工具；编辑或覆盖现有文件前必须先读取当前内容';
   readonly inputSchema = {
     type: 'object',
     properties: { path: { type: 'string', minLength: 1 } },

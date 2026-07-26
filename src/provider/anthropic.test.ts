@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AnthropicProvider } from './anthropic.js';
-import type { Message, StreamEvent } from './types.js';
+import type {
+  Message,
+  ProviderRequest,
+  StreamEvent,
+  ToolDefinition,
+} from './types.js';
 
 function config() {
   return {
@@ -25,12 +30,20 @@ function responseFor(lines: string[]): Response {
   return new Response(stream, { status: 200 });
 }
 
+function makeRequest(
+  messages: Message[] = [],
+  tools: ToolDefinition[] = [],
+  systemPrompt = 'stable system',
+): ProviderRequest {
+  return { systemPrompt, messages, tools };
+}
+
 test('Anthropic provider maps tools and aggregates input_json_delta', async () => {
   let request: Record<string, unknown> | undefined;
   const fetchImpl = async (_input: RequestInfo | URL, init?: RequestInit) => {
     request = JSON.parse(String(init?.body)) as Record<string, unknown>;
     return responseFor([
-      'data: {"type":"message_start","message":{"usage":{"input_tokens":8,"output_tokens":0}}}\n\n',
+      'data: {"type":"message_start","message":{"usage":{"input_tokens":8,"output_tokens":0,"cache_creation_input_tokens":20,"cache_read_input_tokens":5}}}\n\n',
       'data: {"type":"content_block_delta","index":2,"delta":{"type":"thinking_delta","thinking":"checking"}}\n\n',
       'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-1","name":"read_file"}}\n\n',
       'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"path\\":\\"a"}}\n\n',
@@ -43,13 +56,25 @@ test('Anthropic provider maps tools and aggregates input_json_delta', async () =
   const provider = new AnthropicProvider(config(), fetchImpl);
   const events: StreamEvent[] = [];
   await provider.chat(
-    [{ role: 'user', content: 'read a.txt' }],
-    [{ name: 'read_file', description: 'read', inputSchema: { type: 'object' } }],
+    makeRequest(
+      [{ role: 'user', content: 'read a.txt' }],
+      [{ name: 'read_file', description: 'read', inputSchema: { type: 'object' } }],
+    ),
     event => events.push(event),
   );
 
-  const bodyTools = request?.tools as Array<{ name: string; input_schema: unknown }>;
+  const bodyTools = request?.tools as Array<{
+    name: string;
+    input_schema: unknown;
+    cache_control?: unknown;
+  }>;
   assert.equal(bodyTools[0].name, 'read_file');
+  assert.deepEqual(bodyTools[0].cache_control, { type: 'ephemeral' });
+  assert.deepEqual(request?.system, [{
+    type: 'text',
+    text: 'stable system',
+    cache_control: { type: 'ephemeral' },
+  }]);
   assert.deepEqual(request?.thinking, { type: 'enabled', budget_tokens: 4000 });
   assert.equal(events.some(event => event.type === 'thinking_delta' && event.content === 'checking'), true);
   const call = events.find(event => event.type === 'tool_call');
@@ -59,7 +84,13 @@ test('Anthropic provider maps tools and aggregates input_json_delta', async () =
   assert.equal(events.filter(event => event.type === 'tool_call').length, 1);
   const usage = events.find(event => event.type === 'usage');
   assert.ok(usage && usage.type === 'usage');
-  assert.deepEqual(usage.usage, { inputTokens: 8, outputTokens: 4, totalTokens: 12 });
+  assert.deepEqual(usage.usage, {
+    inputTokens: 33,
+    outputTokens: 4,
+    totalTokens: 37,
+    cacheCreationInputTokens: 20,
+    cacheReadInputTokens: 5,
+  });
   assert.equal(events.at(-1)?.type, 'done');
 });
 
@@ -83,7 +114,7 @@ test('Anthropic provider maps tool result messages', async () => {
     { role: 'tool', toolCallId: 'tool-1', toolName: 'read_file', content: '{"ok":true}', isError: false },
     { role: 'tool', toolCallId: 'tool-2', toolName: 'find_files', content: '{"ok":true}', isError: false },
   ];
-  await provider.chat(messages, [], () => undefined);
+  await provider.chat(makeRequest(messages), () => undefined);
   const mapped = request?.messages as Array<Record<string, unknown>>;
   assert.deepEqual(mapped[1].content, [
     { type: 'tool_use', id: 'tool-1', name: 'read_file', input: { path: 'a.txt' } },
@@ -93,6 +124,83 @@ test('Anthropic provider maps tool result messages', async () => {
     { type: 'tool_result', tool_use_id: 'tool-1', content: '{"ok":true}' },
     { type: 'tool_result', tool_use_id: 'tool-2', content: '{"ok":true}' },
   ]);
+});
+
+test('Anthropic provider maps runtime instructions after tool results', async () => {
+  let requestBody: Record<string, unknown> | undefined;
+  const provider = new AnthropicProvider(config(), async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return responseFor(['data: {"type":"message_stop"}\n\n']);
+  });
+  const messages: Message[] = [
+    { role: 'user', content: 'read' },
+    {
+      role: 'assistant',
+      content: '',
+      toolCalls: [{ id: 'tool-1', name: 'read_file', arguments: { path: 'a.txt' } }],
+    },
+    {
+      role: 'tool',
+      toolCallId: 'tool-1',
+      toolName: 'read_file',
+      content: '{"ok":true}',
+      isError: false,
+    },
+    { role: 'instruction', content: '<system-reminder>runtime</system-reminder>' },
+  ];
+
+  await provider.chat(makeRequest(messages), () => undefined);
+  const mapped = requestBody?.messages as Array<Record<string, unknown>>;
+  assert.deepEqual(mapped[2].content, [
+    { type: 'tool_result', tool_use_id: 'tool-1', content: '{"ok":true}' },
+  ]);
+  assert.deepEqual(mapped[3], {
+    role: 'user',
+    content: '<system-reminder>runtime</system-reminder>',
+  });
+});
+
+test('Anthropic provider caches only the last tool and handles missing cache usage', async () => {
+  let requestBody: Record<string, unknown> | undefined;
+  const provider = new AnthropicProvider(config(), async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return responseFor([
+      'data: {"type":"message_start","message":{"usage":{"input_tokens":3}}}\n\n',
+      'data: {"type":"message_delta","usage":{"output_tokens":2}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ]);
+  });
+  const events: StreamEvent[] = [];
+  await provider.chat(makeRequest([], [
+    { name: 'read_file', description: 'read', inputSchema: { type: 'object' } },
+    { name: 'find_files', description: 'find', inputSchema: { type: 'object' } },
+  ]), event => events.push(event));
+
+  const tools = requestBody?.tools as Array<Record<string, unknown>>;
+  assert.equal('cache_control' in tools[0], false);
+  assert.deepEqual(tools[1].cache_control, { type: 'ephemeral' });
+  const usage = events.find(event => event.type === 'usage');
+  assert.ok(usage && usage.type === 'usage');
+  assert.deepEqual(usage.usage, {
+    inputTokens: 3,
+    outputTokens: 2,
+    totalTokens: 5,
+    cacheCreationInputTokens: 0,
+    cacheReadInputTokens: 0,
+  });
+
+  let withoutTools: Record<string, unknown> | undefined;
+  const noToolsProvider = new AnthropicProvider(config(), async (_input, init) => {
+    withoutTools = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return responseFor(['data: {"type":"message_stop"}\n\n']);
+  });
+  await noToolsProvider.chat(makeRequest(), () => undefined);
+  assert.equal('tools' in (withoutTools ?? {}), false);
+  assert.deepEqual(withoutTools?.system, [{
+    type: 'text',
+    text: 'stable system',
+    cache_control: { type: 'ephemeral' },
+  }]);
 });
 
 test('Anthropic provider preserves multiple tool calls in model order', async () => {
@@ -106,7 +214,7 @@ test('Anthropic provider preserves multiple tool calls in model order', async ()
     'data: {"type":"message_stop"}\n\n',
   ]));
   const events: StreamEvent[] = [];
-  await provider.chat([], [], event => events.push(event));
+  await provider.chat(makeRequest(), event => events.push(event));
   const calls = events.filter(event => event.type === 'tool_call');
 
   assert.deepEqual(calls.map(event => event.type === 'tool_call' ? event.call.id : ''), ['one', 'two']);
@@ -117,7 +225,7 @@ test('Anthropic provider rejects malformed and incomplete streams without done',
     'data: {not-json}\n\n',
   ]));
   const malformedEvents: StreamEvent[] = [];
-  await malformed.chat([], [], event => malformedEvents.push(event));
+  await malformed.chat(makeRequest(), event => malformedEvents.push(event));
   assert.equal(malformedEvents.at(-1)?.type, 'error');
   assert.equal(malformedEvents.some(event => event.type === 'done'), false);
 
@@ -125,7 +233,7 @@ test('Anthropic provider rejects malformed and incomplete streams without done',
     'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}\n\n',
   ]));
   const incompleteEvents: StreamEvent[] = [];
-  await incomplete.chat([], [], event => incompleteEvents.push(event));
+  await incomplete.chat(makeRequest(), event => incompleteEvents.push(event));
   assert.equal(incompleteEvents.at(-1)?.type, 'error');
   assert.equal(incompleteEvents.some(event => event.type === 'done'), false);
 });
@@ -137,6 +245,6 @@ test('Anthropic provider treats abort as cancellation rather than a stream error
     throw new DOMException('cancelled', 'AbortError');
   });
   const events: StreamEvent[] = [];
-  await provider.chat([], [], event => events.push(event), controller.signal);
+  await provider.chat(makeRequest(), event => events.push(event), controller.signal);
   assert.deepEqual(events, []);
 });

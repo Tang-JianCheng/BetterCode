@@ -1,6 +1,6 @@
 import { AgentLoop } from '../agent/loop.js';
 import { createEventStream } from '../agent/event-stream.js';
-import { buildExecutePlanRequest, buildPlanRequest } from '../agent/prompts.js';
+import { buildExecutePlanRequest } from '../agent/prompts.js';
 import type {
   AgentEvent,
   AgentLoopOptions,
@@ -8,6 +8,9 @@ import type {
   SavedPlan,
 } from '../agent/types.js';
 import type { LLMProvider, Message } from '../provider/types.js';
+import type { SupplementalPromptContent } from '../prompt/types.js';
+import type { PermissionManager } from '../permission/manager.js';
+import type { PermissionDecider, PermissionMode, PermissionStatus } from '../permission/types.js';
 import { ToolRegistry } from '../tool/registry.js';
 
 export class NoPlanError extends Error {
@@ -25,11 +28,11 @@ export class ChatManager {
 
   constructor(
     toolRegistry: ToolRegistry,
+    private readonly permissionManager: PermissionManager,
     options: Partial<AgentLoopOptions> = {},
-    systemPrompt?: string,
+    supplemental: SupplementalPromptContent = {},
   ) {
-    this.loop = new AgentLoop(toolRegistry, options);
-    if (systemPrompt) this.history.push({ role: 'user', content: systemPrompt });
+    this.loop = new AgentLoop(toolRegistry, permissionManager, options, supplemental);
   }
 
   run(
@@ -38,17 +41,24 @@ export class ChatManager {
     options: AgentRunOptions = {},
   ): AsyncIterable<AgentEvent> {
     const mode = options.mode ?? 'act';
-    const modelInput = mode === 'plan' ? buildPlanRequest(userInput) : userInput;
-    return this.start(modelInput, provider, mode, options.signal, mode === 'plan' ? userInput : undefined);
+    return this.start(
+      userInput,
+      provider,
+      mode,
+      options.signal,
+      mode === 'plan' ? userInput : undefined,
+      options.permissionDecider,
+    );
   }
 
   executeLatestPlan(
     provider: LLMProvider,
     signal?: AbortSignal,
+    permissionDecider?: PermissionDecider,
   ): AsyncIterable<AgentEvent> {
     if (!this.latestPlan) throw new NoPlanError();
     const plan = { ...this.latestPlan };
-    return this.start(buildExecutePlanRequest(plan), provider, 'act', signal);
+    return this.start(buildExecutePlanRequest(plan), provider, 'act', signal, undefined, permissionDecider);
   }
 
   getHistory(): ReadonlyArray<Message> {
@@ -62,6 +72,16 @@ export class ChatManager {
   clear(): void {
     this.history = [];
     this.latestPlan = undefined;
+    this.permissionManager.clearSessionRules();
+  }
+
+  getPermissionStatus(): PermissionStatus {
+    return this.permissionManager.getStatus();
+  }
+
+  setPermissionMode(mode: PermissionMode): void {
+    if (this.active) throw new Error('Agent 运行期间不能切换权限模式');
+    this.permissionManager.setMode(mode);
   }
 
   get turnCount(): number {
@@ -74,6 +94,7 @@ export class ChatManager {
     mode: 'act' | 'plan',
     signal = new AbortController().signal,
     planTask?: string,
+    permissionDecider?: PermissionDecider,
   ): AsyncIterable<AgentEvent> {
     return createEventStream(async emit => {
       if (this.active) {
@@ -96,6 +117,7 @@ export class ChatManager {
           mode,
           provider,
           signal,
+          permissionDecider,
         }, event => {
           if (event.type === 'stopped') terminalEvent = event;
           else emit(event);

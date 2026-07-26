@@ -7,7 +7,7 @@ import { createCoreToolRegistry } from './factory.js';
 import type { ToolResult } from './types.js';
 
 function makeRoot(): string {
-  return mkdtempSync(path.join(tmpdir(), 'mew-tools-'));
+  return mkdtempSync(path.join(tmpdir(), 'bettercode-tools-'));
 }
 
 async function call(root: string, name: string, arguments_: Record<string, unknown>, options = {}) {
@@ -112,4 +112,29 @@ test('registry validates arguments and truncates output', async t => {
   assert.equal(output.ok, true);
   assert.equal(output.metadata.truncated, true);
   assert.ok(Buffer.byteLength(output.output, 'utf8') <= 20);
+});
+
+test('core tools expose stable local permission profiles', t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = createCoreToolRegistry(root);
+
+  assert.deepEqual(registry.get('read_file')?.permission, {
+    targetArgument: 'path', targetKind: 'path', pathIntent: 'existing', risk: 'read',
+  });
+  assert.deepEqual(registry.get('write_file')?.permission, {
+    targetArgument: 'path', targetKind: 'path', pathIntent: 'write', risk: 'write',
+  });
+  assert.deepEqual(registry.get('edit_file')?.permission, {
+    targetArgument: 'path', targetKind: 'path', pathIntent: 'existing', risk: 'write',
+  });
+  assert.deepEqual(registry.get('run_command')?.permission, {
+    targetArgument: 'command', targetKind: 'command', risk: 'execute',
+  });
+  assert.deepEqual(registry.get('find_files')?.permission, {
+    targetArgument: 'pattern', targetKind: 'glob', pathIntent: 'glob', risk: 'read',
+  });
+  assert.deepEqual(registry.get('search_code')?.permission, {
+    targetArgument: 'glob', targetKind: 'glob', defaultTarget: '**/*', pathIntent: 'glob', risk: 'read',
+  });
 });

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { createPermissionManager } from '../permission/factory.js';
 import { ToolRegistry } from '../tool/registry.js';
 import {
   createToolSuccess,
@@ -11,9 +12,10 @@ import {
   type ToolEffect,
 } from '../tool/types.js';
 import { ToolScheduler } from './tool-scheduler.js';
+import type { AgentEvent } from './types.js';
 
 function makeRoot(): string {
-  return mkdtempSync(path.join(tmpdir(), 'mew-scheduler-'));
+  return mkdtempSync(path.join(tmpdir(), 'bettercode-scheduler-'));
 }
 
 function call(id: string, name: string): ToolCall {
@@ -30,6 +32,12 @@ function tool(
     effect,
     description: `${name} tool`,
     inputSchema: { type: 'object', additionalProperties: false },
+    permission: {
+      targetArgument: 'target',
+      targetKind: 'value',
+      defaultTarget: name,
+      risk: effect === 'read_only' ? 'read' : 'write',
+    },
     execute,
   };
 }
@@ -45,6 +53,13 @@ function options(signal = new AbortController().signal) {
   };
 }
 
+function makeScheduler(registry: ToolRegistry): ToolScheduler {
+  return new ToolScheduler(
+    registry,
+    createPermissionManager(registry, 'allow', { userHome: path.join(registry.rootDir, '.home') }),
+  );
+}
+
 test('scheduler counts unavailable tools and resets the streak on an allowed tool', async t => {
   const root = makeRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -55,7 +70,7 @@ test('scheduler counts unavailable tools and resets the streak on an allowed too
     sideEffectRuns += 1;
     return createToolSuccess('write');
   }));
-  const scheduler = new ToolScheduler(registry);
+  const scheduler = makeScheduler(registry);
 
   const reset = await scheduler.executeBatch(
     [call('1', 'missing-a'), call('2', 'missing-b'), call('3', 'read'), call('4', 'missing-c')],
@@ -110,7 +125,7 @@ test('scheduler runs reads concurrently, then side effects serially, while prese
     }));
   }
 
-  const result = await new ToolScheduler(registry).executeBatch(
+  const result = await makeScheduler(registry).executeBatch(
     [
       call('w1', 'write-a'),
       call('r1', 'read-a'),
@@ -139,8 +154,11 @@ test('scheduler cancellation prevents remaining side effects', async t => {
   const registry = new ToolRegistry(root);
   const controller = new AbortController();
   let runs = 0;
+  let markStarted: (() => void) | undefined;
+  const started = new Promise<void>(resolve => { markStarted = resolve; });
   registry.register(tool('first', 'side_effect', async (_input, context) => {
     runs += 1;
+    markStarted?.();
     await new Promise<void>(resolve => {
       context.signal.addEventListener('abort', () => resolve(), { once: true });
     });
@@ -151,12 +169,12 @@ test('scheduler cancellation prevents remaining side effects', async t => {
     return createToolSuccess('second');
   }));
 
-  const pending = new ToolScheduler(registry).executeBatch(
+  const pending = makeScheduler(registry).executeBatch(
     [call('1', 'first'), call('2', 'second')],
     1,
     options(controller.signal),
   );
-  await Promise.resolve();
+  await started;
   controller.abort();
   const result = await pending;
 
@@ -177,7 +195,7 @@ test('scheduler keeps running allowed tools after an ordinary tool failure', asy
     secondRuns += 1;
     return createToolSuccess('ok');
   }));
-  const result = await new ToolScheduler(registry).executeBatch(
+  const result = await makeScheduler(registry).executeBatch(
     [call('1', 'fails'), call('2', 'succeeds')],
     1,
     options(),
@@ -204,7 +222,7 @@ test('scheduler cancellation settles all concurrent read tools as cancelled', as
       return createToolSuccess('late');
     }));
   }
-  const pending = new ToolScheduler(registry).executeBatch(
+  const pending = makeScheduler(registry).executeBatch(
     [call('1', 'read-a'), call('2', 'read-b')],
     1,
     options(controller.signal),
@@ -215,4 +233,77 @@ test('scheduler cancellation settles all concurrent read tools as cancelled', as
 
   assert.equal(starts, 2);
   assert.deepEqual(result.results.map(item => item.result.error?.code), ['CANCELLED', 'CANCELLED']);
+});
+
+test('scheduler serializes permission checks and reuses a session allow in the same batch', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  let executions = 0;
+  registry.register(tool('read', 'read_only', async () => {
+    executions += 1;
+    return createToolSuccess('ok');
+  }));
+  const permissionManager = createPermissionManager(
+    registry,
+    'default',
+    { userHome: path.join(root, '.home') },
+  );
+  const events: AgentEvent[] = [];
+  let prompts = 0;
+  const result = await new ToolScheduler(registry, permissionManager).executeBatch(
+    [call('1', 'read'), call('2', 'read')],
+    1,
+    {
+      ...options(),
+      permissionDecider: async () => {
+        prompts += 1;
+        return 'allow_session';
+      },
+      onProgress: event => events.push(event),
+    },
+  );
+
+  assert.equal(prompts, 1);
+  assert.equal(executions, 2);
+  assert.equal(result.results.every(item => item.result.ok), true);
+  assert.deepEqual(
+    events.filter(event => event.type === 'permission_decision')
+      .map(event => event.type === 'permission_decision' ? event.source : ''),
+    ['user', 'session_rule'],
+  );
+});
+
+test('scheduler does not prompt for invalid arguments or count permission denials as unknown tools', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  registry.register(tool('read', 'read_only', async () => createToolSuccess('ok')));
+  const permissionManager = createPermissionManager(
+    registry,
+    'strict',
+    { userHome: path.join(root, '.home') },
+  );
+  let prompts = 0;
+  const result = await new ToolScheduler(registry, permissionManager).executeBatch(
+    [
+      { id: 'invalid', name: 'read', arguments: { extra: true } },
+      call('denied', 'read'),
+    ],
+    1,
+    {
+      ...options(),
+      permissionDecider: async () => {
+        prompts += 1;
+        return 'allow_once';
+      },
+    },
+  );
+
+  assert.deepEqual(result.results.map(item => item.result.error?.code), [
+    'INVALID_ARGUMENTS', 'PERMISSION_DENIED',
+  ]);
+  assert.equal(result.unknownToolStreak, 0);
+  assert.equal(result.unknownToolLimitReached, false);
+  assert.equal(prompts, 0);
 });

@@ -6,11 +6,14 @@ export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  cacheCreationInputTokens: number;
+  cacheReadInputTokens: number;
 }
 
 /** 一条对话消息，包含模型文本、工具调用和工具结果 */
 export type Message =
   | { role: 'user'; content: string }
+  | { role: 'instruction'; content: string }
   | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
   | {
       role: 'tool';
@@ -29,6 +32,13 @@ export type StreamEvent =
   | { type: 'error'; content: string }
   | { type: 'done'; content: '' };
 
+/** 一次模型请求，稳定提示、动态消息和工具定义保持独立 */
+export interface ProviderRequest {
+  systemPrompt: string;
+  messages: Message[];
+  tools: ToolDefinition[];
+}
+
 /** 所有 LLM 后端必须实现的统一接口 */
 export interface LLMProvider {
   /** 供应商名称 */
@@ -38,13 +48,12 @@ export interface LLMProvider {
 
   /**
    * 发送消息并流式接收回复
-   * @param messages  完整对话历史
+   * @param request   当前请求的系统提示、消息和工具定义
    * @param onEvent   每收到一个 token 或事件时回调
    * @param signal    可选的 AbortSignal，用于取消请求
    */
   chat(
-    messages: Message[],
-    tools: ToolDefinition[],
+    request: ProviderRequest,
     onEvent: (event: StreamEvent) => void,
     signal?: AbortSignal,
   ): Promise<void>;

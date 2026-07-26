@@ -2,11 +2,19 @@ import type { ProviderConfig } from '../config/types.js';
 import type {
   LLMProvider,
   Message,
+  ProviderRequest,
   StreamEvent,
   TokenUsage,
   ToolCall,
   ToolDefinition,
 } from './types.js';
+
+interface AnthropicUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+}
 
 interface AnthropicEvent {
   type: string;
@@ -23,15 +31,9 @@ interface AnthropicEvent {
     name?: string;
   };
   message?: {
-    usage?: {
-      input_tokens?: number;
-      output_tokens?: number;
-    };
+    usage?: AnthropicUsage;
   };
-  usage?: {
-    input_tokens?: number;
-    output_tokens?: number;
-  };
+  usage?: AnthropicUsage;
   error?: {
     type?: string;
     message?: string;
@@ -48,11 +50,25 @@ function mapToolDefinition(tool: ToolDefinition) {
   };
 }
 
+function mapToolDefinitions(tools: ToolDefinition[]) {
+  return tools.map((tool, index) => ({
+    ...mapToolDefinition(tool),
+    ...(index === tools.length - 1
+      ? { cache_control: { type: 'ephemeral' } }
+      : {}),
+  }));
+}
+
 function mapMessages(messages: Message[]) {
   const result: Array<Record<string, unknown>> = [];
 
   for (const message of messages) {
     if (message.role === 'user') {
+      result.push({ role: 'user', content: message.content || ' ' });
+      continue;
+    }
+
+    if (message.role === 'instruction') {
       result.push({ role: 'user', content: message.content || ' ' });
       continue;
     }
@@ -94,6 +110,12 @@ function mapMessages(messages: Message[]) {
   return result;
 }
 
+function tokenCount(value: number | undefined): number {
+  return Number.isFinite(value) && value !== undefined
+    ? Math.max(0, Math.floor(value))
+    : 0;
+}
+
 function isJsonObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -116,18 +138,22 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async chat(
-    messages: Message[],
-    tools: ToolDefinition[],
+    request: ProviderRequest,
     onEvent: (event: StreamEvent) => void,
     signal?: AbortSignal,
   ): Promise<void> {
     const body: Record<string, unknown> = {
       model: this.model,
-      messages: mapMessages(messages),
+      system: [{
+        type: 'text',
+        text: request.systemPrompt || ' ',
+        cache_control: { type: 'ephemeral' },
+      }],
+      messages: mapMessages(request.messages),
       stream: true,
       max_tokens: 4096,
     };
-    if (tools.length > 0) body.tools = tools.map(mapToolDefinition);
+    if (request.tools.length > 0) body.tools = mapToolDefinitions(request.tools);
     if (this.thinking) body.thinking = { type: 'enabled', budget_tokens: 4000 };
 
     let response: Response;
@@ -174,6 +200,8 @@ export class AnthropicProvider implements LLMProvider {
     let sawMessageStop = false;
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
+    let cacheCreationInputTokens: number | undefined;
+    let cacheReadInputTokens: number | undefined;
     const toolBlocks = new Map<number, { id: string; name: string; partialJson: string }>();
     const completedCalls = new Map<number, ToolCall>();
 
@@ -207,6 +235,10 @@ export class AnthropicProvider implements LLMProvider {
         case 'message_start':
           inputTokens = event.message?.usage?.input_tokens ?? inputTokens;
           outputTokens = event.message?.usage?.output_tokens ?? outputTokens;
+          cacheCreationInputTokens = event.message?.usage?.cache_creation_input_tokens
+            ?? cacheCreationInputTokens;
+          cacheReadInputTokens = event.message?.usage?.cache_read_input_tokens
+            ?? cacheReadInputTokens;
           break;
         case 'content_block_start':
           if (event.index !== undefined && event.content_block?.type === 'tool_use') {
@@ -236,6 +268,10 @@ export class AnthropicProvider implements LLMProvider {
         case 'message_delta':
           inputTokens = event.usage?.input_tokens ?? inputTokens;
           outputTokens = event.usage?.output_tokens ?? outputTokens;
+          cacheCreationInputTokens = event.usage?.cache_creation_input_tokens
+            ?? cacheCreationInputTokens;
+          cacheReadInputTokens = event.usage?.cache_read_input_tokens
+            ?? cacheReadInputTokens;
           break;
         case 'message_stop':
           if (toolBlocks.size > 0) throw new Error('Anthropic 工具调用未完整结束');
@@ -262,11 +298,19 @@ export class AnthropicProvider implements LLMProvider {
       for (const [, call] of [...completedCalls.entries()].sort(([left], [right]) => left - right)) {
         onEvent({ type: 'tool_call', call });
       }
-      if (inputTokens !== undefined || outputTokens !== undefined) {
+      if (inputTokens !== undefined || outputTokens !== undefined ||
+          cacheCreationInputTokens !== undefined || cacheReadInputTokens !== undefined) {
+        const ordinaryInputTokens = tokenCount(inputTokens);
+        const creationTokens = tokenCount(cacheCreationInputTokens);
+        const readTokens = tokenCount(cacheReadInputTokens);
+        const normalizedInputTokens = ordinaryInputTokens + creationTokens + readTokens;
+        const normalizedOutputTokens = tokenCount(outputTokens);
         const usage: TokenUsage = {
-          inputTokens: inputTokens ?? 0,
-          outputTokens: outputTokens ?? 0,
-          totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
+          inputTokens: normalizedInputTokens,
+          outputTokens: normalizedOutputTokens,
+          totalTokens: normalizedInputTokens + normalizedOutputTokens,
+          cacheCreationInputTokens: creationTokens,
+          cacheReadInputTokens: readTokens,
         };
         onEvent({ type: 'usage', usage });
       }

@@ -21,7 +21,14 @@ function assertGlob(glob: string): void {
 export class SearchCodeTool implements Tool {
   readonly name = 'search_code';
   readonly effect = 'read_only' as const;
-  readonly description = '在项目内按文本或正则表达式搜索代码内容';
+  readonly permission = {
+    targetArgument: 'glob',
+    targetKind: 'glob',
+    defaultTarget: '**/*',
+    pathIntent: 'glob',
+    risk: 'read',
+  } as const;
+  readonly description = '在项目内按文本或正则表达式搜索代码内容。代码搜索优先使用本工具，不得用通用 shell 命令替代';
   readonly inputSchema = {
     type: 'object',
     properties: {

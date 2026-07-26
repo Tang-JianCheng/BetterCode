@@ -1,4 +1,10 @@
 import type { LLMProvider, Message, TokenUsage } from '../provider/types.js';
+import type {
+  PermissionDecider,
+  PermissionDecisionSource,
+  PermissionRequest,
+  PermissionChoice,
+} from '../permission/types.js';
 import type { ToolCall, ToolResult } from '../tool/types.js';
 
 export type AgentMode = 'act' | 'plan';
@@ -13,6 +19,8 @@ export type AgentStopReason =
 export type AgentProgressStage =
   | 'requesting_model'
   | 'model_complete'
+  | 'checking_permissions'
+  | 'waiting_permission'
   | 'executing_tools'
   | 'tools_complete';
 
@@ -20,6 +28,17 @@ export type AgentEvent =
   | { type: 'text_delta'; iteration: number; content: string }
   | { type: 'thinking_delta'; iteration: number; content: string }
   | { type: 'tool_call'; iteration: number; call: ToolCall }
+  | { type: 'permission_request'; iteration: number; request: PermissionRequest }
+  | {
+      type: 'permission_decision';
+      iteration: number;
+      requestId?: string;
+      toolCallId: string;
+      toolName: string;
+      allowed: boolean;
+      source: PermissionDecisionSource;
+      choice?: PermissionChoice;
+    }
   | {
       type: 'tool_result';
       iteration: number;
@@ -59,6 +78,7 @@ export interface AgentLoopRequest {
   mode: AgentMode;
   provider: LLMProvider;
   signal: AbortSignal;
+  permissionDecider?: PermissionDecider;
 }
 
 export interface AgentOutcome {
@@ -77,4 +97,5 @@ export interface SavedPlan {
 export interface AgentRunOptions {
   mode?: AgentMode;
   signal?: AbortSignal;
+  permissionDecider?: PermissionDecider;
 }

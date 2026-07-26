@@ -3,11 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { createCoreToolRegistry } from './factory.js';
 import { createToolSuccess, type Tool } from './types.js';
 import { ToolRegistry } from './registry.js';
 
 function makeRoot(): string {
-  return mkdtempSync(path.join(tmpdir(), 'mew-registry-'));
+  return mkdtempSync(path.join(tmpdir(), 'bettercode-registry-'));
 }
 
 function makeTool(
@@ -24,6 +25,11 @@ function makeTool(
       properties: { value: { type: 'string' } },
       required: ['value'],
       additionalProperties: false,
+    },
+    permission: {
+      targetArgument: 'value',
+      targetKind: 'value',
+      risk: effect === 'read_only' ? 'read' : 'write',
     },
     execute,
   };
@@ -50,6 +56,10 @@ test('registry registers, validates and executes tools', async t => {
   assert.equal(invalid.error?.code, 'INVALID_ARGUMENTS');
   assert.equal(executions, 1);
 
+  const preflight = registry.validate({ id: 'preflight', name: 'one', arguments: { value: 42 } });
+  assert.equal(preflight?.error?.code, 'INVALID_ARGUMENTS');
+  assert.equal(executions, 1);
+
   const unknown = await registry.execute({ id: '3', name: 'unknown', arguments: {} });
   assert.equal(unknown.ok, false);
   assert.equal(unknown.error?.code, 'TOOL_NOT_FOUND');
@@ -68,6 +78,7 @@ test('registry filters definitions by effect without exposing local metadata', a
   assert.deepEqual(registry.definitions('read_only').map(item => item.name), ['read']);
   assert.deepEqual(registry.definitions('side_effect').map(item => item.name), ['write']);
   assert.equal('effect' in registry.definitions()[0], false);
+  assert.equal('permission' in registry.definitions()[0], false);
 });
 
 test('registry converts exceptions and timeouts to structured results', async t => {
@@ -108,4 +119,43 @@ test('registry distinguishes external cancellation from its timeout', async t =>
 
   assert.equal(result.ok, false);
   assert.equal(result.error?.code, 'CANCELLED');
+});
+
+test('registry leaves no partial state when schema compilation fails', t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  const invalid: Tool = {
+    ...makeTool('broken', async () => createToolSuccess('broken')),
+    inputSchema: { type: 'not-a-json-schema-type' },
+  };
+
+  assert.throws(() => registry.register(invalid));
+  assert.equal(registry.get('broken'), undefined);
+  assert.equal(registry.effectOf('broken'), undefined);
+  assert.deepEqual(registry.definitions(), []);
+
+  registry.register(makeTool('broken', async () => createToolSuccess('valid')));
+  assert.equal(registry.get('broken')?.name, 'broken');
+});
+
+test('core tool definitions keep stable order and reinforced descriptions', t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = createCoreToolRegistry(root);
+  const first = registry.definitions();
+  const second = registry.definitions();
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(first.map(tool => tool.name), [
+    'read_file', 'write_file', 'edit_file', 'run_command', 'find_files', 'search_code',
+  ]);
+  assert.deepEqual(registry.definitions('read_only').map(tool => tool.name), [
+    'read_file', 'find_files', 'search_code',
+  ]);
+  assert.match(first.find(tool => tool.name === 'read_file')?.description ?? '', /编辑或覆盖.*先读取/);
+  assert.match(first.find(tool => tool.name === 'edit_file')?.description ?? '', /调用前必须先读取/);
+  assert.match(first.find(tool => tool.name === 'run_command')?.description ?? '', /没有专用工具/);
+  assert.equal(first.some(tool => 'effect' in tool), false);
+  assert.equal(first.some(tool => tool.description.includes(root)), false);
 });

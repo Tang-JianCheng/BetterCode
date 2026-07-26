@@ -22,7 +22,13 @@ function countOccurrences(value: string, search: string): number {
 export class EditFileTool implements Tool {
   readonly name = 'edit_file';
   readonly effect = 'side_effect' as const;
-  readonly description = '仅在原文唯一匹配时修改项目根目录内的文本文件';
+  readonly permission = {
+    targetArgument: 'path',
+    targetKind: 'path',
+    pathIntent: 'existing',
+    risk: 'write',
+  } as const;
+  readonly description = '仅在原文唯一匹配时修改项目根目录内的文本文件。调用前必须先读取当前内容并使用读取到的唯一原文，不得用命令替代编辑';
   readonly inputSchema = {
     type: 'object',
     properties: {

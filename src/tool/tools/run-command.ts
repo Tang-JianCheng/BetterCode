@@ -26,7 +26,12 @@ function formatOutput(stdout: string, stderr: string): string {
 export class RunCommandTool implements Tool {
   readonly name = 'run_command';
   readonly effect = 'side_effect' as const;
-  readonly description = '在项目根目录中执行非交互式 shell 命令';
+  readonly permission = {
+    targetArgument: 'command',
+    targetKind: 'command',
+    risk: 'execute',
+  } as const;
+  readonly description = '在项目根目录中执行非交互式 shell 命令。仅在没有专用工具时使用，不能替代文件读取、写入、编辑、查找或代码搜索工具';
   readonly inputSchema = {
     type: 'object',
     properties: { command: { type: 'string', minLength: 1 } },

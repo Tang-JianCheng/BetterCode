@@ -1,8 +1,7 @@
 import type {
   LLMProvider,
-  Message,
+  ProviderRequest,
   TokenUsage,
-  ToolDefinition,
 } from '../provider/types.js';
 import type { ToolCall } from '../tool/types.js';
 import type { AgentEvent } from './types.js';
@@ -19,8 +18,7 @@ export interface CollectedTurn {
 export class StreamCollector {
   async collect(
     provider: LLMProvider,
-    messages: Message[],
-    tools: ToolDefinition[],
+    request: ProviderRequest,
     iteration: number,
     signal: AbortSignal,
     emit: (event: AgentEvent) => void,
@@ -33,7 +31,7 @@ export class StreamCollector {
     let streamError: string | undefined;
 
     try {
-      await provider.chat(messages, tools, event => {
+      await provider.chat(request, event => {
         if (sawDone || streamError) return;
         switch (event.type) {
           case 'text_delta':

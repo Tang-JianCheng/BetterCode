@@ -12,7 +12,13 @@ import { PathGuard } from '../path-guard.js';
 export class WriteFileTool implements Tool {
   readonly name = 'write_file';
   readonly effect = 'side_effect' as const;
-  readonly description = '创建或完整覆盖项目根目录内的 UTF-8 文本文件';
+  readonly permission = {
+    targetArgument: 'path',
+    targetKind: 'path',
+    pathIntent: 'write',
+    risk: 'write',
+  } as const;
+  readonly description = '创建或完整覆盖项目根目录内的 UTF-8 文本文件。覆盖现有文件前必须先读取当前内容，不得用命令绕过目录约束';
   readonly inputSchema = {
     type: 'object',
     properties: {
