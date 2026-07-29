@@ -38,6 +38,7 @@ async function main() {
   });
 
   let mcpManager: McpManager | undefined;
+  let chatManager: ChatManager | undefined;
   try {
     const permissionMode = values['permission-mode'];
     if (!isPermissionMode(permissionMode)) {
@@ -65,7 +66,7 @@ async function main() {
 
     // 6. 基于完整工具列表创建权限与对话管理器
     const permissionManager = createPermissionManager(toolRegistry, permissionMode);
-    const chatManager = new ChatManager(toolRegistry, permissionManager);
+    chatManager = new ChatManager(toolRegistry, permissionManager);
 
     // 7. 启动 TUI
     const { waitUntilExit } = render(
@@ -78,6 +79,11 @@ async function main() {
     console.error(`\n❌ 启动失败: ${(err as Error).message}\n`);
     process.exitCode = 1;
   } finally {
+    try {
+      await chatManager?.close();
+    } catch (error) {
+      console.error(`[上下文清理] ${error instanceof Error ? error.message : String(error)}`);
+    }
     const diagnostics = await mcpManager?.close() ?? [];
     for (const diagnostic of diagnostics) {
       const source = diagnostic.serverName ? ` ${diagnostic.serverName}` : '';

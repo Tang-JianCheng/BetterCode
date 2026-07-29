@@ -16,6 +16,8 @@ import { ChatManager, NoPlanError } from './manager.js';
 class FakeProvider implements LLMProvider {
   readonly name = 'fake';
   readonly model = 'fake-model';
+  readonly contextWindow = 128_000;
+  readonly contextWindowIsDefault = false;
   readonly calls: ProviderRequest[] = [];
 
   constructor(private readonly responses: StreamEvent[][]) {}
@@ -187,6 +189,8 @@ test('ChatManager keeps the previous successful plan after a max-iteration plan'
   const blockingProvider: LLMProvider = {
     name: 'blocking',
     model: 'blocking-model',
+    contextWindow: 128_000,
+    contextWindowIsDefault: false,
     async chat(_request, _emit, signal) {
       await new Promise<void>(resolve => {
         signal?.addEventListener('abort', () => resolve(), { once: true });
@@ -215,7 +219,7 @@ test('ChatManager rejects do without a plan and clear removes history and plan',
   await collect(manager.run('task', new FakeProvider([[
     { type: 'text_delta', content: 'plan' }, done(),
   ]]), { mode: 'plan' }));
-  manager.clear();
+  await manager.clear();
   assert.equal(manager.getHistory().length, 0);
   assert.equal(manager.getLatestPlan(), undefined);
 });
@@ -273,7 +277,7 @@ test('ChatManager controls permission mode and clears session rules', async t =>
 
   manager.setPermissionMode('strict');
   assert.equal(manager.getPermissionStatus().mode, 'strict');
-  manager.clear();
+  await manager.clear();
   assert.equal(manager.getPermissionStatus().ruleCounts.session, 0);
   assert.equal(manager.getPermissionStatus().mode, 'strict');
 });
@@ -294,6 +298,8 @@ test('ChatManager refuses permission mode changes during an active run', async t
   const provider: LLMProvider = {
     name: 'blocking',
     model: 'blocking-model',
+    contextWindow: 128_000,
+    contextWindowIsDefault: false,
     async chat(_request, _emit, signal) {
       markStarted?.();
       await new Promise<void>(resolve => {

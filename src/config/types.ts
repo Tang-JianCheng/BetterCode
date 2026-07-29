@@ -6,6 +6,8 @@ export interface ProviderConfig {
   protocol: 'anthropic' | 'openai';
   /** 指定模型，如 claude-sonnet-5-20251001 / gpt-4o */
   model: string;
+  /** 模型上下文窗口 Token 数，缺失时使用 128K */
+  context_window?: number;
   /** API 请求地址 */
   base_url: string;
   /** 认证密钥，支持 ${ENV_VAR} 环境变量占位 */

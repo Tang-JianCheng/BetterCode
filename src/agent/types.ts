@@ -1,4 +1,5 @@
 import type { LLMProvider, Message, TokenUsage } from '../provider/types.js';
+import type { ContextEvent } from '../context/types.js';
 import type {
   PermissionDecider,
   PermissionDecisionSource,
@@ -14,6 +15,7 @@ export type AgentStopReason =
   | 'max_iterations'
   | 'cancelled'
   | 'unknown_tool_limit'
+  | 'context_error'
   | 'stream_error';
 
 export type AgentProgressStage =
@@ -24,7 +26,7 @@ export type AgentProgressStage =
   | 'executing_tools'
   | 'tools_complete';
 
-export type AgentEvent =
+export type AgentEvent = ContextEvent
   | { type: 'text_delta'; iteration: number; content: string }
   | { type: 'thinking_delta'; iteration: number; content: string }
   | { type: 'tool_call'; iteration: number; call: ToolCall }

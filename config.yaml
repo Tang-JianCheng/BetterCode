@@ -3,6 +3,7 @@ providers:
   - name: deepseek-v4
     protocol: openai
     model: deepseek-v4-pro
+    context_window: 128000
     base_url: https://api.deepseek.com
     api_key: sk-d2d51cbfd6e24d89a311e534b5350063
     default: true
@@ -10,6 +11,7 @@ providers:
   - name: claude-sonnet
     protocol: anthropic
     model: claude-sonnet-5-20251001
+    context_window: 200000
     base_url: https://api.anthropic.com
     api_key: ${ANTHROPIC_API_KEY}
     thinking: false
@@ -17,5 +19,6 @@ providers:
   - name: gpt-4o
     protocol: openai
     model: gpt-4o
+    context_window: 128000
     base_url: https://api.openai.com/v1
     api_key: ${OPENAI_API_KEY}

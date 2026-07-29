@@ -8,6 +8,7 @@ import type {
   ToolCall,
   ToolDefinition,
 } from './types.js';
+import { DEFAULT_CONTEXT_WINDOW } from '../context/constants.js';
 
 interface OpenAIToolCallDelta {
   index: number;
@@ -94,6 +95,8 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 export class OpenAIProvider implements LLMProvider {
   readonly name: string;
   readonly model: string;
+  readonly contextWindow: number;
+  readonly contextWindowIsDefault: boolean;
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly fetchImpl: FetchLike;
@@ -101,6 +104,8 @@ export class OpenAIProvider implements LLMProvider {
   constructor(config: ProviderConfig, fetchImpl: FetchLike = fetch) {
     this.name = config.name;
     this.model = config.model;
+    this.contextWindow = config.context_window ?? DEFAULT_CONTEXT_WINDOW;
+    this.contextWindowIsDefault = config.context_window === undefined;
     this.baseUrl = config.base_url.replace(/\/$/, '');
     this.apiKey = config.api_key;
     this.fetchImpl = fetchImpl;
@@ -121,6 +126,7 @@ export class OpenAIProvider implements LLMProvider {
       stream_options: { include_usage: true },
     };
     if (request.tools.length > 0) body.tools = request.tools.map(mapToolDefinition);
+    if (request.maxOutputTokens !== undefined) body.max_tokens = request.maxOutputTokens;
 
     let response: Response;
     try {

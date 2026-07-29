@@ -220,6 +220,27 @@ test('Anthropic provider preserves multiple tool calls in model order', async ()
   assert.deepEqual(calls.map(event => event.type === 'tool_call' ? event.call.id : ''), ['one', 'two']);
 });
 
+test('Anthropic provider 暴露上下文窗口并映射摘要输出上限', async () => {
+  let body: Record<string, unknown> | undefined;
+  const provider = new AnthropicProvider({ ...config(), context_window: 80_000 }, async (_input, init) => {
+    body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return responseFor(['data: {"type":"message_stop"}\n\n']);
+  });
+  await provider.chat({ ...makeRequest([
+    { role: 'instruction', content: '摘要', instructionKind: 'context_summary' },
+  ]), maxOutputTokens: 2_048 }, () => undefined);
+  assert.equal(provider.contextWindow, 80_000);
+  assert.equal(provider.contextWindowIsDefault, false);
+  assert.equal(body?.max_tokens, 2_048);
+  assert.equal(JSON.stringify(body).includes('instructionKind'), false);
+
+  const fallback = new AnthropicProvider(config(), async () => responseFor([
+    'data: {"type":"message_stop"}\n\n',
+  ]));
+  assert.equal(fallback.contextWindow, 128_000);
+  assert.equal(fallback.contextWindowIsDefault, true);
+});
+
 test('Anthropic provider rejects malformed and incomplete streams without done', async () => {
   const malformed = new AnthropicProvider(config(), async () => responseFor([
     'data: {not-json}\n\n',

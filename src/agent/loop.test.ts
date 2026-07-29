@@ -19,6 +19,8 @@ import { AgentLoop } from './loop.js';
 class FakeProvider implements LLMProvider {
   readonly name = 'fake';
   readonly model = 'fake-model';
+  readonly contextWindow = 128_000;
+  readonly contextWindowIsDefault = false;
   readonly calls: ProviderRequest[] = [];
 
   constructor(private readonly responses: StreamEvent[][]) {}
@@ -336,6 +338,8 @@ test('agent loop cancellation during a model stream does not append the partial 
   const provider: LLMProvider = {
     name: 'blocking',
     model: 'blocking-model',
+    contextWindow: 128_000,
+    contextWindowIsDefault: false,
     async chat(_request, emit, signal) {
       emit({ type: 'text_delta', content: 'partial' });
       await new Promise<void>(resolve => {

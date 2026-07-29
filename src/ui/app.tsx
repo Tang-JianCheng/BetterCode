@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { AgentEvent, AgentStopReason } from '../agent/types.js';
+import type { ContextEvent } from '../context/types.js';
 import type {
   PermissionChoice,
   PermissionDecider,
@@ -15,9 +16,10 @@ import { InputBox } from './input-box.js';
 import { MessageList, type DisplayMessage } from './message-list.js';
 import { PermissionPrompt } from './permission-prompt.js';
 
-const HELP_TEXT = `可用命令:
+export const HELP_TEXT = `可用命令:
   /help          - 显示帮助信息
   /clear         - 清空对话历史和计划
+  /compact       - 手动压缩较早对话上下文
   /plan <任务>   - 只读分析项目并生成计划
   /do            - 执行最近成功生成的计划
   /permissions   - 查看权限模式、规则和配置诊断
@@ -40,13 +42,44 @@ const STOP_MESSAGES: Partial<Record<AgentStopReason, string>> = {
   max_iterations: '已达到最大迭代次数，Agent 已停止。',
   cancelled: '当前任务已取消。',
   unknown_tool_limit: '连续调用未知或不可用工具，Agent 已停止。',
+  context_error: '上下文管理失败，Agent 已停止。',
   stream_error: '模型响应流发生错误，Agent 已停止。',
 };
+
+const CONTEXT_PROGRESS_LABELS = {
+  lightweight: '正在检查工具结果体积',
+  estimating: '正在估算上下文用量',
+  summarizing: '正在摘要较早历史',
+  validating: '正在校验压缩结果',
+} as const;
+
+export function formatContextEvent(event: ContextEvent): string {
+  switch (event.type) {
+    case 'context_progress':
+      return event.estimatedTokens === undefined
+        ? CONTEXT_PROGRESS_LABELS[event.stage]
+        : `${CONTEXT_PROGRESS_LABELS[event.stage]}，当前约 ${event.estimatedTokens} Token`;
+    case 'context_offloaded':
+      return `已将 ${event.count} 个大型工具结果保存到项目上下文目录`;
+    case 'context_compacted':
+      return `上下文已压缩：约 ${event.beforeTokens} -> ${event.afterTokens} Token，` +
+        `摘要覆盖 ${event.summarizedMessages} 条消息，落盘 ${event.offloadedResults} 个工具结果，` +
+        `熔断${event.circuitOpen ? '已开启' : '未开启'}`;
+    case 'context_failed':
+      return event.message;
+  }
+}
 
 interface Props {
   provider: LLMProvider;
   chatManager: ChatManager;
   mcpStatus?: McpStartupStatus;
+}
+
+export function formatContextWindowNotice(provider: LLMProvider): string | undefined {
+  return provider.contextWindowIsDefault
+    ? `当前 Provider 未配置 context_window，BetterCode 暂按 ${provider.contextWindow} Token 使用。`
+    : undefined;
 }
 
 function formatPermissionStatus(status: PermissionStatus): string {
@@ -87,6 +120,8 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
   const initialPermissionStatus = chatManager.getPermissionStatus();
   const [messages, setMessages] = useState<DisplayMessage[]>(() => {
     const initial: DisplayMessage[] = [];
+    const windowNotice = formatContextWindowNotice(provider);
+    if (windowNotice) initial.push({ role: 'assistant', content: windowNotice });
     if (initialPermissionStatus.diagnostics.length > 0) {
       initial.push({ role: 'assistant', content: formatPermissionStatus(initialPermissionStatus) });
     }
@@ -163,9 +198,37 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
       return;
     }
     if (input === '/clear') {
-      chatManager.clear();
-      setMessages([]);
-      setUsage(undefined);
+      try {
+        await chatManager.clear();
+        setMessages([]);
+        setUsage(undefined);
+      } catch (error) {
+        appendAssistant(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (input === '/compact') {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setIsStreaming(true);
+      setProgress('准备压缩上下文');
+      try {
+        for await (const event of chatManager.compact(provider, controller.signal)) {
+          if (event.type === 'context_progress' || event.type === 'context_offloaded') {
+            setProgress(formatContextEvent(event));
+          } else if (event.type === 'context_compacted' || event.type === 'context_failed') {
+            appendAssistant(formatContextEvent(event));
+          } else if (event.type === 'error') {
+            appendAssistant(event.message);
+          }
+        }
+      } catch (error) {
+        appendAssistant(error instanceof Error ? error.message : String(error));
+      } finally {
+        abortRef.current = undefined;
+        setIsStreaming(false);
+        setProgress('');
+      }
       return;
     }
     if (input === '/permissions') {
@@ -261,6 +324,14 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
             break;
           case 'usage':
             setUsage(event.cumulative);
+            break;
+          case 'context_progress':
+          case 'context_offloaded':
+          case 'context_compacted':
+            setProgress(formatContextEvent(event));
+            break;
+          case 'context_failed':
+            lastError = formatContextEvent(event);
             break;
           case 'progress':
             updateProgress(event);

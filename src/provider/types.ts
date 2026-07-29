@@ -10,10 +10,20 @@ export interface TokenUsage {
   cacheReadInputTokens: number;
 }
 
+export type InstructionKind = 'runtime' | 'context_summary' | 'context_boundary';
+
+export interface OffloadedToolResult {
+  kind: 'offloaded_tool_result';
+  relativePath: string;
+  originalBytes: number;
+  estimatedTokens: number;
+  sha256: string;
+}
+
 /** 一条对话消息，包含模型文本、工具调用和工具结果 */
 export type Message =
   | { role: 'user'; content: string }
-  | { role: 'instruction'; content: string }
+  | { role: 'instruction'; content: string; instructionKind?: InstructionKind }
   | { role: 'assistant'; content: string; toolCalls?: ToolCall[] }
   | {
       role: 'tool';
@@ -21,6 +31,7 @@ export type Message =
       toolName: string;
       content: string;
       isError: boolean;
+      contextReference?: OffloadedToolResult;
     };
 
 /** Provider 在流式返回时实时发出的事件 */
@@ -37,6 +48,7 @@ export interface ProviderRequest {
   systemPrompt: string;
   messages: Message[];
   tools: ToolDefinition[];
+  maxOutputTokens?: number;
 }
 
 /** 所有 LLM 后端必须实现的统一接口 */
@@ -45,6 +57,8 @@ export interface LLMProvider {
   readonly name: string;
   /** 当前使用的模型名 */
   readonly model: string;
+  readonly contextWindow: number;
+  readonly contextWindowIsDefault: boolean;
 
   /**
    * 发送消息并流式接收回复

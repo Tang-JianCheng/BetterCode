@@ -208,6 +208,25 @@ test('OpenAI provider preserves multiple tool calls in model order', async () =>
   assert.deepEqual(calls.map(event => event.type === 'tool_call' ? event.call.id : ''), ['one', 'two']);
 });
 
+test('OpenAI provider 暴露上下文窗口并映射摘要输出上限', async () => {
+  let body: Record<string, unknown> | undefined;
+  const provider = new OpenAIProvider({ ...config(), context_window: 64_000 }, async (_input, init) => {
+    body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return responseFor(['data: [DONE]\n\n']);
+  });
+  await provider.chat({ ...makeRequest([
+    { role: 'instruction', content: '摘要', instructionKind: 'context_summary' },
+  ]), maxOutputTokens: 2_048 }, () => undefined);
+  assert.equal(provider.contextWindow, 64_000);
+  assert.equal(provider.contextWindowIsDefault, false);
+  assert.equal(body?.max_tokens, 2_048);
+  assert.equal(JSON.stringify(body).includes('instructionKind'), false);
+
+  const fallback = new OpenAIProvider(config(), async () => responseFor(['data: [DONE]\n\n']));
+  assert.equal(fallback.contextWindow, 128_000);
+  assert.equal(fallback.contextWindowIsDefault, true);
+});
+
 test('OpenAI provider rejects malformed and incomplete streams without done', async () => {
   const malformed = new OpenAIProvider(config(), async () => responseFor([
     'data: {not-json}\n\n',

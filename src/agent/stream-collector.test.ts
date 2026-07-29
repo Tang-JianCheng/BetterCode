@@ -11,6 +11,8 @@ import { StreamCollector } from './stream-collector.js';
 class FakeProvider implements LLMProvider {
   readonly name = 'fake';
   readonly model = 'fake-model';
+  readonly contextWindow = 128_000;
+  readonly contextWindowIsDefault = false;
 
   constructor(
     private readonly run: (
@@ -105,6 +107,8 @@ test('collector forwards the complete provider request without mutation', async 
   const provider: LLMProvider = {
     name: 'capture',
     model: 'capture-model',
+    contextWindow: 128_000,
+    contextWindowIsDefault: false,
     async chat(request, emit) {
       captured = structuredClone(request);
       emit({ type: 'done', content: '' });

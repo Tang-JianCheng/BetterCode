@@ -17,6 +17,10 @@ function validateProvider(p: ProviderConfig, index: number): void {
   if (!p.model || typeof p.model !== 'string') {
     throw new Error(`${prefix} (${p.name}): model 字段必须是非空字符串`);
   }
+  if (p.context_window !== undefined &&
+      (!Number.isInteger(p.context_window) || p.context_window <= 0)) {
+    throw new Error(`${prefix} (${p.name}): context_window 必须是正整数`);
+  }
   if (!p.base_url || typeof p.base_url !== 'string') {
     throw new Error(`${prefix} (${p.name}): base_url 字段必须是非空字符串`);
   }

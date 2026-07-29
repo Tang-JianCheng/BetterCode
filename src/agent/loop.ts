@@ -5,6 +5,8 @@ import { buildSystemPrompt } from '../prompt/builder.js';
 import { buildSystemReminder, collectEnvironment } from '../prompt/reminder.js';
 import type { SupplementalPromptContent } from '../prompt/types.js';
 import type { PermissionManager } from '../permission/manager.js';
+import { ContextManager } from '../context/manager.js';
+import type { ContextManageResult } from '../context/types.js';
 import { StreamCollector } from './stream-collector.js';
 import { ToolScheduler } from './tool-scheduler.js';
 import type {
@@ -39,6 +41,7 @@ export class AgentLoop {
     permissionManager: PermissionManager,
     options: Partial<AgentLoopOptions> = {},
     private readonly supplemental: SupplementalPromptContent = {},
+    private readonly contextManager = new ContextManager(registry.rootDir),
   ) {
     this.options = {
       maxIterations: Math.max(1, options.maxIterations ?? DEFAULT_OPTIONS.maxIterations),
@@ -51,7 +54,7 @@ export class AgentLoop {
     request: AgentLoopRequest,
     emit: (event: AgentEvent) => void,
   ): Promise<AgentOutcome> {
-    const history: Message[] = [...request.history, { role: 'user', content: request.userMessage }];
+    let history: Message[] = [...request.history, { role: 'user', content: request.userMessage }];
     const cumulativeUsage = { ...EMPTY_USAGE };
     let finalText = '';
     let unknownToolStreak = 0;
@@ -77,25 +80,43 @@ export class AgentLoop {
         if (request.signal.aborted) return finish('cancelled', completedIterations);
         startedIterations = iteration;
 
-        emit({
-          type: 'progress',
-          iteration,
-          maxIterations: this.options.maxIterations,
-          stage: 'requesting_model',
-        });
         const environment = collectEnvironment(this.registry.rootDir, request.mode);
         const reminder = buildSystemReminder({
           environment,
           iteration,
           supplemental: this.supplemental,
         });
+        const managed = await this.contextManager.manage({
+          history,
+          runtimeMessages: [{
+            role: 'instruction',
+            instructionKind: 'runtime',
+            content: reminder,
+          }],
+          systemPrompt: this.systemPrompt,
+          tools: definitions,
+          provider: request.provider,
+          trigger: 'automatic',
+          iteration,
+          signal: request.signal,
+          emit,
+        });
+        history = [...managed.history];
+        if (managed.status === 'cancelled') return finish('cancelled', startedIterations);
+        if (managed.status === 'blocked') return finish('context_error', startedIterations);
+        if (managed.status !== 'ready') {
+          emit({ type: 'error', iteration, message: '自动上下文管理未生成可发送请求' });
+          return finish('context_error', startedIterations);
+        }
+        emit({
+          type: 'progress',
+          iteration,
+          maxIterations: this.options.maxIterations,
+          stage: 'requesting_model',
+        });
         const turn = await this.collector.collect(
           request.provider,
-          {
-            systemPrompt: this.systemPrompt,
-            messages: [...history, { role: 'instruction', content: reminder }],
-            tools: definitions,
-          },
+          managed.request,
           iteration,
           request.signal,
           emit,
@@ -121,6 +142,7 @@ export class AgentLoop {
         });
 
         if (turn.usage) {
+          this.contextManager.recordUsage(managed.request, turn.usage);
           cumulativeUsage.inputTokens += turn.usage.inputTokens;
           cumulativeUsage.outputTokens += turn.usage.outputTokens;
           cumulativeUsage.totalTokens += turn.usage.totalTokens;
@@ -192,5 +214,33 @@ export class AgentLoop {
     }
 
     return finish('max_iterations', completedIterations);
+  }
+
+  compactHistory(
+    history: readonly Message[],
+    provider: AgentLoopRequest['provider'],
+    signal: AbortSignal,
+    emit: (event: AgentEvent) => void,
+  ): Promise<ContextManageResult> {
+    const reminder = buildSystemReminder({
+      environment: collectEnvironment(this.registry.rootDir, 'act'),
+      iteration: 1,
+      supplemental: this.supplemental,
+    });
+    return this.contextManager.manage({
+      history,
+      runtimeMessages: [{
+        role: 'instruction',
+        instructionKind: 'runtime',
+        content: reminder,
+      }],
+      systemPrompt: this.systemPrompt,
+      tools: this.registry.definitions(),
+      provider,
+      trigger: 'manual',
+      iteration: 0,
+      signal,
+      emit,
+    });
   }
 }

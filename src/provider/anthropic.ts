@@ -8,6 +8,7 @@ import type {
   ToolCall,
   ToolDefinition,
 } from './types.js';
+import { DEFAULT_CONTEXT_WINDOW } from '../context/constants.js';
 
 interface AnthropicUsage {
   input_tokens?: number;
@@ -123,6 +124,8 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 export class AnthropicProvider implements LLMProvider {
   readonly name: string;
   readonly model: string;
+  readonly contextWindow: number;
+  readonly contextWindowIsDefault: boolean;
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly thinking: boolean;
@@ -131,6 +134,8 @@ export class AnthropicProvider implements LLMProvider {
   constructor(config: ProviderConfig, fetchImpl: FetchLike = fetch) {
     this.name = config.name;
     this.model = config.model;
+    this.contextWindow = config.context_window ?? DEFAULT_CONTEXT_WINDOW;
+    this.contextWindowIsDefault = config.context_window === undefined;
     this.baseUrl = config.base_url.replace(/\/$/, '');
     this.apiKey = config.api_key;
     this.thinking = config.thinking ?? false;
@@ -151,7 +156,7 @@ export class AnthropicProvider implements LLMProvider {
       }],
       messages: mapMessages(request.messages),
       stream: true,
-      max_tokens: 4096,
+      max_tokens: request.maxOutputTokens ?? 4096,
     };
     if (request.tools.length > 0) body.tools = mapToolDefinitions(request.tools);
     if (this.thinking) body.thinking = { type: 'enabled', budget_tokens: 4000 };
