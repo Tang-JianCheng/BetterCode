@@ -1,6 +1,12 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
-import type { AgentEvent, AgentStopReason } from '../agent/types.js';
+import type { AgentEvent, AgentMode, AgentStopReason } from '../agent/types.js';
+import {
+  createDefaultCommandRegistry,
+  formatCommandHelp,
+} from '../command/builtins.js';
+import { CommandDispatcher } from '../command/dispatcher.js';
+import type { CommandUIController } from '../command/types.js';
 import type { ContextEvent } from '../context/types.js';
 import type {
   PermissionChoice,
@@ -11,7 +17,6 @@ import type {
 } from '../permission/types.js';
 import type { LLMProvider, TokenUsage } from '../provider/types.js';
 import {
-  NoPlanError,
   type ChatManager,
   type MemoryStatus,
 } from '../chat/manager.js';
@@ -22,21 +27,9 @@ import { MessageList, type DisplayMessage } from './message-list.js';
 import { PermissionPrompt } from './permission-prompt.js';
 import { RewindDialog, type RewindAction } from './rewind-dialog.js';
 
-export const HELP_TEXT = `可用命令:
-  /help          - 显示帮助信息
-  /clear         - 清空对话历史和计划
-  /compact       - 手动压缩较早对话上下文
-  /resume [ID]   - 列出或恢复历史会话
-  /memory        - 查看长期记忆状态
-  /rewind        - 回滚到文件修改前的检查点
-  /plan <任务>   - 只读分析项目并生成计划
-  /do            - 执行最近成功生成的计划
-  /permissions   - 查看权限模式、规则和配置诊断
-  /permissions <strict|default|allow> - 切换权限模式
-  /exit, /quit   - 退出 BetterCode
-  Ctrl+C         - 运行中取消任务，空闲时退出
-
-安全边界: 专用文件工具限制在项目目录内；获准的 Shell 命令仍继承 BetterCode 进程权限。`;
+export const COMMAND_REGISTRY = createDefaultCommandRegistry();
+const COMMAND_DISPATCHER = new CommandDispatcher(COMMAND_REGISTRY);
+export const HELP_TEXT = formatCommandHelp(COMMAND_REGISTRY);
 
 const PROGRESS_LABELS = {
   requesting_model: '正在请求模型',
@@ -94,9 +87,36 @@ export function formatContextWindowNotice(provider: LLMProvider): string | undef
 export function formatSessionList(sessions: readonly SessionInfo[]): string {
   if (sessions.length === 0) return '没有可恢复的历史会话。';
   return [
-    '历史会话（使用 /resume <ID> 恢复）:',
+    '历史会话（使用 /session <ID> 恢复）:',
     ...sessions.slice(0, 10).map(session =>
       `  ${session.id} (${session.messageCount} 条) - ${session.firstMessage || '无标题'}`),
+  ].join('\n');
+}
+
+export interface BetterCodeStatus {
+  provider: Pick<LLMProvider, 'name' | 'model'>;
+  agentMode: AgentMode;
+  permissionMode: PermissionMode;
+  sessionId: string;
+  usage?: TokenUsage;
+  memory: MemoryStatus;
+}
+
+export function formatAgentMode(mode: AgentMode): '[DEFAULT]' | '[PLAN]' {
+  return mode === 'plan' ? '[PLAN]' : '[DEFAULT]';
+}
+
+export function formatStatus(status: BetterCodeStatus): string {
+  const usage = status.usage
+    ? `${status.usage.totalTokens}（输入 ${status.usage.inputTokens} / 输出 ${status.usage.outputTokens}）`
+    : '暂无';
+  return [
+    `Provider: ${status.provider.name} (${status.provider.model})`,
+    `Agent 模式: ${formatAgentMode(status.agentMode)}`,
+    `权限模式: ${status.permissionMode}`,
+    `当前会话: ${status.sessionId}`,
+    `Token: ${usage}`,
+    `长期记忆: 用户级 ${status.memory.userCount} 条 / 项目级 ${status.memory.projectCount} 条`,
   ].join('\n');
 }
 
@@ -121,10 +141,6 @@ function formatPermissionStatus(status: PermissionStatus): string {
     }
   }
   return lines.join('\n');
-}
-
-function isPermissionMode(value: string): value is PermissionMode {
-  return value === 'strict' || value === 'default' || value === 'allow';
 }
 
 export function formatMcpStartupStatus(status: McpStartupStatus): string | undefined {
@@ -162,15 +178,18 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
   const [progress, setProgress] = useState('');
   const [usage, setUsage] = useState<TokenUsage | undefined>();
   const [permissionMode, setPermissionMode] = useState(initialPermissionStatus.mode);
+  const [agentMode, setAgentModeState] = useState<AgentMode>('act');
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | undefined>();
   const [promptHistory, setPromptHistory] = useState(() => chatManager.getPromptHistory());
   const [rewindSnapshots, setRewindSnapshots] = useState(() => chatManager.getSnapshots());
   const [rewindDialogActive, setRewindDialogActive] = useState(false);
+  const [, setStatusVersion] = useState(0);
 
   const textRef = useRef('');
   const thinkingRef = useRef('');
   const hasThinkingRef = useRef(false);
   const abortRef = useRef<AbortController | undefined>();
+  const agentModeRef = useRef<AgentMode>('act');
   const permissionResolverRef = useRef<{
     requestId: string;
     resolve: (choice: PermissionChoice) => void;
@@ -184,6 +203,11 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
 
   const appendAssistant = useCallback((content: string) => {
     setMessages(previous => [...previous, { role: 'assistant', content }]);
+  }, []);
+
+  const setAgentMode = useCallback((mode: AgentMode) => {
+    agentModeRef.current = mode;
+    setAgentModeState(mode);
   }, []);
 
   useEffect(() => chatManager.subscribeMemorySaved(names => {
@@ -243,137 +267,13 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
     }
   }, [appendAssistant, chatManager]);
 
-  const sendMessage = useCallback(async (input: string) => {
-    chatManager.recordPrompt(input);
-    setPromptHistory(chatManager.getPromptHistory());
-    if (input === '/exit' || input === '/quit') {
-      exit();
-      return;
-    }
-    if (input === '/help') {
-      appendAssistant(HELP_TEXT);
-      return;
-    }
-    if (input === '/clear') {
-      try {
-        await chatManager.clear();
-        setMessages([]);
-        setUsage(undefined);
-        setRewindSnapshots([]);
-      } catch (error) {
-        appendAssistant(error instanceof Error ? error.message : String(error));
-      }
-      return;
-    }
-    if (input === '/resume' || input === '/r') {
-      appendAssistant(formatSessionList(chatManager.listSessions()));
-      return;
-    }
-    if (input.startsWith('/resume ') || input.startsWith('/r ')) {
-      const command = input.startsWith('/resume ') ? '/resume ' : '/r ';
-      const sessionId = input.slice(command.length).trim();
-      if (!sessionId) {
-        appendAssistant(formatSessionList(chatManager.listSessions()));
-        return;
-      }
-      try {
-        const restored = await chatManager.resumeSession(sessionId);
-        setMessages([
-          ...restored.map(message => ({ ...message })),
-          { role: 'assistant', content: `已恢复会话 ${sessionId}（${restored.length} 条消息）。` },
-        ]);
-        setUsage(undefined);
-        setRewindSnapshots(chatManager.getSnapshots());
-      } catch (error) {
-        appendAssistant(error instanceof Error ? error.message : String(error));
-      }
-      return;
-    }
-    if (input === '/memory') {
-      appendAssistant(formatMemoryStatus(chatManager.getMemoryStatus()));
-      return;
-    }
-    if (input === '/rewind') {
-      const snapshots = chatManager.getSnapshots();
-      if (snapshots.length === 0) {
-        appendAssistant('当前会话没有可回滚的检查点。');
-      } else {
-        setRewindSnapshots(snapshots);
-        setRewindDialogActive(true);
-      }
-      return;
-    }
-    if (input === '/compact') {
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setIsStreaming(true);
-      setProgress('准备压缩上下文');
-      try {
-        for await (const event of chatManager.compact(provider, controller.signal)) {
-          if (event.type === 'context_progress' || event.type === 'context_offloaded') {
-            setProgress(formatContextEvent(event));
-          } else if (event.type === 'context_compacted' || event.type === 'context_failed') {
-            appendAssistant(formatContextEvent(event));
-          } else if (event.type === 'error') {
-            appendAssistant(event.message);
-          }
-        }
-      } catch (error) {
-        appendAssistant(error instanceof Error ? error.message : String(error));
-      } finally {
-        abortRef.current = undefined;
-        setIsStreaming(false);
-        setProgress('');
-      }
-      return;
-    }
-    if (input === '/permissions') {
-      appendAssistant(formatPermissionStatus(chatManager.getPermissionStatus()));
-      return;
-    }
-    if (input.startsWith('/permissions ')) {
-      const mode = input.slice('/permissions '.length).trim();
-      if (!isPermissionMode(mode)) {
-        appendAssistant('用法: /permissions <strict|default|allow>');
-        return;
-      }
-      try {
-        chatManager.setPermissionMode(mode);
-        setPermissionMode(mode);
-        appendAssistant(`权限模式已切换为: ${mode}`);
-      } catch (error) {
-        appendAssistant(error instanceof Error ? error.message : String(error));
-      }
-      return;
-    }
-    if (input === '/plan') {
-      appendAssistant('用法: /plan <任务>');
-      return;
-    }
-
-    const isPlan = input.startsWith('/plan ');
-    const isDo = input === '/do';
-    const task = isPlan ? input.slice('/plan '.length).trim() : input;
-    if (isPlan && !task) {
-      appendAssistant('用法: /plan <任务>');
-      return;
-    }
-
-    let eventStream: AsyncIterable<AgentEvent>;
+  const sendAgentMessage = useCallback(async (content: string, displayText = content) => {
     const controller = new AbortController();
-    try {
-      eventStream = isDo
-        ? chatManager.executeLatestPlan(provider, controller.signal, permissionDecider)
-        : chatManager.run(task, provider, {
-            mode: isPlan ? 'plan' : 'act',
-            signal: controller.signal,
-            permissionDecider,
-          });
-    } catch (error) {
-      if (error instanceof NoPlanError) appendAssistant(error.message);
-      else appendAssistant(error instanceof Error ? error.message : String(error));
-      return;
-    }
+    const eventStream = chatManager.run(content, provider, {
+      mode: agentModeRef.current,
+      signal: controller.signal,
+      permissionDecider,
+    });
 
     textRef.current = '';
     thinkingRef.current = '';
@@ -385,7 +285,7 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
     setIsThinking(false);
     setProgress('准备运行 Agent');
     setUsage(undefined);
-    setMessages(previous => [...previous, { role: 'user', content: input }]);
+    setMessages(previous => [...previous, { role: 'user', content: displayText }]);
 
     let terminal: Extract<AgentEvent, { type: 'stopped' }> | undefined;
     let lastError = '';
@@ -472,7 +372,126 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
       setIsStreaming(false);
       setProgress('');
     }
-  }, [appendAssistant, chatManager, exit, permissionDecider, provider, updateProgress]);
+  }, [chatManager, permissionDecider, provider, updateProgress]);
+
+  const clearConversation = useCallback(async () => {
+    await chatManager.clear();
+    setMessages([]);
+    setUsage(undefined);
+    setRewindSnapshots([]);
+    setAgentMode('act');
+  }, [chatManager, setAgentMode]);
+
+  const compactConversation = useCallback(async () => {
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setIsStreaming(true);
+    setProgress('准备压缩上下文');
+    try {
+      for await (const event of chatManager.compact(provider, controller.signal)) {
+        if (event.type === 'context_progress' || event.type === 'context_offloaded') {
+          setProgress(formatContextEvent(event));
+        } else if (event.type === 'context_compacted' || event.type === 'context_failed') {
+          appendAssistant(formatContextEvent(event));
+        } else if (event.type === 'error') {
+          appendAssistant(event.message);
+        }
+      }
+    } finally {
+      abortRef.current = undefined;
+      setIsStreaming(false);
+      setProgress('');
+    }
+  }, [appendAssistant, chatManager, provider]);
+
+  const showOrResumeSession = useCallback(async (sessionId?: string) => {
+    if (!sessionId) {
+      appendAssistant([
+        `当前会话: ${chatManager.getSessionId()}`,
+        formatSessionList(chatManager.listSessions()),
+      ].join('\n\n'));
+      return;
+    }
+    const restored = await chatManager.resumeSession(sessionId);
+    setMessages([
+      ...restored.map(message => ({ ...message })),
+      { role: 'assistant', content: `已恢复会话 ${sessionId}（${restored.length} 条消息）。` },
+    ]);
+    setUsage(undefined);
+    setRewindSnapshots(chatManager.getSnapshots());
+  }, [appendAssistant, chatManager]);
+
+  const showMemoryStatus = useCallback(() => {
+    appendAssistant(formatMemoryStatus(chatManager.getMemoryStatus()));
+  }, [appendAssistant, chatManager]);
+
+  const showOrSetPermission = useCallback((mode?: PermissionMode) => {
+    if (!mode) {
+      appendAssistant(formatPermissionStatus(chatManager.getPermissionStatus()));
+      return;
+    }
+    chatManager.setPermissionMode(mode);
+    setPermissionMode(mode);
+    appendAssistant(`权限模式已切换为: ${mode}`);
+  }, [appendAssistant, chatManager]);
+
+  const showStatus = useCallback(() => {
+    appendAssistant(formatStatus({
+      provider,
+      agentMode: agentModeRef.current,
+      permissionMode: chatManager.getPermissionStatus().mode,
+      sessionId: chatManager.getSessionId(),
+      usage,
+      memory: chatManager.getMemoryStatus(),
+    }));
+  }, [appendAssistant, chatManager, provider, usage]);
+
+  const rewindConversation = useCallback(() => {
+    const snapshots = chatManager.getSnapshots();
+    if (snapshots.length === 0) {
+      appendAssistant('当前会话没有可回滚的检查点。');
+      return;
+    }
+    setRewindSnapshots(snapshots);
+    setRewindDialogActive(true);
+  }, [appendAssistant, chatManager]);
+
+  const commandUi = useMemo<CommandUIController>(() => ({
+    showMessage: appendAssistant,
+    sendUserMessage: sendAgentMessage,
+    setAgentMode,
+    getAgentMode: () => agentModeRef.current,
+    getTokenUsage: () => usage,
+    refreshStatus: () => setStatusVersion(version => version + 1),
+    clearConversation,
+    compactConversation,
+    showOrResumeSession,
+    showMemoryStatus,
+    showOrSetPermission,
+    showStatus,
+    rewindConversation,
+    exit,
+  }), [
+    appendAssistant,
+    clearConversation,
+    compactConversation,
+    exit,
+    rewindConversation,
+    sendAgentMessage,
+    setAgentMode,
+    showMemoryStatus,
+    showOrResumeSession,
+    showOrSetPermission,
+    showStatus,
+    usage,
+  ]);
+
+  const handleSubmit = useCallback(async (input: string) => {
+    chatManager.recordPrompt(input);
+    setPromptHistory(chatManager.getPromptHistory());
+    const result = await COMMAND_DISPATCHER.dispatch(input, commandUi);
+    if (result.status === 'not_command') await sendAgentMessage(input);
+  }, [chatManager, commandUi, sendAgentMessage]);
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -481,6 +500,10 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
         <Text color="grey"> - </Text>
         <Text color="yellow">{provider.name}</Text>
         <Text color="grey"> ({provider.model})</Text>
+        <Text color="grey"> · 模式 </Text>
+        <Text color={agentMode === 'plan' ? 'cyan' : 'green'} bold>
+          {formatAgentMode(agentMode)}
+        </Text>
         <Text color="grey"> · 权限 </Text>
         <Text color="yellow">{permissionMode}</Text>
       </Box>
@@ -515,7 +538,12 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
           <Text color="grey">Ctrl+C 取消当前任务</Text>
         </Box>
       ) : (
-        <InputBox onSubmit={sendMessage} disabled={false} history={promptHistory} />
+        <InputBox
+          onSubmit={handleSubmit}
+          disabled={false}
+          history={promptHistory}
+          complete={input => COMMAND_REGISTRY.complete(input)}
+        />
       )}
 
       {usage ? (
