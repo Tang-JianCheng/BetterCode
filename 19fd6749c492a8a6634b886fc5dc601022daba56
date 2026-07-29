@@ -1,0 +1,36 @@
+docs/memory-system/spec.md
+  h_857541505025b0 1-137
+docs/memory-system/checklist.md
+  h_857541505025b0 1-54
+docs/memory-system/plan.md
+  h_857541505025b0 1-507
+docs/memory-system/task.md
+  h_857541505025b0 1-269
+AGENTS.md
+  h_857541505025b0 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "19fd6749c492a8a6634b886fc5dc601022daba56",
+  "prompts": {
+    "fbd0a7434a0e56c7": {
+      "agent_id": {
+        "tool": "known_human",
+        "id": "known_human_session",
+        "model": "unknown"
+      },
+      "human_author": "tangjiancheng <2771673595@qq.com>",
+      "messages": [],
+      "total_additions": 968,
+      "total_deletions": 0,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_857541505025b0": {
+      "author": "tangjiancheng"
+    }
+  }
+}
