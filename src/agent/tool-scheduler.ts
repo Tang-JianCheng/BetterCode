@@ -28,6 +28,7 @@ export interface ToolScheduleOptions {
   signal: AbortSignal;
   permissionDecider?: PermissionDecider;
   onProgress: (event: AgentEvent) => void;
+  onBeforeExecute?: (call: ToolCall) => void;
 }
 
 interface IndexedCall {
@@ -138,6 +139,11 @@ export class ToolScheduler {
         toolName: call.name,
         toolCallId: call.id,
       });
+      try {
+        options.onBeforeExecute?.(call);
+      } catch {
+        // 快照失败不能阻断已获授权的工具调用。
+      }
       const result = await this.registry.execute(call, options.signal);
       results.set(index, result);
     };

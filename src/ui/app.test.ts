@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   formatContextEvent,
   formatContextWindowNotice,
+  formatMemoryStatus,
   formatMcpStartupStatus,
+  formatSessionList,
   HELP_TEXT,
 } from './app.js';
 
@@ -24,6 +26,9 @@ test('MCP 启动状态成功或未配置时不增加聊天消息', () => {
 
 test('帮助文本和上下文事件提供简洁可行动信息', () => {
   assert.match(HELP_TEXT, /\/compact/);
+  assert.match(HELP_TEXT, /\/resume/);
+  assert.match(HELP_TEXT, /\/memory/);
+  assert.match(HELP_TEXT, /\/rewind/);
   assert.equal(formatContextEvent({
     type: 'context_compacted',
     iteration: 0,
@@ -43,6 +48,23 @@ test('帮助文本和上下文事件提供简洁可行动信息', () => {
     estimatedTokens: 5_000,
     contextWindow: 128_000,
   }), '正在估算上下文用量，当前约 5000 Token');
+});
+
+test('会话列表与记忆状态使用可执行的命令提示', () => {
+  assert.equal(formatSessionList([]), '没有可恢复的历史会话。');
+  assert.match(formatSessionList([{
+    id: 'abc-12345678',
+    firstMessage: '修复解析器',
+    messageCount: 4,
+    size: 100,
+    modTime: new Date(),
+  }]), /abc-12345678 \(4 条\) - 修复解析器/);
+  assert.match(formatMemoryStatus({
+    userDirectory: '/home/.bettercode/memory',
+    projectDirectory: '/repo/.bettercode/memory',
+    userCount: 2,
+    projectCount: 3,
+  }), /用户级 2 条 \/ 项目级 3 条/);
 });
 
 test('只有默认上下文窗口会显示一次配置提示', () => {

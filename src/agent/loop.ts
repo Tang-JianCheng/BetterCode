@@ -7,6 +7,7 @@ import type { SupplementalPromptContent } from '../prompt/types.js';
 import type { PermissionManager } from '../permission/manager.js';
 import { ContextManager } from '../context/manager.js';
 import type { ContextManageResult } from '../context/types.js';
+import type { ToolCall } from '../tool/types.js';
 import { StreamCollector } from './stream-collector.js';
 import { ToolScheduler } from './tool-scheduler.js';
 import type {
@@ -42,6 +43,10 @@ export class AgentLoop {
     options: Partial<AgentLoopOptions> = {},
     private readonly supplemental: SupplementalPromptContent = {},
     private readonly contextManager = new ContextManager(registry.rootDir),
+    private readonly hooks: {
+      beforeToolExecution?: (call: ToolCall) => void;
+      onLoopComplete?: (history: readonly Message[], provider: AgentLoopRequest['provider']) => void;
+    } = {},
   ) {
     this.options = {
       maxIterations: Math.max(1, options.maxIterations ?? DEFAULT_OPTIONS.maxIterations),
@@ -158,6 +163,11 @@ export class AgentLoop {
 
         if (turn.toolCalls.length === 0) {
           if (turn.text) history.push({ role: 'assistant', content: turn.text });
+          try {
+            this.hooks.onLoopComplete?.([...history], request.provider);
+          } catch {
+            // 后台钩子失败不能改变 Agent 的自然完成结果。
+          }
           return finish('completed', iteration);
         }
 
@@ -175,6 +185,7 @@ export class AgentLoop {
           signal: request.signal,
           permissionDecider: request.permissionDecider,
           onProgress: emit,
+          onBeforeExecute: this.hooks.beforeToolExecution,
         });
         unknownToolStreak = batch.unknownToolStreak;
 

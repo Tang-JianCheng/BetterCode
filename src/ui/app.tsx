@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import type { AgentEvent, AgentStopReason } from '../agent/types.js';
 import type { ContextEvent } from '../context/types.js';
@@ -10,16 +10,25 @@ import type {
   PermissionStatus,
 } from '../permission/types.js';
 import type { LLMProvider, TokenUsage } from '../provider/types.js';
-import { NoPlanError, type ChatManager } from '../chat/manager.js';
+import {
+  NoPlanError,
+  type ChatManager,
+  type MemoryStatus,
+} from '../chat/manager.js';
+import type { SessionInfo } from '../session/session.js';
 import type { McpStartupStatus } from '../mcp/types.js';
 import { InputBox } from './input-box.js';
 import { MessageList, type DisplayMessage } from './message-list.js';
 import { PermissionPrompt } from './permission-prompt.js';
+import { RewindDialog, type RewindAction } from './rewind-dialog.js';
 
 export const HELP_TEXT = `可用命令:
   /help          - 显示帮助信息
   /clear         - 清空对话历史和计划
   /compact       - 手动压缩较早对话上下文
+  /resume [ID]   - 列出或恢复历史会话
+  /memory        - 查看长期记忆状态
+  /rewind        - 回滚到文件修改前的检查点
   /plan <任务>   - 只读分析项目并生成计划
   /do            - 执行最近成功生成的计划
   /permissions   - 查看权限模式、规则和配置诊断
@@ -82,6 +91,23 @@ export function formatContextWindowNotice(provider: LLMProvider): string | undef
     : undefined;
 }
 
+export function formatSessionList(sessions: readonly SessionInfo[]): string {
+  if (sessions.length === 0) return '没有可恢复的历史会话。';
+  return [
+    '历史会话（使用 /resume <ID> 恢复）:',
+    ...sessions.slice(0, 10).map(session =>
+      `  ${session.id} (${session.messageCount} 条) - ${session.firstMessage || '无标题'}`),
+  ].join('\n');
+}
+
+export function formatMemoryStatus(status: MemoryStatus): string {
+  return [
+    `长期记忆: 用户级 ${status.userCount} 条 / 项目级 ${status.projectCount} 条`,
+    `用户目录: ${status.userDirectory}`,
+    `项目目录: ${status.projectDirectory}`,
+  ].join('\n');
+}
+
 function formatPermissionStatus(status: PermissionStatus): string {
   const counts = status.ruleCounts;
   const lines = [
@@ -137,6 +163,9 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
   const [usage, setUsage] = useState<TokenUsage | undefined>();
   const [permissionMode, setPermissionMode] = useState(initialPermissionStatus.mode);
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | undefined>();
+  const [promptHistory, setPromptHistory] = useState(() => chatManager.getPromptHistory());
+  const [rewindSnapshots, setRewindSnapshots] = useState(() => chatManager.getSnapshots());
+  const [rewindDialogActive, setRewindDialogActive] = useState(false);
 
   const textRef = useRef('');
   const thinkingRef = useRef('');
@@ -156,6 +185,10 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
   const appendAssistant = useCallback((content: string) => {
     setMessages(previous => [...previous, { role: 'assistant', content }]);
   }, []);
+
+  useEffect(() => chatManager.subscribeMemorySaved(names => {
+    appendAssistant(`长期记忆已保存: ${names.join(', ')}`);
+  }), [appendAssistant, chatManager]);
 
   const updateProgress = useCallback((event: Extract<AgentEvent, { type: 'progress' }>) => {
     const tool = event.toolName ? `: ${event.toolName}` : '';
@@ -188,7 +221,31 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
     pending.resolve(choice);
   }, [permissionRequest]);
 
+  const handleRewind = useCallback((action: RewindAction) => {
+    try {
+      const result = chatManager.rewind(action.snapshotIndex, action.mode);
+      if (action.mode !== 'code_only') {
+        const restored = result.history.flatMap(message => {
+          if (message.role !== 'user' && message.role !== 'assistant') return [];
+          return [{ role: message.role, content: message.content } satisfies DisplayMessage];
+        });
+        setMessages(restored);
+      }
+      const detail = result.changedFiles.length > 0
+        ? `，恢复文件 ${result.changedFiles.length} 个: ${result.changedFiles.join(', ')}`
+        : '';
+      appendAssistant(`已回滚到检查点“${result.snapshot.userText}”${detail}。`);
+      setRewindSnapshots(chatManager.getSnapshots());
+    } catch (error) {
+      appendAssistant(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRewindDialogActive(false);
+    }
+  }, [appendAssistant, chatManager]);
+
   const sendMessage = useCallback(async (input: string) => {
+    chatManager.recordPrompt(input);
+    setPromptHistory(chatManager.getPromptHistory());
     if (input === '/exit' || input === '/quit') {
       exit();
       return;
@@ -202,8 +259,47 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
         await chatManager.clear();
         setMessages([]);
         setUsage(undefined);
+        setRewindSnapshots([]);
       } catch (error) {
         appendAssistant(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (input === '/resume' || input === '/r') {
+      appendAssistant(formatSessionList(chatManager.listSessions()));
+      return;
+    }
+    if (input.startsWith('/resume ') || input.startsWith('/r ')) {
+      const command = input.startsWith('/resume ') ? '/resume ' : '/r ';
+      const sessionId = input.slice(command.length).trim();
+      if (!sessionId) {
+        appendAssistant(formatSessionList(chatManager.listSessions()));
+        return;
+      }
+      try {
+        const restored = await chatManager.resumeSession(sessionId);
+        setMessages([
+          ...restored.map(message => ({ ...message })),
+          { role: 'assistant', content: `已恢复会话 ${sessionId}（${restored.length} 条消息）。` },
+        ]);
+        setUsage(undefined);
+        setRewindSnapshots(chatManager.getSnapshots());
+      } catch (error) {
+        appendAssistant(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    if (input === '/memory') {
+      appendAssistant(formatMemoryStatus(chatManager.getMemoryStatus()));
+      return;
+    }
+    if (input === '/rewind') {
+      const snapshots = chatManager.getSnapshots();
+      if (snapshots.length === 0) {
+        appendAssistant('当前会话没有可回滚的检查点。');
+      } else {
+        setRewindSnapshots(snapshots);
+        setRewindDialogActive(true);
       }
       return;
     }
@@ -400,7 +496,13 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
         isThinking={isThinking}
       />
 
-      {isStreaming ? (
+      {rewindDialogActive ? (
+        <RewindDialog
+          snapshots={rewindSnapshots}
+          onSelect={handleRewind}
+          onCancel={() => setRewindDialogActive(false)}
+        />
+      ) : isStreaming ? (
         <Box flexDirection="column">
           {permissionRequest ? (
             <PermissionPrompt
@@ -413,7 +515,7 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
           <Text color="grey">Ctrl+C 取消当前任务</Text>
         </Box>
       ) : (
-        <InputBox onSubmit={sendMessage} disabled={false} />
+        <InputBox onSubmit={sendMessage} disabled={false} history={promptHistory} />
       )}
 
       {usage ? (

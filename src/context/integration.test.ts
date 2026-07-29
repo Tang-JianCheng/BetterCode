@@ -14,6 +14,7 @@ import type {
   StreamEvent,
 } from '../provider/types.js';
 import { createCoreToolRegistry } from '../tool/factory.js';
+import { COMPACT_BOUNDARY, loadSession } from '../session/session.js';
 import { CONTEXT_SUMMARY_HEADINGS } from './constants.js';
 import { ContextManager } from './manager.js';
 import type { ContextEvent } from './types.js';
@@ -230,6 +231,12 @@ test('ChatManager 手动压缩不增加用户轮次并保留计划', async t => 
   assert.equal(events.some(event => event.type === 'context_compacted'), true);
   assert.equal(chat.getHistory().some(message =>
     message.role === 'instruction' && message.instructionKind === 'context_summary'), true);
+  const boundary = loadSession(project, chat.getSessionId()).find(message =>
+    message.type === COMPACT_BOUNDARY);
+  assert.ok(boundary);
+  const payload = JSON.parse(boundary.content) as { summary?: string; keep?: unknown[] };
+  assert.match(payload.summary ?? '', /context-summary/);
+  assert.equal(Array.isArray(payload.keep), true);
   await chat.clear();
   assert.equal(chat.turnCount, 0);
   await chat.close();

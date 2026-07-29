@@ -11,6 +11,7 @@ import type {
   StreamEvent,
 } from '../provider/types.js';
 import { createCoreToolRegistry } from '../tool/factory.js';
+import { getSessionFilePath, loadSession } from '../session/session.js';
 import { ChatManager, NoPlanError } from './manager.js';
 
 class FakeProvider implements LLMProvider {
@@ -39,6 +40,7 @@ function makeManager(
   root: string,
   options: ConstructorParameters<typeof ChatManager>[2] = {},
   supplemental: ConstructorParameters<typeof ChatManager>[3] = {},
+  memoryOptions: ConstructorParameters<typeof ChatManager>[5] = {},
 ): ChatManager {
   const registry = createCoreToolRegistry(root);
   const permissionManager = createPermissionManager(
@@ -46,7 +48,7 @@ function makeManager(
     'allow',
     { userHome: path.join(root, '.home') },
   );
-  return new ChatManager(registry, permissionManager, options, supplemental);
+  return new ChatManager(registry, permissionManager, options, supplemental, {}, memoryOptions);
 }
 
 const done = (): StreamEvent => ({ type: 'done', content: '' });
@@ -314,4 +316,102 @@ test('ChatManager refuses permission mode changes during an active run', async t
   assert.equal(manager.getPermissionStatus().mode, 'default');
   controller.abort();
   await pending;
+});
+
+test('ChatManager 持久化会话、恢复后沿用原 ID 追加', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const first = makeManager(root);
+  await collect(first.run('第一条问题', new FakeProvider([[
+    { type: 'text_delta', content: '第一条回答' }, done(),
+  ]])));
+  const sessionId = first.getSessionId();
+  assert.deepEqual(loadSession(root, sessionId).map(message => message.content), [
+    '第一条问题', '第一条回答',
+  ]);
+  await first.close();
+
+  const resumed = makeManager(root);
+  const restored = await resumed.resumeSession(sessionId);
+  assert.deepEqual(restored.map(message => message.content), ['第一条问题', '第一条回答']);
+  assert.equal(resumed.getSessionId(), sessionId);
+  await collect(resumed.run('继续问题', new FakeProvider([[
+    { type: 'text_delta', content: '继续回答' }, done(),
+  ]])));
+  assert.deepEqual(loadSession(root, sessionId).map(message => message.content), [
+    '第一条问题', '第一条回答', '继续问题', '继续回答',
+  ]);
+  assert.equal(readFileSync(getSessionFilePath(root, sessionId), 'utf8').trim().split('\n').length, 4);
+});
+
+test('ChatManager 在写文件前建立快照并支持代码与对话一起回滚', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'target.txt'), '旧内容');
+  const manager = makeManager(root);
+  const provider = new FakeProvider([
+    [{
+      type: 'tool_call',
+      call: {
+        id: 'write-1',
+        name: 'write_file',
+        arguments: { path: 'target.txt', content: '新内容' },
+      },
+    }, done()],
+    [{ type: 'text_delta', content: '已经修改' }, done()],
+  ]);
+  await collect(manager.run('修改 target.txt', provider));
+  assert.equal(readFileSync(path.join(root, 'target.txt'), 'utf8'), '新内容');
+  assert.equal(manager.getSnapshots().length, 1);
+
+  const result = manager.rewind(0, 'code_and_conversation');
+  assert.equal(readFileSync(path.join(root, 'target.txt'), 'utf8'), '旧内容');
+  assert.deepEqual(result.changedFiles, ['target.txt']);
+  assert.equal(manager.getHistory().length, 0);
+});
+
+test('ChatManager 自然完成后异步提取记忆并发送保存通知', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const home = path.join(root, '.home');
+  const manager = makeManager(root, {}, {}, { autoExtract: true, userHome: home });
+  let resolveSaved: ((names: readonly string[]) => void) | undefined;
+  const saved = new Promise<readonly string[]>(resolve => { resolveSaved = resolve; });
+  manager.subscribeMemorySaved(names => resolveSaved?.(names));
+  const provider = new FakeProvider([
+    [{ type: 'text_delta', content: '好的，以后默认使用简体中文回复。' }, done()],
+    [{ type: 'text_delta', content: [
+      'MEMORY_NAME: reply-language',
+      'MEMORY_TYPE: user',
+      'MEMORY_DESC: 用户偏好简体中文',
+      'MEMORY_BODY:',
+      '默认使用简体中文回复。',
+    ].join('\n') }, done()],
+  ]);
+
+  const events = await collect(manager.run('请记住以后都用简体中文回复', provider));
+  assert.equal(events.at(-1)?.type, 'stopped');
+  assert.deepEqual(await saved, ['reply-language']);
+  assert.equal(existsSync(path.join(home, '.bettercode/memory/reply-language.md')), true);
+  await manager.close();
+});
+
+test('ChatManager 新增内容不足两条时暂不触发记忆提取', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manager = makeManager(root, {}, {}, {
+    autoExtract: true,
+    userHome: path.join(root, '.home'),
+  });
+  const empty = new FakeProvider([[done()]]);
+  await collect(manager.run('这是一条足够长但暂时没有模型回复的用户消息', empty));
+  assert.equal(empty.calls.length, 1);
+
+  const next = new FakeProvider([
+    [{ type: 'text_delta', content: '现在已经积累了足够的新增对话内容。' }, done()],
+    [{ type: 'text_delta', content: 'NONE' }, done()],
+  ]);
+  await collect(manager.run('继续补充一条足够长的用户消息', next));
+  await manager.close();
+  assert.equal(next.calls.length, 2);
 });

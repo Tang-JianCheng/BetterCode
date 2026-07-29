@@ -14,6 +14,46 @@ import type { PermissionDecider, PermissionMode, PermissionStatus } from '../per
 import { ToolRegistry } from '../tool/registry.js';
 import { ContextManager } from '../context/manager.js';
 import type { ContextManagerOptions } from '../context/types.js';
+import { FileHistory, type Snapshot } from '../filehistory/filehistory.js';
+import * as promptHistory from '../history/history.js';
+import { MemoryExtractor } from '../memory/extractor.js';
+import { MemoryManager } from '../memory/manager.js';
+import {
+  cleanExpiredSessions,
+  listSessions,
+  loadSession,
+  newSessionId,
+  rebuildFromSession,
+  saveCompactBoundary,
+  saveMessage,
+  type CompactBoundaryPayload,
+  type RestoredMessage,
+  type SessionInfo,
+} from '../session/session.js';
+import type { ToolCall } from '../tool/types.js';
+
+export interface ChatManagerMemoryOptions {
+  autoExtract?: boolean;
+  userHome?: string;
+  sessionPersistence?: boolean;
+}
+
+export interface MemoryStatus {
+  userDirectory: string;
+  projectDirectory: string;
+  userCount: number;
+  projectCount: number;
+}
+
+export type RewindMode = 'code_and_conversation' | 'conversation_only' | 'code_only';
+
+export interface RewindResult {
+  snapshot: Snapshot;
+  changedFiles: string[];
+  history: Message[];
+}
+
+type MemorySavedListener = (names: readonly string[]) => void;
 
 export class NoPlanError extends Error {
   constructor() {
@@ -29,6 +69,17 @@ export class ChatManager {
   private closed = false;
   private readonly loop: AgentLoop;
   private readonly contextManager: ContextManager;
+  private readonly rootDir: string;
+  private readonly memoryManager: MemoryManager;
+  private memoryExtractor: MemoryExtractor;
+  private readonly autoExtract: boolean;
+  private readonly sessionPersistence: boolean;
+  private readonly memorySavedListeners = new Set<MemorySavedListener>();
+  private readonly backgroundTasks = new Set<Promise<void>>();
+  private sessionId = newSessionId();
+  private fileHistory: FileHistory;
+  private memoryCursor = 0;
+  private memoryGeneration = 0;
 
   constructor(
     toolRegistry: ToolRegistry,
@@ -36,15 +87,27 @@ export class ChatManager {
     options: Partial<AgentLoopOptions> = {},
     supplemental: SupplementalPromptContent = {},
     contextOptions: Partial<ContextManagerOptions> = {},
+    memoryOptions: ChatManagerMemoryOptions = {},
   ) {
-    this.contextManager = new ContextManager(toolRegistry.rootDir, contextOptions);
+    this.rootDir = toolRegistry.rootDir;
+    this.autoExtract = memoryOptions.autoExtract ?? false;
+    this.sessionPersistence = memoryOptions.sessionPersistence ?? true;
+    this.memoryManager = new MemoryManager(this.rootDir, { userHome: memoryOptions.userHome });
+    this.memoryExtractor = new MemoryExtractor(this.memoryManager);
+    this.fileHistory = new FileHistory(this.rootDir, this.sessionId);
+    this.contextManager = new ContextManager(this.rootDir, contextOptions);
     this.loop = new AgentLoop(
       toolRegistry,
       permissionManager,
       options,
       supplemental,
       this.contextManager,
+      {
+        beforeToolExecution: call => this.trackToolEdit(call),
+        onLoopComplete: (history, provider) => this.scheduleMemoryExtraction(history, provider),
+      },
     );
+    Promise.resolve().then(() => cleanExpiredSessions(this.rootDir)).catch(() => {});
   }
 
   run(
@@ -82,6 +145,79 @@ export class ChatManager {
     return this.latestPlan ? { ...this.latestPlan } : undefined;
   }
 
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
+  listSessions(): SessionInfo[] {
+    return listSessions(this.rootDir);
+  }
+
+  async resumeSession(sessionId: string): Promise<RestoredMessage[]> {
+    if (this.closed) throw new Error('ChatManager 已关闭');
+    if (this.active) throw new Error('Agent 运行期间不能恢复会话');
+    const saved = loadSession(this.rootDir, sessionId);
+    if (saved.length === 0) throw new Error(`会话不存在或为空: ${sessionId}`);
+    const restored = rebuildFromSession(saved);
+    if (restored.length === 0) throw new Error(`会话没有可恢复的消息: ${sessionId}`);
+    await this.contextManager.clear();
+    this.history = restored.map(message => ({ ...message }));
+    this.latestPlan = undefined;
+    this.memoryGeneration += 1;
+    this.memoryCursor = this.history.length;
+    this.memoryExtractor = new MemoryExtractor(this.memoryManager);
+    this.sessionId = sessionId;
+    this.fileHistory = new FileHistory(this.rootDir, sessionId);
+    this.permissionManager.clearSessionRules();
+    return restored;
+  }
+
+  recordPrompt(text: string): void {
+    try {
+      promptHistory.append(this.rootDir, text);
+    } catch {
+      // 输入历史写入失败不影响用户提交任务。
+    }
+  }
+
+  getPromptHistory(): string[] {
+    return promptHistory.load(this.rootDir);
+  }
+
+  getMemoryStatus(): MemoryStatus {
+    const memories = this.memoryManager.getMemories();
+    return {
+      userDirectory: this.memoryManager.userDir,
+      projectDirectory: this.memoryManager.projectDir,
+      userCount: memories.filter(memory => memory.scope === 'user').length,
+      projectCount: memories.filter(memory => memory.scope === 'project').length,
+    };
+  }
+
+  subscribeMemorySaved(listener: MemorySavedListener): () => void {
+    this.memorySavedListeners.add(listener);
+    return () => this.memorySavedListeners.delete(listener);
+  }
+
+  getSnapshots(): Snapshot[] {
+    return this.fileHistory.getSnapshots();
+  }
+
+  rewind(snapshotIndex: number, mode: RewindMode): RewindResult {
+    if (this.closed) throw new Error('ChatManager 已关闭');
+    if (this.active) throw new Error('Agent 运行期间不能回滚');
+    const snapshot = this.fileHistory.getSnapshots()[snapshotIndex];
+    if (!snapshot) throw new Error('文件快照不存在');
+    const changedFiles = mode === 'conversation_only'
+      ? []
+      : this.fileHistory.rewind(snapshotIndex);
+    if (mode !== 'code_only') {
+      this.history = this.history.slice(0, snapshot.messageIndex);
+      this.latestPlan = undefined;
+    }
+    return { snapshot, changedFiles, history: [...this.history] };
+  }
+
   compact(
     provider: LLMProvider,
     signal = new AbortController().signal,
@@ -97,8 +233,11 @@ export class ChatManager {
       }
       this.active = true;
       try {
+        let compacted = false;
         const result = await this.loop.compactHistory(this.history, provider, signal, emit);
         this.history = [...result.history];
+        compacted = result.status === 'ready' && result.summarizedMessages > 0;
+        if (compacted) this.persistCompactBoundary(this.history);
         if (result.status === 'skipped') {
           emit({
             type: 'context_failed',
@@ -122,12 +261,18 @@ export class ChatManager {
     await this.contextManager.clear();
     this.history = [];
     this.latestPlan = undefined;
+    this.memoryGeneration += 1;
+    this.memoryCursor = 0;
+    this.memoryExtractor = new MemoryExtractor(this.memoryManager);
+    this.sessionId = newSessionId();
+    this.fileHistory = new FileHistory(this.rootDir, this.sessionId);
     this.permissionManager.clearSessionRules();
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     if (this.active) throw new Error('Agent 运行期间不能关闭 ChatManager');
+    await Promise.allSettled([...this.backgroundTasks]);
     await this.contextManager.close();
     this.closed = true;
   }
@@ -177,7 +322,10 @@ export class ChatManager {
 
       this.active = true;
       let terminalEvent: Extract<AgentEvent, { type: 'stopped' }> | undefined;
+      let compacted = false;
       try {
+        this.fileHistory.makeSnapshot(this.history.length, userMessage);
+        this.persistMessage('user', userMessage);
         const outcome = await this.loop.execute({
           history: this.history,
           userMessage,
@@ -187,10 +335,15 @@ export class ChatManager {
           permissionDecider,
         }, event => {
           if (event.type === 'stopped') terminalEvent = event;
-          else emit(event);
+          else {
+            if (event.type === 'context_compacted') compacted = true;
+            emit(event);
+          }
         });
 
         this.history = [...outcome.history];
+        if (compacted) this.persistCompactBoundary(this.history);
+        if (outcome.finalText.trim()) this.persistMessage('assistant', outcome.finalText);
         if (mode === 'plan' && planTask !== undefined &&
             outcome.reason === 'completed' && outcome.finalText.trim()) {
           this.latestPlan = { task: planTask, content: outcome.finalText };
@@ -213,5 +366,83 @@ export class ChatManager {
 
       if (terminalEvent) emit(terminalEvent);
     });
+  }
+
+  private persistMessage(role: 'user' | 'assistant', content: string): void {
+    if (!this.sessionPersistence || !content.trim()) return;
+    try {
+      saveMessage(this.rootDir, this.sessionId, {
+        role,
+        content,
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      // 会话存档失败不影响当前 Agent 任务。
+    }
+  }
+
+  private persistCompactBoundary(history: readonly Message[]): void {
+    if (!this.sessionPersistence) return;
+    const payload = this.buildCompactBoundary(history);
+    if (!payload) return;
+    try {
+      saveCompactBoundary(this.rootDir, this.sessionId, payload);
+    } catch {
+      // 压缩边界存档失败时仍保留内存中的压缩结果。
+    }
+  }
+
+  private buildCompactBoundary(history: readonly Message[]): CompactBoundaryPayload | undefined {
+    const summary = [...history].reverse().find(message =>
+      message.role === 'instruction' && message.instructionKind === 'context_summary');
+    if (!summary?.content.trim()) return undefined;
+    const keep = history.flatMap(message => {
+      if ((message.role !== 'user' && message.role !== 'assistant') || !message.content.trim()) return [];
+      return [{ role: message.role, content: message.content }];
+    });
+    return { summary: summary.content, keep };
+  }
+
+  private trackToolEdit(call: ToolCall): void {
+    if (call.name !== 'write_file' && call.name !== 'edit_file') return;
+    const filePath = call.arguments.path;
+    if (typeof filePath === 'string' && filePath.trim()) this.fileHistory.trackEdit(filePath);
+  }
+
+  private scheduleMemoryExtraction(history: readonly Message[], provider: LLMProvider): void {
+    if (!this.autoExtract || this.closed) return;
+    if (history.length - this.memoryCursor < 2) return;
+    const context = this.buildExtractionContext(history);
+    if (!context) return;
+    const cursor = history.length;
+    const generation = this.memoryGeneration;
+    let task: Promise<void>;
+    task = this.memoryExtractor.extract(context, provider)
+      .then(names => {
+        if (generation !== this.memoryGeneration) return;
+        this.memoryCursor = Math.max(this.memoryCursor, cursor);
+        if (names.length === 0) return;
+        for (const listener of this.memorySavedListeners) {
+          try {
+            listener(names);
+          } catch {
+            // 单个界面订阅异常不影响其他通知。
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => this.backgroundTasks.delete(task));
+    this.backgroundTasks.add(task);
+  }
+
+  private buildExtractionContext(history: readonly Message[]): string {
+    const lines = history.slice(-40).flatMap(message => {
+      if (message.role === 'instruction') return [];
+      const content = message.content.trim();
+      if (content.length < 12) return [];
+      const role = message.role === 'tool' ? `tool:${message.toolName}` : message.role;
+      return [`[${role}] ${content}`];
+    });
+    return lines.join('\n').slice(-24_000);
   }
 }

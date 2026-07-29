@@ -1,2 +1,5 @@
 .bettercode/permissions.local.yaml
 .bettercode/context/
+.bettercode/sessions/
+.bettercode/prompt_history.jsonl
+.bettercode/file-history/

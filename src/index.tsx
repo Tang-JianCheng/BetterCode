@@ -11,6 +11,8 @@ import { createPermissionManager } from './permission/factory.js';
 import type { PermissionMode } from './permission/types.js';
 import { createMcpManager } from './mcp/factory.js';
 import type { McpManager } from './mcp/manager.js';
+import { loadInstructions } from './memory/instructions.js';
+import { MemoryManager } from './memory/manager.js';
 
 function isPermissionMode(value: string | undefined): value is PermissionMode {
   return value === 'strict' || value === 'default' || value === 'allow';
@@ -66,7 +68,16 @@ async function main() {
 
     // 6. 基于完整工具列表创建权限与对话管理器
     const permissionManager = createPermissionManager(toolRegistry, permissionMode);
-    chatManager = new ChatManager(toolRegistry, permissionManager);
+    const customInstructions = loadInstructions(rootDir);
+    const longTermMemory = new MemoryManager(rootDir).buildSystemReminder();
+    chatManager = new ChatManager(
+      toolRegistry,
+      permissionManager,
+      {},
+      { customInstructions, longTermMemory },
+      {},
+      { autoExtract: true },
+    );
 
     // 7. 启动 TUI
     const { waitUntilExit } = render(

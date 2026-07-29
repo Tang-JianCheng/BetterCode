@@ -1,6 +1,11 @@
 import { SYSTEM_PROMPT_SECTIONS } from './sections.js';
 import type { PromptSection } from './types.js';
 
+export interface BuildSystemPromptOptions {
+  customInstructions?: string;
+  memorySection?: string;
+}
+
 function validateSections(sections: readonly PromptSection[]): void {
   const ids = new Set<string>();
   for (const section of sections) {
@@ -17,9 +22,28 @@ function validateSections(sections: readonly PromptSection[]): void {
 
 export function buildSystemPrompt(
   sections: readonly PromptSection[] = SYSTEM_PROMPT_SECTIONS,
+  options: BuildSystemPromptOptions = {},
 ): string {
-  validateSections(sections);
-  return [...sections]
+  const optionalSections: PromptSection[] = [];
+  if (options.customInstructions?.trim()) {
+    optionalSections.push({
+      id: 'custom_instructions',
+      priority: 95,
+      title: '自定义指令',
+      content: options.customInstructions,
+    });
+  }
+  if (options.memorySection?.trim()) {
+    optionalSections.push({
+      id: 'memory',
+      priority: 100,
+      title: '长期记忆',
+      content: options.memorySection,
+    });
+  }
+  const complete = [...sections, ...optionalSections];
+  validateSections(complete);
+  return complete
     .sort((left, right) => right.priority - left.priority)
     .map(section => `## ${section.title.trim()}\n${section.content.trim()}`)
     .join('\n\n');

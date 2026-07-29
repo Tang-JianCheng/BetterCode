@@ -49,3 +49,14 @@ test('system prompt contains stable safety and tool rules without dynamic contex
   assert.match(prompt, /<system-reminder>.*运行期元指令/);
   assert.doesNotMatch(prompt, /Users\/|2026-\d{2}-\d{2}|当前任务模式：(?:act|plan)/);
 });
+
+test('system prompt 可选指令与记忆分区按优先级加入', () => {
+  const prompt = buildSystemPrompt(undefined, {
+    customInstructions: '项目使用中文注释',
+    memorySection: '用户偏好简体中文',
+  });
+  assert.match(prompt, /## 长期记忆\n用户偏好简体中文/);
+  assert.match(prompt, /## 自定义指令\n项目使用中文注释/);
+  assert.ok(prompt.indexOf('## 文本输出') < prompt.indexOf('## 长期记忆'));
+  assert.ok(prompt.indexOf('## 长期记忆') < prompt.indexOf('## 自定义指令'));
+});
