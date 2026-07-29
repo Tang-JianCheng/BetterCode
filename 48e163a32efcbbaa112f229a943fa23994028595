@@ -1,0 +1,22 @@
+docs/memory-system/plan.md
+  h_857541505025b0 1-507
+docs/memory-system/checklist.md
+  h_857541505025b0 1-54
+AGENTS.md
+  h_857541505025b0 4
+docs/memory-system/task.md
+  h_857541505025b0 1-269
+docs/memory-system/spec.md
+  h_857541505025b0 1-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "48e163a32efcbbaa112f229a943fa23994028595",
+  "prompts": {},
+  "humans": {
+    "h_857541505025b0": {
+      "author": "tangjiancheng"
+    }
+  }
+}
