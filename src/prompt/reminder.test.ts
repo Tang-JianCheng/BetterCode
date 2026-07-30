@@ -76,20 +76,24 @@ test('reminder orders optional modules and omits empty values', () => {
         { name: 'skill-a', content: 'Skill 内容' },
         { name: ' ', content: '忽略' },
       ],
+      availableSkills: [{ name: 'review', description: '审查代码' }],
       longTermMemory: '记忆内容',
     },
   });
 
   const environmentIndex = reminder.indexOf('## 环境信息');
   const modeIndex = reminder.indexOf('## 当前任务模式');
+  const availableIndex = reminder.indexOf('## 可用 Skill');
   const customIndex = reminder.indexOf('## 自定义指令');
   const skillIndex = reminder.indexOf('## 已激活的 Skill');
   const memoryIndex = reminder.indexOf('## 长期记忆');
+  assert.equal(skillIndex < environmentIndex, true);
   assert.equal(environmentIndex < modeIndex, true);
-  assert.equal(modeIndex < customIndex, true);
-  assert.equal(customIndex < skillIndex, true);
-  assert.equal(skillIndex < memoryIndex, true);
+  assert.equal(modeIndex < availableIndex, true);
+  assert.equal(availableIndex < customIndex, true);
+  assert.equal(customIndex < memoryIndex, true);
   assert.match(reminder, /### skill-a\nSkill 内容/);
+  assert.match(reminder, /- review: 审查代码/u);
   assert.doesNotMatch(reminder, /忽略/);
 
   const withoutOptional = buildSystemReminder({

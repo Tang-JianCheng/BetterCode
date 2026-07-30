@@ -6,6 +6,7 @@ import {
   formatCommandHelp,
 } from '../command/builtins.js';
 import { CommandDispatcher } from '../command/dispatcher.js';
+import { createSkillCommandDefinitions } from '../command/skills.js';
 import type { CommandUIController } from '../command/types.js';
 import type { ContextEvent } from '../context/types.js';
 import type {
@@ -22,13 +23,14 @@ import {
 } from '../chat/manager.js';
 import type { SessionInfo } from '../session/session.js';
 import type { McpStartupStatus } from '../mcp/types.js';
+import type { SkillManager } from '../skill/manager.js';
+import type { SkillDiagnostic } from '../skill/types.js';
 import { InputBox } from './input-box.js';
 import { MessageList, type DisplayMessage } from './message-list.js';
 import { PermissionPrompt } from './permission-prompt.js';
 import { RewindDialog, type RewindAction } from './rewind-dialog.js';
 
 export const COMMAND_REGISTRY = createDefaultCommandRegistry();
-const COMMAND_DISPATCHER = new CommandDispatcher(COMMAND_REGISTRY);
 export const HELP_TEXT = formatCommandHelp(COMMAND_REGISTRY);
 
 const PROGRESS_LABELS = {
@@ -75,6 +77,7 @@ export function formatContextEvent(event: ContextEvent): string {
 interface Props {
   provider: LLMProvider;
   chatManager: ChatManager;
+  skillManager: SkillManager;
   mcpStatus?: McpStartupStatus;
 }
 
@@ -100,6 +103,7 @@ export interface BetterCodeStatus {
   sessionId: string;
   usage?: TokenUsage;
   memory: MemoryStatus;
+  activeSkills?: readonly string[];
 }
 
 export function formatAgentMode(mode: AgentMode): '[DEFAULT]' | '[PLAN]' {
@@ -117,6 +121,7 @@ export function formatStatus(status: BetterCodeStatus): string {
     `当前会话: ${status.sessionId}`,
     `Token: ${usage}`,
     `长期记忆: 用户级 ${status.memory.userCount} 条 / 项目级 ${status.memory.projectCount} 条`,
+    `已激活 Skill: ${status.activeSkills?.length ? status.activeSkills.join(', ') : '无'}`,
   ].join('\n');
 }
 
@@ -157,7 +162,17 @@ export function formatMcpStartupStatus(status: McpStartupStatus): string | undef
   return lines.join('\n');
 }
 
-export function App({ provider, chatManager, mcpStatus }: Props) {
+export function formatSkillStartupStatus(
+  diagnostics: readonly SkillDiagnostic[],
+): string | undefined {
+  if (diagnostics.length === 0) return undefined;
+  return [
+    `Skill 启动: 跳过 ${diagnostics.length} 个无效定义。`,
+    ...diagnostics.map(item => `- ${item.name ?? item.file}: ${item.message}`),
+  ].join('\n');
+}
+
+export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
   const { exit } = useApp();
   const initialPermissionStatus = chatManager.getPermissionStatus();
   const [messages, setMessages] = useState<DisplayMessage[]>(() => {
@@ -169,6 +184,8 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
     }
     const mcpMessage = mcpStatus ? formatMcpStartupStatus(mcpStatus) : undefined;
     if (mcpMessage) initial.push({ role: 'assistant', content: mcpMessage });
+    const skillMessage = formatSkillStartupStatus(skillManager.getSnapshot().diagnostics);
+    if (skillMessage) initial.push({ role: 'assistant', content: skillMessage });
     return initial;
   });
   const [currentStreaming, setCurrentStreaming] = useState('');
@@ -184,6 +201,13 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
   const [rewindSnapshots, setRewindSnapshots] = useState(() => chatManager.getSnapshots());
   const [rewindDialogActive, setRewindDialogActive] = useState(false);
   const [, setStatusVersion] = useState(0);
+  const [skillRevision, setSkillRevision] = useState(() => skillManager.getSnapshot().revision);
+
+  const commandRegistry = useMemo(() => {
+    void skillRevision;
+    return createDefaultCommandRegistry(createSkillCommandDefinitions(skillManager.list()));
+  }, [skillManager, skillRevision]);
+  const commandDispatcher = useMemo(() => new CommandDispatcher(commandRegistry), [commandRegistry]);
 
   const textRef = useRef('');
   const thinkingRef = useRef('');
@@ -213,6 +237,10 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
   useEffect(() => chatManager.subscribeMemorySaved(names => {
     appendAssistant(`长期记忆已保存: ${names.join(', ')}`);
   }), [appendAssistant, chatManager]);
+
+  useEffect(() => skillManager.subscribe(snapshot => {
+    setSkillRevision(snapshot.revision);
+  }), [skillManager]);
 
   const updateProgress = useCallback((event: Extract<AgentEvent, { type: 'progress' }>) => {
     const tool = event.toolName ? `: ${event.toolName}` : '';
@@ -267,14 +295,11 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
     }
   }, [appendAssistant, chatManager]);
 
-  const sendAgentMessage = useCallback(async (content: string, displayText = content) => {
-    const controller = new AbortController();
-    const eventStream = chatManager.run(content, provider, {
-      mode: agentModeRef.current,
-      signal: controller.signal,
-      permissionDecider,
-    });
-
+  const consumeAgentStream = useCallback(async (
+    eventStream: AsyncIterable<AgentEvent>,
+    displayText: string,
+    controller: AbortController,
+  ) => {
     textRef.current = '';
     thinkingRef.current = '';
     hasThinkingRef.current = false;
@@ -372,7 +397,29 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
       setIsStreaming(false);
       setProgress('');
     }
-  }, [chatManager, permissionDecider, provider, updateProgress]);
+  }, [updateProgress]);
+
+  const sendAgentMessage = useCallback(async (content: string, displayText = content) => {
+    const controller = new AbortController();
+    await consumeAgentStream(chatManager.run(content, provider, {
+      mode: agentModeRef.current,
+      signal: controller.signal,
+      permissionDecider,
+    }), displayText, controller);
+  }, [chatManager, consumeAgentStream, permissionDecider, provider]);
+
+  const runSkill = useCallback(async (name: string, args: string, displayText: string) => {
+    const controller = new AbortController();
+    try {
+      await consumeAgentStream(chatManager.runSkill(name, args, displayText, provider, {
+        mode: agentModeRef.current,
+        signal: controller.signal,
+        permissionDecider,
+      }), displayText, controller);
+    } catch (error) {
+      appendAssistant(error instanceof Error ? error.message : String(error));
+    }
+  }, [appendAssistant, chatManager, consumeAgentStream, permissionDecider, provider]);
 
   const clearConversation = useCallback(async () => {
     await chatManager.clear();
@@ -443,8 +490,9 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
       sessionId: chatManager.getSessionId(),
       usage,
       memory: chatManager.getMemoryStatus(),
+      activeSkills: skillManager.getActiveNames(),
     }));
-  }, [appendAssistant, chatManager, provider, usage]);
+  }, [appendAssistant, chatManager, provider, skillManager, usage]);
 
   const rewindConversation = useCallback(() => {
     const snapshots = chatManager.getSnapshots();
@@ -459,6 +507,7 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
   const commandUi = useMemo<CommandUIController>(() => ({
     showMessage: appendAssistant,
     sendUserMessage: sendAgentMessage,
+    runSkill,
     setAgentMode,
     getAgentMode: () => agentModeRef.current,
     getTokenUsage: () => usage,
@@ -478,6 +527,7 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
     exit,
     rewindConversation,
     sendAgentMessage,
+    runSkill,
     setAgentMode,
     showMemoryStatus,
     showOrResumeSession,
@@ -489,9 +539,9 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
   const handleSubmit = useCallback(async (input: string) => {
     chatManager.recordPrompt(input);
     setPromptHistory(chatManager.getPromptHistory());
-    const result = await COMMAND_DISPATCHER.dispatch(input, commandUi);
+    const result = await commandDispatcher.dispatch(input, commandUi);
     if (result.status === 'not_command') await sendAgentMessage(input);
-  }, [chatManager, commandUi, sendAgentMessage]);
+  }, [chatManager, commandDispatcher, commandUi, sendAgentMessage]);
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -542,7 +592,7 @@ export function App({ provider, chatManager, mcpStatus }: Props) {
           onSubmit={handleSubmit}
           disabled={false}
           history={promptHistory}
-          complete={input => COMMAND_REGISTRY.complete(input)}
+          complete={input => commandRegistry.complete(input)}
         />
       )}
 

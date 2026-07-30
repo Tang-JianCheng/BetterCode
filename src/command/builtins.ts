@@ -29,15 +29,6 @@ export function formatCommandHelp(registry: CommandRegistry, name = ''): string 
   ].join('\n');
 }
 
-export function buildReviewPrompt(scope: string): string {
-  const target = scope.trim() || '当前工作区未提交的代码变更';
-  return [
-    `请审查${target}。`,
-    '优先查找 bug、行为回归、安全风险和缺失测试，按严重程度从高到低报告。',
-    '每条发现给出文件定位、影响和可执行的修复建议；如果没有发现问题，请明确说明剩余测试风险。',
-  ].join('\n');
-}
-
 function definitions(): CommandDefinition[] {
   return [
     {
@@ -112,11 +103,6 @@ function definitions(): CommandDefinition[] {
       },
     },
     {
-      name: 'review', aliases: ['rv'], description: '让 Agent 审查指定范围',
-      usage: '/review [范围]', argumentHint: '[范围]', type: 'prompt',
-      handler: ({ args, raw, ui }) => ui.sendUserMessage(buildReviewPrompt(args), raw),
-    },
-    {
       name: 'rewind', aliases: [], description: '回滚文件或对话检查点', usage: '/rewind',
       type: 'ui', hidden: true,
       handler: invocation => {
@@ -135,8 +121,10 @@ function definitions(): CommandDefinition[] {
   ];
 }
 
-export function createDefaultCommandRegistry(): CommandRegistry {
+export function createDefaultCommandRegistry(
+  additional: readonly CommandDefinition[] = [],
+): CommandRegistry {
   const registry = new CommandRegistry();
-  for (const definition of definitions()) registry.register(definition);
+  for (const definition of [...definitions(), ...additional]) registry.register(definition);
   return registry;
 }

@@ -139,6 +139,29 @@ test('registry leaves no partial state when schema compilation fails', t => {
   assert.equal(registry.get('broken')?.name, 'broken');
 });
 
+test('registry 原子替换 owner 工具并保留系统元数据', t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  registry.register(makeTool('core', async () => createToolSuccess('core')), { system: true });
+  registry.replaceOwned('skills', [makeTool('first', async () => createToolSuccess('first'))]);
+
+  assert.deepEqual(registry.names(), ['core', 'first']);
+  assert.equal(registry.isSystem('core'), true);
+  assert.deepEqual(
+    registry.definitionsFor(new Set(['core', 'first'])).map(item => item.name),
+    ['core', 'first'],
+  );
+  assert.throws(
+    () => registry.replaceOwned('skills', [makeTool('core', async () => createToolSuccess('x'))]),
+    /重复/u,
+  );
+  assert.deepEqual(registry.names(), ['core', 'first']);
+
+  registry.replaceOwned('skills', [makeTool('second', async () => createToolSuccess('second'))]);
+  assert.deepEqual(registry.names(), ['core', 'second']);
+});
+
 test('core tool definitions keep stable order and reinforced descriptions', t => {
   const root = makeRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));

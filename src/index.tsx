@@ -13,6 +13,10 @@ import { createMcpManager } from './mcp/factory.js';
 import type { McpManager } from './mcp/manager.js';
 import { loadInstructions } from './memory/instructions.js';
 import { MemoryManager } from './memory/manager.js';
+import { SkillManager } from './skill/manager.js';
+import { SkillRunner } from './skill/runner.js';
+import { createDefaultCommandRegistry } from './command/builtins.js';
+import type { LLMProvider } from './provider/types.js';
 
 function isPermissionMode(value: string | undefined): value is PermissionMode {
   return value === 'strict' || value === 'default' || value === 'allow';
@@ -41,6 +45,7 @@ async function main() {
 
   let mcpManager: McpManager | undefined;
   let chatManager: ChatManager | undefined;
+  let skillManager: SkillManager | undefined;
   try {
     const permissionMode = values['permission-mode'];
     if (!isPermissionMode(permissionMode)) {
@@ -59,6 +64,19 @@ async function main() {
 
     // 4. 创建 Provider 实例
     const provider = createProvider(selectedConfig);
+    const providerCache = new Map<string, LLMProvider>([[selectedConfig.name, provider]]);
+    const providerResolver = {
+      has: (name: string) => appConfig.providers.some(item => item.name === name),
+      resolve: (name: string) => {
+        const cached = providerCache.get(name);
+        if (cached) return cached;
+        const config = appConfig.providers.find(item => item.name === name);
+        if (!config) throw new Error(`未找到 Skill 指定的 Provider 配置: ${name}`);
+        const created = createProvider(config);
+        providerCache.set(name, created);
+        return created;
+      },
+    };
 
     // 5. 创建内置工具并发现 MCP 工具
     const rootDir = process.cwd();
@@ -66,22 +84,42 @@ async function main() {
     mcpManager = createMcpManager(rootDir);
     const mcpStatus = await mcpManager.initialize(toolRegistry);
 
-    // 6. 基于完整工具列表创建权限与对话管理器
+    // 6. 发现 Skill 并注册按需工具
+    const commandTokens = createDefaultCommandRegistry()
+      .list({ includeHidden: true })
+      .flatMap(command => [command.name, ...command.aliases]);
+    skillManager = new SkillManager(toolRegistry, rootDir, {
+      providerNames: appConfig.providers.map(item => item.name),
+      reservedCommandNames: commandTokens,
+    });
+    skillManager.initialize();
+    skillManager.startWatching();
+
+    // 7. 基于完整工具列表创建权限、Skill 运行器与对话管理器
     const permissionManager = createPermissionManager(toolRegistry, permissionMode);
     const customInstructions = loadInstructions(rootDir);
     const longTermMemory = new MemoryManager(rootDir).buildSystemReminder();
+    const supplemental = { customInstructions, longTermMemory };
+    const skillRunner = new SkillRunner(
+      toolRegistry,
+      permissionManager,
+      skillManager,
+      providerResolver,
+      { supplemental },
+    );
     chatManager = new ChatManager(
       toolRegistry,
       permissionManager,
       {},
-      { customInstructions, longTermMemory },
+      supplemental,
       {},
       { autoExtract: true },
+      { manager: skillManager, runner: skillRunner },
     );
 
-    // 7. 启动 TUI
+    // 8. 启动 TUI
     const { waitUntilExit } = render(
-      React.createElement(App, { provider, chatManager, mcpStatus }),
+      React.createElement(App, { provider, chatManager, skillManager, mcpStatus }),
       { exitOnCtrlC: false },
     );
 
@@ -95,6 +133,7 @@ async function main() {
     } catch (error) {
       console.error(`[上下文清理] ${error instanceof Error ? error.message : String(error)}`);
     }
+    await skillManager?.close();
     const diagnostics = await mcpManager?.close() ?? [];
     for (const diagnostic of diagnostics) {
       const source = diagnostic.serverName ? ` ${diagnostic.serverName}` : '';

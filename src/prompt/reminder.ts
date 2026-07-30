@@ -81,7 +81,22 @@ export function isFullModeReminder(iteration: number): boolean {
 
 export function buildSystemReminder(input: ReminderInput): string {
   const { environment, supplemental } = input;
-  const sections = [
+  const sections: string[] = [];
+  const skills = supplemental?.activeSkills
+    ?.map(skill => ({
+      name: cleanOptional(skill.name),
+      content: cleanOptional(skill.content),
+    }))
+    .filter((skill): skill is { name: string; content: string } =>
+      Boolean(skill.name && skill.content));
+  if (skills?.length) {
+    sections.push([
+      '## 已激活的 Skill',
+      ...skills.map(skill => `### ${skill.name}\n${skill.content}`),
+    ].join('\n\n'));
+  }
+
+  sections.push(
     [
       '## 环境信息',
       `- 项目根目录：${environment.projectRoot}`,
@@ -98,25 +113,26 @@ export function buildSystemReminder(input: ReminderInput): string {
         ? MODE_INSTRUCTIONS[environment.mode].full
         : MODE_INSTRUCTIONS[environment.mode].compact,
     ].join('\n'),
-  ];
+  );
+
+  const availableSkills = supplemental?.availableSkills
+    ?.map(skill => ({
+      name: cleanOptional(skill.name),
+      description: cleanOptional(skill.description),
+    }))
+    .filter((skill): skill is { name: string; description: string } =>
+      Boolean(skill.name && skill.description));
+  if (availableSkills?.length) {
+    sections.push([
+      '## 可用 Skill',
+      '需要复用工作流时，优先调用 load_skill 按需加载。',
+      ...availableSkills.map(skill => `- ${skill.name}: ${skill.description}`),
+    ].join('\n'));
+  }
 
   const customInstructions = cleanOptional(supplemental?.customInstructions);
   if (customInstructions) {
     sections.push(`## 自定义指令\n${customInstructions}`);
-  }
-
-  const skills = supplemental?.activeSkills
-    ?.map(skill => ({
-      name: cleanOptional(skill.name),
-      content: cleanOptional(skill.content),
-    }))
-    .filter((skill): skill is { name: string; content: string } =>
-      Boolean(skill.name && skill.content));
-  if (skills?.length) {
-    sections.push([
-      '## 已激活的 Skill',
-      ...skills.map(skill => `### ${skill.name}\n${skill.content}`),
-    ].join('\n\n'));
   }
 
   const longTermMemory = cleanOptional(supplemental?.longTermMemory);

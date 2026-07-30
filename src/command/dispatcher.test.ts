@@ -8,6 +8,7 @@ function fakeUi(messages: string[]): CommandUIController {
   return {
     showMessage: content => messages.push(content),
     async sendUserMessage() {},
+    async runSkill() {},
     setAgentMode() {},
     getAgentMode: () => 'act',
     getTokenUsage: () => undefined,

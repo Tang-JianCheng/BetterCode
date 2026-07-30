@@ -31,8 +31,14 @@ export interface ActivatedSkill {
   content: string;
 }
 
+export interface AvailableSkill {
+  name: string;
+  description: string;
+}
+
 export interface SupplementalPromptContent {
   customInstructions?: string;
+  availableSkills?: readonly AvailableSkill[];
   activeSkills?: readonly ActivatedSkill[];
   longTermMemory?: string;
 }

@@ -8,6 +8,7 @@ import type { PermissionManager } from '../permission/manager.js';
 import { ContextManager } from '../context/manager.js';
 import type { ContextManageResult } from '../context/types.js';
 import type { ToolCall } from '../tool/types.js';
+import type { ToolResult } from '../tool/types.js';
 import { StreamCollector } from './stream-collector.js';
 import { ToolScheduler } from './tool-scheduler.js';
 import type {
@@ -31,6 +32,19 @@ const EMPTY_USAGE: TokenUsage = {
   cacheReadInputTokens: 0,
 };
 
+export interface AgentLoopRuntime {
+  supplemental?: () => SupplementalPromptContent;
+  visibleToolNames?: () => ReadonlySet<string> | undefined;
+  transformToolResult?: (input: {
+    call: ToolCall;
+    result: ToolResult;
+    history: readonly Message[];
+    request: AgentLoopRequest;
+    iteration: number;
+    emit: (event: AgentEvent) => void;
+  }) => Promise<ToolResult>;
+}
+
 export class AgentLoop {
   private readonly options: AgentLoopOptions;
   private readonly collector = new StreamCollector();
@@ -47,6 +61,7 @@ export class AgentLoop {
       beforeToolExecution?: (call: ToolCall) => void;
       onLoopComplete?: (history: readonly Message[], provider: AgentLoopRequest['provider']) => void;
     } = {},
+    private readonly runtime: AgentLoopRuntime = {},
   ) {
     this.options = {
       maxIterations: Math.max(1, options.maxIterations ?? DEFAULT_OPTIONS.maxIterations),
@@ -65,10 +80,6 @@ export class AgentLoop {
     let unknownToolStreak = 0;
     let completedIterations = 0;
     let startedIterations = 0;
-    const definitions = request.mode === 'plan'
-      ? this.registry.definitions('read_only')
-      : this.registry.definitions();
-
     const finish = (reason: AgentStopReason, iterations: number): AgentOutcome => {
       emit({ type: 'stopped', reason, iterations, finalText });
       return {
@@ -86,10 +97,20 @@ export class AgentLoop {
         startedIterations = iteration;
 
         const environment = collectEnvironment(this.registry.rootDir, request.mode);
+        const supplemental = this.currentSupplemental();
+        const visibleToolNames = this.runtime.visibleToolNames?.();
+        const definitions = visibleToolNames
+          ? this.registry.definitionsFor(
+              visibleToolNames,
+              request.mode === 'plan' ? 'read_only' : undefined,
+            )
+          : request.mode === 'plan'
+            ? this.registry.definitions('read_only')
+            : this.registry.definitions();
         const reminder = buildSystemReminder({
           environment,
           iteration,
-          supplemental: this.supplemental,
+          supplemental,
         });
         const managed = await this.contextManager.manage({
           history,
@@ -186,8 +207,22 @@ export class AgentLoop {
           permissionDecider: request.permissionDecider,
           onProgress: emit,
           onBeforeExecute: this.hooks.beforeToolExecution,
+          ...(visibleToolNames ? { allowedToolNames: visibleToolNames } : {}),
         });
         unknownToolStreak = batch.unknownToolStreak;
+
+        if (this.runtime.transformToolResult) {
+          for (const item of batch.results) {
+            item.result = await this.runtime.transformToolResult({
+              call: item.call,
+              result: item.result,
+              history,
+              request,
+              iteration,
+              emit,
+            });
+          }
+        }
 
         history.push({
           role: 'assistant',
@@ -233,10 +268,11 @@ export class AgentLoop {
     signal: AbortSignal,
     emit: (event: AgentEvent) => void,
   ): Promise<ContextManageResult> {
+    const visibleToolNames = this.runtime.visibleToolNames?.();
     const reminder = buildSystemReminder({
       environment: collectEnvironment(this.registry.rootDir, 'act'),
       iteration: 1,
-      supplemental: this.supplemental,
+      supplemental: this.currentSupplemental(),
     });
     return this.contextManager.manage({
       history,
@@ -246,12 +282,27 @@ export class AgentLoop {
         content: reminder,
       }],
       systemPrompt: this.systemPrompt,
-      tools: this.registry.definitions(),
+      tools: visibleToolNames
+        ? this.registry.definitionsFor(visibleToolNames)
+        : this.registry.definitions(),
       provider,
       trigger: 'manual',
       iteration: 0,
       signal,
       emit,
     });
+  }
+
+  private currentSupplemental(): SupplementalPromptContent {
+    const dynamic = this.runtime.supplemental?.() ?? {};
+    return {
+      ...this.supplemental,
+      ...dynamic,
+      activeSkills: [
+        ...(this.supplemental.activeSkills ?? []),
+        ...(dynamic.activeSkills ?? []),
+      ],
+      availableSkills: dynamic.availableSkills ?? this.supplemental.availableSkills,
+    };
   }
 }

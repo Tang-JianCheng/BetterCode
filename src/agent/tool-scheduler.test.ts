@@ -307,3 +307,44 @@ test('scheduler does not prompt for invalid arguments or count permission denial
   assert.equal(result.unknownToolLimitReached, false);
   assert.equal(prompts, 0);
 });
+
+test('scheduler 拒绝白名单外工具并让系统工具跳过权限确认', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  let hiddenRuns = 0;
+  let systemRuns = 0;
+  registry.register(tool('hidden', 'read_only', async () => {
+    hiddenRuns += 1;
+    return createToolSuccess('hidden');
+  }));
+  registry.register(tool('load_skill', 'read_only', async () => {
+    systemRuns += 1;
+    return createToolSuccess('loaded');
+  }), { system: true });
+  const permissionManager = createPermissionManager(
+    registry,
+    'strict',
+    { userHome: path.join(root, '.home') },
+  );
+  let prompts = 0;
+  const result = await new ToolScheduler(registry, permissionManager).executeBatch(
+    [call('1', 'hidden'), call('2', 'load_skill')],
+    1,
+    {
+      ...options(),
+      allowedToolNames: new Set(['load_skill']),
+      permissionDecider: async () => {
+        prompts += 1;
+        return 'allow_once';
+      },
+    },
+  );
+
+  assert.equal(result.results[0].result.error?.code, 'TOOL_UNAVAILABLE');
+  assert.equal(result.results[1].result.ok, true);
+  assert.equal(result.unknownToolStreak, 0);
+  assert.equal(hiddenRuns, 0);
+  assert.equal(systemRuns, 1);
+  assert.equal(prompts, 0);
+});

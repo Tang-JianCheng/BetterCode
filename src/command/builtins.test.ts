@@ -4,18 +4,19 @@ import type { AgentMode } from '../agent/types.js';
 import type { PermissionMode } from '../permission/types.js';
 import type { CommandUIController } from './types.js';
 import {
-  buildReviewPrompt,
   createDefaultCommandRegistry,
   formatCommandHelp,
 } from './builtins.js';
 import { CommandDispatcher } from './dispatcher.js';
 import { CommandRegistry } from './registry.js';
+import { createSkillCommandDefinitions } from './skills.js';
 
 function controller(events: string[]): CommandUIController {
   let mode: AgentMode = 'act';
   return {
     showMessage: content => events.push(`message:${content}`),
     async sendUserMessage(content, displayText) { events.push(`send:${displayText}:${content}`); },
+    async runSkill(name, args, displayText) { events.push(`skill:${name}:${args}:${displayText}`); },
     setAgentMode(value) { mode = value; events.push(`mode:${value}`); },
     getAgentMode: () => mode,
     getTokenUsage: () => undefined,
@@ -31,11 +32,11 @@ function controller(events: string[]): CommandUIController {
   };
 }
 
-test('默认注册中心包含十个可见主命令和兼容隐藏命令', () => {
+test('默认注册中心包含九个核心命令和兼容隐藏命令', () => {
   const registry = createDefaultCommandRegistry();
   assert.deepEqual(registry.list().map(item => item.name), [
     'help', 'compact', 'clear', 'plan', 'do', 'session', 'memory',
-    'permission', 'status', 'review',
+    'permission', 'status',
   ]);
   assert.equal(registry.get('resume')?.name, 'session');
   assert.equal(registry.get('permissions')?.name, 'permission');
@@ -67,11 +68,12 @@ test('计划、执行、状态和本地命令调用界面控制器', async () =>
   assert.equal(events.includes('exit'), true);
 });
 
-test('review 构造固定审查提示词并保留原命令显示文本', async () => {
+test('Skill 命令从元信息生成并直接调用 Skill Runtime', async () => {
   const events: string[] = [];
-  const registry = createDefaultCommandRegistry();
+  const registry = createDefaultCommandRegistry(createSkillCommandDefinitions([{
+    name: 'review', description: '审查代码',
+  }]));
   await new CommandDispatcher(registry).dispatch('/review src/chat', controller(events));
-  assert.match(events.find(event => event.startsWith('send:')) ?? '', /\/review src\/chat/u);
-  assert.match(events.find(event => event.startsWith('send:')) ?? '', /bug.*行为回归.*安全风险.*缺失测试/u);
-  assert.match(buildReviewPrompt('parser'), /parser/u);
+  assert.deepEqual(events, ['skill:review:src/chat:/review src/chat']);
+  assert.match(formatCommandHelp(registry), /\/review \[参数\].*审查代码/u);
 });

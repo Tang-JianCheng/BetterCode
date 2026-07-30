@@ -6,6 +6,7 @@ import {
   formatAgentMode,
   formatMemoryStatus,
   formatMcpStartupStatus,
+  formatSkillStartupStatus,
   formatSessionList,
   formatStatus,
   HELP_TEXT,
@@ -26,13 +27,27 @@ test('MCP 启动状态成功或未配置时不增加聊天消息', () => {
   }), undefined);
 });
 
+test('Skill 启动诊断只展示名称和清晰错误', () => {
+  assert.equal(formatSkillStartupStatus([]), undefined);
+  const status = formatSkillStartupStatus([{
+    scope: 'project',
+    file: '/repo/.bettercode/skills/broken.md',
+    name: 'broken',
+    code: 'INVALID_SKILL',
+    message: 'mode 必须是 shared 或 isolated',
+  }]);
+  assert.match(status ?? '', /跳过 1 个/u);
+  assert.match(status ?? '', /broken.*mode/u);
+  assert.doesNotMatch(status ?? '', /\.bettercode\/skills/u);
+});
+
 test('帮助文本和上下文事件提供简洁可行动信息', () => {
   assert.match(HELP_TEXT, /\/compact/);
   assert.match(HELP_TEXT, /\/session/);
   assert.match(HELP_TEXT, /\/memory/);
   assert.match(HELP_TEXT, /\/permission/);
   assert.match(HELP_TEXT, /\/status/);
-  assert.match(HELP_TEXT, /\/review/);
+  assert.doesNotMatch(HELP_TEXT, /\/review/u);
   assert.doesNotMatch(HELP_TEXT, /\/resume|\/rewind|\/exit/u);
   assert.equal(formatContextEvent({
     type: 'context_compacted',
@@ -76,6 +91,7 @@ test('模式标记和综合状态包含命令需要的运行信息', () => {
       userCount: 2,
       projectCount: 3,
     },
+    activeSkills: ['commit'],
   });
   assert.match(status, /deepseek \(deepseek-chat\)/u);
   assert.match(status, /\[PLAN\]/u);
@@ -83,6 +99,7 @@ test('模式标记和综合状态包含命令需要的运行信息', () => {
   assert.match(status, /abc-12345678/u);
   assert.match(status, /Token: 15/u);
   assert.match(status, /用户级 2 条 \/ 项目级 3 条/u);
+  assert.match(status, /已激活 Skill: commit/u);
 });
 
 test('会话列表与记忆状态使用可执行的命令提示', () => {

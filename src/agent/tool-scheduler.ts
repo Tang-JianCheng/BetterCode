@@ -29,6 +29,7 @@ export interface ToolScheduleOptions {
   permissionDecider?: PermissionDecider;
   onProgress: (event: AgentEvent) => void;
   onBeforeExecute?: (call: ToolCall) => void;
+  allowedToolNames?: ReadonlySet<string>;
 }
 
 interface IndexedCall {
@@ -66,6 +67,12 @@ export class ToolScheduler {
       if (!tool) {
         results.set(index, createToolError('TOOL_NOT_FOUND', `未找到工具: ${call.name}`));
         unknownToolStreak += 1;
+      } else if (options.allowedToolNames && !options.allowedToolNames.has(call.name)) {
+        results.set(index, createToolError(
+          'TOOL_UNAVAILABLE',
+          `当前 Skill 工具白名单不允许使用: ${call.name}`,
+        ));
+        unknownToolStreak = 0;
       } else if (options.mode === 'plan' && tool.effect === 'side_effect') {
         results.set(index, createToolError(
           'TOOL_UNAVAILABLE',
@@ -77,6 +84,8 @@ export class ToolScheduler {
         const validationError = this.registry.validate(call);
         if (validationError) {
           results.set(index, validationError);
+        } else if (this.registry.isSystem(call.name)) {
+          (tool.effect === 'read_only' ? readOnly : sideEffects).push({ index, call });
         } else {
           options.onProgress({
             type: 'progress',

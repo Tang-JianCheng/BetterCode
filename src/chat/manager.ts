@@ -31,11 +31,18 @@ import {
   type SessionInfo,
 } from '../session/session.js';
 import type { ToolCall } from '../tool/types.js';
+import type { SkillManager } from '../skill/manager.js';
+import type { SkillRunner } from '../skill/runner.js';
 
 export interface ChatManagerMemoryOptions {
   autoExtract?: boolean;
   userHome?: string;
   sessionPersistence?: boolean;
+}
+
+export interface ChatManagerSkillOptions {
+  manager?: SkillManager;
+  runner?: SkillRunner;
 }
 
 export interface MemoryStatus {
@@ -88,6 +95,7 @@ export class ChatManager {
     supplemental: SupplementalPromptContent = {},
     contextOptions: Partial<ContextManagerOptions> = {},
     memoryOptions: ChatManagerMemoryOptions = {},
+    private readonly skillOptions: ChatManagerSkillOptions = {},
   ) {
     this.rootDir = toolRegistry.rootDir;
     this.autoExtract = memoryOptions.autoExtract ?? false;
@@ -105,6 +113,27 @@ export class ChatManager {
       {
         beforeToolExecution: call => this.trackToolEdit(call),
         onLoopComplete: (history, provider) => this.scheduleMemoryExtraction(history, provider),
+      },
+      {
+        supplemental: skillOptions.manager
+          ? () => skillOptions.manager!.promptContent()
+          : undefined,
+        visibleToolNames: skillOptions.manager
+          ? () => skillOptions.manager!.visibleTools().names
+          : undefined,
+        transformToolResult: skillOptions.runner
+          ? async input => skillOptions.runner!.transformToolResult({
+              call: input.call,
+              result: input.result,
+              history: input.history,
+              currentProvider: input.request.provider,
+              options: {
+                mode: input.request.mode,
+                signal: input.request.signal,
+                permissionDecider: input.request.permissionDecider,
+              },
+            })
+          : undefined,
       },
     );
     Promise.resolve().then(() => cleanExpiredSessions(this.rootDir)).catch(() => {});
@@ -124,6 +153,67 @@ export class ChatManager {
       mode === 'plan' ? userInput : undefined,
       options.permissionDecider,
     );
+  }
+
+  runSkill(
+    name: string,
+    args: string,
+    displayText: string,
+    provider: LLMProvider,
+    options: AgentRunOptions = {},
+  ): AsyncIterable<AgentEvent> {
+    const manager = this.skillOptions.manager;
+    const runner = this.skillOptions.runner;
+    if (!manager || !runner) throw new Error('Skill 系统未初始化');
+    if (this.closed) throw new Error('ChatManager 已关闭');
+    if (this.active) throw new Error('已有 Agent 任务正在运行');
+    const skill = manager.get(name);
+    if (!skill) throw new Error(`Skill 不存在或不可用: ${name}`);
+    if (skill.mode === 'shared') {
+      manager.activateShared(skill.name, args);
+      const task = args.trim() || `执行 Skill ${skill.name}`;
+      return this.run(task, provider, options);
+    }
+
+    return createEventStream(async emit => {
+      if (this.closed) {
+        emit({ type: 'error', iteration: 0, message: 'ChatManager 已关闭' });
+        return;
+      }
+      if (this.active) {
+        emit({ type: 'error', iteration: 0, message: '已有 Agent 任务正在运行' });
+        return;
+      }
+      this.active = true;
+      manager.beginExecution();
+      let terminal: Extract<AgentEvent, { type: 'stopped' }> | undefined;
+      try {
+        this.fileHistory.makeSnapshot(this.history.length, displayText);
+        this.persistMessage('user', displayText);
+        const sourceHistory = [...this.history];
+        this.history.push({ role: 'user', content: displayText });
+        for await (const event of runner.run(skill.name, args, sourceHistory, provider, options)) {
+          if (event.type === 'stopped') terminal = event;
+          else emit(event);
+        }
+        const summary = terminal?.finalText.trim() ?? '';
+        if (summary) {
+          this.history.push({ role: 'assistant', content: summary });
+          this.persistMessage('assistant', summary);
+        }
+      } catch (error) {
+        emit({
+          type: 'error',
+          iteration: 0,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        terminal = { type: 'stopped', reason: 'stream_error', iterations: 0, finalText: '' };
+      } finally {
+        manager.endExecution();
+        this.active = false;
+      }
+      if (terminal) emit(terminal);
+    });
   }
 
   executeLatestPlan(
@@ -169,6 +259,7 @@ export class ChatManager {
     this.sessionId = sessionId;
     this.fileHistory = new FileHistory(this.rootDir, sessionId);
     this.permissionManager.clearSessionRules();
+    this.skillOptions.manager?.clearActive();
     return restored;
   }
 
@@ -232,6 +323,7 @@ export class ChatManager {
         return;
       }
       this.active = true;
+      this.skillOptions.manager?.beginExecution();
       try {
         let compacted = false;
         const result = await this.loop.compactHistory(this.history, provider, signal, emit);
@@ -250,6 +342,7 @@ export class ChatManager {
           });
         }
       } finally {
+        this.skillOptions.manager?.endExecution();
         this.active = false;
       }
     });
@@ -267,6 +360,7 @@ export class ChatManager {
     this.sessionId = newSessionId();
     this.fileHistory = new FileHistory(this.rootDir, this.sessionId);
     this.permissionManager.clearSessionRules();
+    this.skillOptions.manager?.clearActive();
   }
 
   async close(): Promise<void> {
@@ -321,6 +415,7 @@ export class ChatManager {
       }
 
       this.active = true;
+      this.skillOptions.manager?.beginExecution();
       let terminalEvent: Extract<AgentEvent, { type: 'stopped' }> | undefined;
       let compacted = false;
       try {
@@ -361,6 +456,7 @@ export class ChatManager {
           finalText: '',
         };
       } finally {
+        this.skillOptions.manager?.endExecution();
         this.active = false;
       }
 

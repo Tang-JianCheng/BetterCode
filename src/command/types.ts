@@ -8,6 +8,7 @@ export type CommandType = 'local' | 'ui' | 'prompt';
 export interface CommandUIController {
   showMessage(content: string): void;
   sendUserMessage(content: string, displayText?: string): Promise<void>;
+  runSkill(name: string, args: string, displayText: string): Promise<void>;
   setAgentMode(mode: AgentMode): void;
   getAgentMode(): AgentMode;
   getTokenUsage(): TokenUsage | undefined;

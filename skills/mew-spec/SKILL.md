@@ -1,6 +1,14 @@
 ---
 name: mew-spec
 description: Use when starting any feature, module, or section development — before writing any implementation code. Also use when the user describes a project or feature idea without clear specifications, when scope needs clarification, when you're tempted to skip planning and jump straight to coding, or when a task seems "too simple to need a spec."
+tools:
+  - read_file
+  - write_file
+  - edit_file
+  - find_files
+  - search_code
+  - run_command
+mode: shared
 ---
 
 # Spec 驱动开发

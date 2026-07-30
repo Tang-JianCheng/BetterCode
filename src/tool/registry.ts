@@ -17,10 +17,16 @@ import { PathGuard } from './path-guard.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+export interface ToolRegistrationOptions {
+  owner?: string;
+  system?: boolean;
+}
+
 export class ToolRegistry {
   readonly rootDir: string;
   private readonly tools = new Map<string, Tool>();
   private readonly validators = new Map<string, ValidateFunction>();
+  private readonly registrations = new Map<string, ToolRegistrationOptions>();
   private readonly ajv = new Ajv({ allErrors: true, strict: false });
   private readonly options: ToolRuntimeOptions;
 
@@ -33,13 +39,39 @@ export class ToolRegistry {
     };
   }
 
-  register(tool: Tool): void {
+  register(tool: Tool, options: ToolRegistrationOptions = {}): void {
     if (this.tools.has(tool.name)) {
       throw new Error(`工具名称重复: ${tool.name}`);
     }
     const validator = this.ajv.compile(tool.inputSchema);
     this.tools.set(tool.name, tool);
     this.validators.set(tool.name, validator);
+    this.registrations.set(tool.name, { ...options });
+  }
+
+  replaceOwned(owner: string, tools: readonly Tool[]): void {
+    if (!owner.trim()) throw new Error('动态工具 owner 不能为空');
+    const names = new Set<string>();
+    const validators = new Map<string, ValidateFunction>();
+    for (const tool of tools) {
+      if (names.has(tool.name)) throw new Error(`工具名称重复: ${tool.name}`);
+      const existing = this.registrations.get(tool.name);
+      if (existing && existing.owner !== owner) throw new Error(`工具名称重复: ${tool.name}`);
+      names.add(tool.name);
+      validators.set(tool.name, this.ajv.compile(tool.inputSchema));
+    }
+
+    for (const [name, registration] of this.registrations) {
+      if (registration.owner !== owner) continue;
+      this.tools.delete(name);
+      this.validators.delete(name);
+      this.registrations.delete(name);
+    }
+    for (const tool of tools) {
+      this.tools.set(tool.name, tool);
+      this.validators.set(tool.name, validators.get(tool.name)!);
+      this.registrations.set(tool.name, { owner });
+    }
   }
 
   get(name: string): Tool | undefined {
@@ -54,6 +86,25 @@ export class ToolRegistry {
       description: tool.description,
       inputSchema: tool.inputSchema,
       }));
+  }
+
+  definitionsFor(names: ReadonlySet<string>, effect?: ToolEffect): ToolDefinition[] {
+    return [...this.tools.values()]
+      .filter(tool => names.has(tool.name))
+      .filter(tool => effect === undefined || tool.effect === effect || this.isSystem(tool.name))
+      .map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+      }));
+  }
+
+  names(): string[] {
+    return [...this.tools.keys()];
+  }
+
+  isSystem(name: string): boolean {
+    return this.registrations.get(name)?.system === true;
   }
 
   effectOf(name: string): ToolEffect | undefined {
