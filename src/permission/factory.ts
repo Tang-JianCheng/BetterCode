@@ -10,6 +10,10 @@ export interface PermissionFactoryOptions {
   userHome?: string;
 }
 
+export interface PermissionManagerFactory {
+  create(mode: PermissionMode): PermissionManager;
+}
+
 export function createPermissionManager(
   registry: ToolRegistry,
   mode: PermissionMode = 'default',
@@ -27,4 +31,13 @@ export function createPermissionManager(
   rules.replaceLayer('local', loaded.rules.local);
   const sandbox = new SandboxPolicy(new PathGuard(registry.rootDir));
   return new PermissionManager(mode, sandbox, rules, store, loaded.diagnostics);
+}
+
+export function createPermissionManagerFactory(
+  registry: ToolRegistry,
+  options: PermissionFactoryOptions = {},
+): PermissionManagerFactory {
+  return {
+    create: mode => createPermissionManager(registry, mode, options),
+  };
 }

@@ -18,6 +18,7 @@ import type {
   SkillSnapshot,
   SkillVisibility,
 } from './types.js';
+import { AGENT_TOOL_NAME } from '../subagent/types.js';
 
 const SKILL_TOOL_OWNER = 'bettercode:skills';
 
@@ -225,7 +226,10 @@ export class SkillManager {
     if (scope) {
       const skill = this.get(scope.name);
       return {
-        names: new Set([...(skill?.tools ?? []), LOAD_SKILL_TOOL_NAME]),
+        names: new Set([
+          ...(skill?.tools ?? []).filter(name => name !== AGENT_TOOL_NAME),
+          LOAD_SKILL_TOOL_NAME,
+        ]),
         restricted: true,
       };
     }
@@ -238,6 +242,7 @@ export class SkillManager {
     return {
       names: new Set([
         ...[...this.active.values()].flatMap(skill => [...skill.tools]),
+        ...(this.baseToolNames.has(AGENT_TOOL_NAME) ? [AGENT_TOOL_NAME] : []),
         LOAD_SKILL_TOOL_NAME,
       ]),
       restricted: true,

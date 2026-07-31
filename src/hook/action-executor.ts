@@ -1,5 +1,6 @@
 import { executeHookCommand } from './command-executor.js';
 import { executeHookHttp } from './http-executor.js';
+import type { HookAgentRunner } from '../subagent/types.js';
 import type {
   HookActionExecutor as HookActionExecutorContract,
   HookActionResult,
@@ -35,7 +36,10 @@ function parseDecision(output: string | undefined): HookDecision {
 }
 
 export class DefaultHookActionExecutor implements HookActionExecutorContract {
-  constructor(private readonly rootDir: string) {}
+  constructor(
+    private readonly rootDir: string,
+    private readonly agentRunner?: HookAgentRunner,
+  ) {}
 
   async execute(
     rule: CompiledHookRule,
@@ -47,8 +51,22 @@ export class DefaultHookActionExecutor implements HookActionExecutorContract {
         return { status: 'success', prompt: rule.action.prompt.render(context) };
       }
       if (rule.action.type === 'agent') {
-        rule.action.prompt.render(context);
-        return { status: 'failed', code: 'NOT_IMPLEMENTED', message: '子 Agent Hook 动作尚未实现' };
+        if (!this.agentRunner) {
+          return { status: 'failed', code: 'AGENT_FAILED', message: 'Hook 子 Agent 运行器不可用' };
+        }
+        const result = await this.agentRunner.runHookAgent({
+          role: rule.action.role ?? 'general',
+          prompt: rule.action.prompt.render(context),
+          background: rule.background,
+          sessionId: context.session.id,
+          mode: context.turn?.mode ?? 'act',
+          signal,
+        });
+        if (result.status === 'completed') return { status: 'success', output: result.output };
+        if (result.status === 'backgrounded') {
+          return { status: 'success', output: `子 Agent 已转后台: ${result.taskId}` };
+        }
+        return { status: 'failed', code: 'AGENT_FAILED', message: result.message };
       }
       const result = rule.action.type === 'command'
         ? await executeHookCommand({

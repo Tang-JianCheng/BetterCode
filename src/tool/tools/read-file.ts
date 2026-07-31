@@ -39,12 +39,24 @@ export class ReadFileTool implements Tool {
       throw new ToolFailure('FILE_NOT_FOUND', `目标不是普通文件: ${filePath}`);
     }
 
-    const bytes = readFileSync(target.absolute);
+    const stat = statSync(target.absolute);
+    const cached = context.executionState?.getFileRead(target.relative, stat.size, stat.mtimeMs);
+    const bytes = cached === undefined ? readFileSync(target.absolute) : Buffer.from(cached, 'utf8');
     let content: string;
-    try {
-      content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    } catch {
-      throw new ToolFailure('NOT_TEXT_FILE', `文件不是有效的 UTF-8 文本: ${filePath}`);
+    if (cached !== undefined) {
+      content = cached;
+    } else {
+      try {
+        content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      } catch {
+        throw new ToolFailure('NOT_TEXT_FILE', `文件不是有效的 UTF-8 文本: ${filePath}`);
+      }
+      context.executionState?.setFileRead({
+        relativePath: target.relative,
+        size: stat.size,
+        mtimeMs: stat.mtimeMs,
+        content,
+      });
     }
 
     const limited = truncateUtf8(content, context.maxOutputBytes);
@@ -52,6 +64,7 @@ export class ReadFileTool implements Tool {
       path: target.relative,
       bytes: bytes.byteLength,
       truncated: limited.truncated,
+      cached: cached !== undefined,
     });
   }
 }

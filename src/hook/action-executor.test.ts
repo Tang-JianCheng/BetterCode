@@ -7,6 +7,7 @@ import test from 'node:test';
 import { compileHooks } from './compiler.js';
 import { DefaultHookActionExecutor } from './action-executor.js';
 import type { HookEventContext, LoadedHookConfig } from './types.js';
+import type { HookAgentRunner } from '../subagent/types.js';
 
 function makeRoot(): string {
   return mkdtempSync(path.join(tmpdir(), 'bettercode-hook-action-'));
@@ -85,4 +86,55 @@ test('HTTP 动作发送事件 JSON 并解析统一拒绝协议', async t => {
     decision: 'deny',
     reason: 'remote policy',
   });
+});
+
+test('Agent 动作调用真实运行器并支持角色、同步和后台结果', async () => {
+  const calls: Parameters<HookAgentRunner['runHookAgent']>[0][] = [];
+  const runner: HookAgentRunner = {
+    async runHookAgent(input) {
+      calls.push(input);
+      return input.background
+        ? { status: 'backgrounded', taskId: 'sa-background' }
+        : { status: 'completed', output: '检查完成' };
+    },
+  };
+  const scopedContext: HookEventContext = {
+    ...context,
+    event: 'post_tool_use',
+    tool: { ...context.tool!, result: { ok: true, output: 'ok', metadata: {} } },
+  };
+  const foreground = compile({
+    event: 'post_tool_use', action: { type: 'agent', role: 'reviewer', prompt: '检查 {{tool.name}}' },
+  });
+  const background = compile({
+    event: 'post_tool_use', background: true, action: { type: 'agent', prompt: '后台检查' },
+  });
+  const executor = new DefaultHookActionExecutor('/project', runner);
+
+  assert.deepEqual(await executor.execute(foreground, scopedContext, new AbortController().signal), {
+    status: 'success', output: '检查完成',
+  });
+  assert.deepEqual(await executor.execute(background, scopedContext, new AbortController().signal), {
+    status: 'success', output: '子 Agent 已转后台: sa-background',
+  });
+  assert.equal(calls[0].role, 'reviewer');
+  assert.equal(calls[0].prompt, '检查 run_command');
+  assert.equal(calls[1].role, 'general');
+  assert.equal(calls[1].background, true);
+});
+
+test('Agent 动作缺少运行器或执行失败时返回 AGENT_FAILED', async () => {
+  const rule = compile({ event: 'turn_start', action: { type: 'agent', prompt: '检查' } });
+  const turnContext: HookEventContext = { ...context, event: 'turn_start', tool: undefined };
+  const unavailable = await new DefaultHookActionExecutor('/project').execute(
+    rule, turnContext, new AbortController().signal,
+  );
+  assert.equal(unavailable.status === 'failed' ? unavailable.code : '', 'AGENT_FAILED');
+
+  const failed = await new DefaultHookActionExecutor('/project', {
+    async runHookAgent() {
+      return { status: 'failed', code: 'SUBAGENT_FAILED', message: '失败' };
+    },
+  }).execute(rule, turnContext, new AbortController().signal);
+  assert.deepEqual(failed, { status: 'failed', code: 'AGENT_FAILED', message: '失败' });
 });

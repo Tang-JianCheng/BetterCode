@@ -24,6 +24,7 @@ const EVENTS = new Set<HookEventName>([
 ]);
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
+const AGENT_ROLE_NAME = /^[a-z][a-z0-9-]*$/u;
 
 export class HookCompileError extends Error {
   constructor(message: string) {
@@ -106,10 +107,15 @@ function compileAction(event: HookEventName, raw: unknown): CompiledHookAction {
     };
   }
   if (raw.type === 'agent') {
-    onlyKeys(raw, ['type', 'prompt'], 'agent action ');
+    onlyKeys(raw, ['type', 'prompt', 'role'], 'agent action ');
+    const role = raw.role === undefined ? undefined : nonEmptyString(raw.role, 'action.role').toLowerCase();
+    if (role !== undefined && !AGENT_ROLE_NAME.test(role)) {
+      throw new HookCompileError('action.role 必须是合法的 Agent 角色名');
+    }
     return {
       type: 'agent',
       prompt: compileTextTemplate(event, nonEmptyString(raw.prompt, 'action.prompt')),
+      ...(role ? { role } : {}),
     };
   }
   if (raw.type === 'http') {

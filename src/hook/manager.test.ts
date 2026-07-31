@@ -140,3 +140,55 @@ test('后台 Hook 不阻塞事件，once 失败后允许重试', async t => {
   await manager.endTurn('completed', signal);
   await manager.close();
 });
+
+test('子 Agent Hook scope 隔离 Prompt 并保持捕获上下文', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manager = new HookManager(root, makeRules([
+    { event: 'assistant_message', action: { type: 'prompt', prompt: '{{agent.id}}:{{message.content}}' } },
+  ]), new FakeExecutor(), new FakeLogger());
+  const first = manager.createAgentScope({
+    id: 'sa-1', kind: 'defined', role: 'general', sessionId: 's1', parentTurnId: 'parent',
+    turn: { id: 'parent', mode: 'act', task: '第一项' },
+  });
+  const second = manager.createAgentScope({
+    id: 'sa-2', kind: 'fork', sessionId: 's1', parentTurnId: 'parent',
+    turn: { id: 'parent', mode: 'plan', task: '第二项' },
+  });
+  const signal = new AbortController().signal;
+  await first.emitAssistantMessage({ content: '甲', toolCalls: [] }, signal);
+  await second.emitAssistantMessage({ content: '乙', toolCalls: [] }, signal);
+
+  assert.equal(first.preparePromptBatch()?.content, 'sa-1:甲');
+  assert.equal(second.preparePromptBatch()?.content, 'sa-2:乙');
+  assert.equal(manager.preparePromptBatch(), undefined);
+  first.close();
+  assert.equal(first.preparePromptBatch(), undefined);
+  assert.equal(second.preparePromptBatch()?.content, 'sa-2:乙');
+  second.close();
+  await manager.close();
+});
+
+test('子 Agent Hook scope 拒绝递归 agent 动作并记录失败', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const logger = new FakeLogger();
+  const executor = new FakeExecutor();
+  const manager = new HookManager(root, makeRules([
+    { event: 'post_tool_use', action: { type: 'agent', prompt: '再次委派' } },
+  ]), executor, logger);
+  const scope = manager.createAgentScope({
+    id: 'sa-1', kind: 'defined', role: 'general', sessionId: 's1',
+    turn: { id: 'parent', mode: 'act', task: '任务' },
+  });
+  await scope.afterToolUse(
+    { id: 'call', name: 'read_file', arguments: { path: 'a' } },
+    { ok: true, output: 'ok', metadata: {} },
+    new AbortController().signal,
+  );
+
+  assert.equal(executor.calls.length, 0);
+  assert.equal(logger.entries[0].code, 'NESTED_AGENT_FORBIDDEN');
+  scope.close();
+  await manager.close();
+});

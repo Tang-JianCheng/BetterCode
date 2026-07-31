@@ -95,6 +95,11 @@ function definitions(): CommandDefinition[] {
       },
     },
     {
+      name: 'tasks', aliases: [], description: '查看当前会话的子 Agent 任务',
+      usage: '/tasks [任务 ID]', argumentHint: '[任务 ID]', type: 'local',
+      handler: ({ args, ui }) => ui.showSubAgentTasks(args || undefined),
+    },
+    {
       name: 'status', aliases: ['st'], description: '显示当前运行状态', usage: '/status',
       type: 'local', handler: invocation => {
         if (!noArguments(invocation)) return;

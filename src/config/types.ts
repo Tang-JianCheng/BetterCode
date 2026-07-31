@@ -18,7 +18,24 @@ export interface ProviderConfig {
   default?: boolean;
 }
 
+export type AgentModelTier = 'haiku' | 'sonnet' | 'opus';
+
+export interface AgentModelAliases {
+  haiku?: string;
+  sonnet?: string;
+  opus?: string;
+}
+
+export interface SubAgentConfig {
+  foreground_timeout_ms?: number;
+  fork_max_iterations?: number;
+  retained_tasks?: number;
+  denied_tools?: string[];
+}
+
 /** config.yaml 顶层结构 */
 export interface AppConfig {
   providers: ProviderConfig[];
+  agent_models?: AgentModelAliases;
+  subagents?: SubAgentConfig;
 }

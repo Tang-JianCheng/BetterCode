@@ -8,6 +8,7 @@ import {
 } from '../tool/types.js';
 import type { AgentEvent, AgentMode } from './types.js';
 import type { HookRuntime } from '../hook/types.js';
+import type { ToolExecutionState } from '../tool/execution-state.js';
 
 export interface ScheduledToolResult {
   call: ToolCall;
@@ -47,6 +48,7 @@ export class ToolScheduler {
     private readonly registry: ToolRegistry,
     private readonly permissionManager: PermissionManager,
     private readonly hooks?: HookRuntime,
+    private readonly executionState?: ToolExecutionState,
   ) {}
 
   async executeBatch(
@@ -168,8 +170,16 @@ export class ToolScheduler {
         // 快照失败不能阻断已获授权的工具调用。
       }
       executedIndices.add(index);
-      const result = await this.registry.execute(call, options.signal);
+      const result = await this.registry.execute(call, options.signal, this.executionState);
       results.set(index, result);
+      if (result.ok && this.registry.effectOf(call.name) === 'side_effect') {
+        const filePath = call.arguments.path;
+        if ((call.name === 'write_file' || call.name === 'edit_file') && typeof filePath === 'string') {
+          this.executionState?.invalidateFile(filePath);
+        } else {
+          this.executionState?.invalidateAllFiles();
+        }
+      }
     };
 
     await Promise.all(readOnly.map(execute));

@@ -25,6 +25,8 @@ import type { SessionInfo } from '../session/session.js';
 import type { McpStartupStatus } from '../mcp/types.js';
 import type { SkillManager } from '../skill/manager.js';
 import type { SkillDiagnostic } from '../skill/types.js';
+import type { AgentDefinitionDiagnostic, SubAgentEvent } from '../subagent/types.js';
+import { formatTaskDetail, formatTaskList } from '../subagent/format.js';
 import { InputBox } from './input-box.js';
 import { MessageList, type DisplayMessage } from './message-list.js';
 import { PermissionPrompt } from './permission-prompt.js';
@@ -79,6 +81,7 @@ interface Props {
   chatManager: ChatManager;
   skillManager: SkillManager;
   mcpStatus?: McpStartupStatus;
+  agentDiagnostics?: readonly AgentDefinitionDiagnostic[];
 }
 
 export function formatContextWindowNotice(provider: LLMProvider): string | undefined {
@@ -104,6 +107,7 @@ export interface BetterCodeStatus {
   usage?: TokenUsage;
   memory: MemoryStatus;
   activeSkills?: readonly string[];
+  subAgentTasks?: { total: number; running: number; background: number };
 }
 
 export function formatAgentMode(mode: AgentMode): '[DEFAULT]' | '[PLAN]' {
@@ -122,6 +126,8 @@ export function formatStatus(status: BetterCodeStatus): string {
     `Token: ${usage}`,
     `长期记忆: 用户级 ${status.memory.userCount} 条 / 项目级 ${status.memory.projectCount} 条`,
     `已激活 Skill: ${status.activeSkills?.length ? status.activeSkills.join(', ') : '无'}`,
+    `子 Agent 任务: ${status.subAgentTasks?.total ?? 0} 个（运行中 ${status.subAgentTasks?.running ?? 0} / ` +
+      `后台 ${status.subAgentTasks?.background ?? 0}）`,
   ].join('\n');
 }
 
@@ -172,7 +178,27 @@ export function formatSkillStartupStatus(
   ].join('\n');
 }
 
-export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
+export function formatAgentStartupStatus(
+  diagnostics: readonly AgentDefinitionDiagnostic[],
+): string | undefined {
+  if (diagnostics.length === 0) return undefined;
+  return [
+    `子 Agent 角色启动: 跳过 ${diagnostics.length} 个无效定义。`,
+    ...diagnostics.map(item => `- ${item.name ?? item.file}: ${item.message}`),
+  ].join('\n');
+}
+
+export function formatSubAgentEvent(event: SubAgentEvent): string | undefined {
+  if (event.type === 'task_backgrounded') {
+    return `子 Agent 已转后台: ${event.task.id}（${event.reason}）`;
+  }
+  if (event.type !== 'task_finished' || event.task.executionMode !== 'background') return undefined;
+  if (event.task.state === 'completed') return `后台子 Agent 已完成: ${event.task.id}`;
+  if (event.task.state === 'cancelled') return `后台子 Agent 已取消: ${event.task.id}`;
+  return `后台子 Agent 执行失败: ${event.task.id} - ${event.task.error?.message ?? '未知错误'}`;
+}
+
+export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagnostics = [] }: Props) {
   const { exit } = useApp();
   const initialPermissionStatus = chatManager.getPermissionStatus();
   const [messages, setMessages] = useState<DisplayMessage[]>(() => {
@@ -186,6 +212,8 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
     if (mcpMessage) initial.push({ role: 'assistant', content: mcpMessage });
     const skillMessage = formatSkillStartupStatus(skillManager.getSnapshot().diagnostics);
     if (skillMessage) initial.push({ role: 'assistant', content: skillMessage });
+    const agentMessage = formatAgentStartupStatus(agentDiagnostics);
+    if (agentMessage) initial.push({ role: 'assistant', content: agentMessage });
     return initial;
   });
   const [currentStreaming, setCurrentStreaming] = useState('');
@@ -220,9 +248,16 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
   }>();
 
   useInput((input, key) => {
-    if (!key.ctrl || input.toLowerCase() !== 'c') return;
-    if (isStreaming) abortRef.current?.abort();
-    else exit();
+    if (!key.ctrl) return;
+    if (input.toLowerCase() === 'b' && isStreaming) {
+      chatManager.backgroundCurrentSubAgent();
+      setStatusVersion(version => version + 1);
+      return;
+    }
+    if (input.toLowerCase() === 'c') {
+      if (isStreaming) abortRef.current?.abort();
+      else exit();
+    }
   });
 
   const appendAssistant = useCallback((content: string) => {
@@ -236,6 +271,12 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
 
   useEffect(() => chatManager.subscribeMemorySaved(names => {
     appendAssistant(`长期记忆已保存: ${names.join(', ')}`);
+  }), [appendAssistant, chatManager]);
+
+  useEffect(() => chatManager.subscribeSubAgent(event => {
+    const message = formatSubAgentEvent(event);
+    if (message) appendAssistant(message);
+    setStatusVersion(version => version + 1);
   }), [appendAssistant, chatManager]);
 
   useEffect(() => skillManager.subscribe(snapshot => {
@@ -460,8 +501,10 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
       return;
     }
     const restored = await chatManager.resumeSession(sessionId);
+    const visible = restored.filter((message): message is Extract<typeof message, { role: 'user' | 'assistant' }> =>
+      message.role === 'user' || message.role === 'assistant');
     setMessages([
-      ...restored.map(message => ({ ...message })),
+      ...visible.map(message => ({ ...message })),
       { role: 'assistant', content: `已恢复会话 ${sessionId}（${restored.length} 条消息）。` },
     ]);
     setUsage(undefined);
@@ -483,6 +526,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
   }, [appendAssistant, chatManager]);
 
   const showStatus = useCallback(() => {
+    const tasks = chatManager.listSubAgentTasks();
     appendAssistant(formatStatus({
       provider,
       agentMode: agentModeRef.current,
@@ -491,6 +535,12 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
       usage,
       memory: chatManager.getMemoryStatus(),
       activeSkills: skillManager.getActiveNames(),
+      subAgentTasks: {
+        total: tasks.length,
+        running: tasks.filter(task => task.state === 'waiting' || task.state === 'running').length,
+        background: tasks.filter(task => task.executionMode === 'background' &&
+          (task.state === 'waiting' || task.state === 'running')).length,
+      },
     }));
   }, [appendAssistant, chatManager, provider, skillManager, usage]);
 
@@ -502,6 +552,12 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
     }
     setRewindSnapshots(snapshots);
     setRewindDialogActive(true);
+  }, [appendAssistant, chatManager]);
+
+  const showSubAgentTasks = useCallback((taskId?: string) => {
+    appendAssistant(taskId
+      ? formatTaskDetail(chatManager.getSubAgentTask(taskId), taskId)
+      : formatTaskList(chatManager.listSubAgentTasks()));
   }, [appendAssistant, chatManager]);
 
   const commandUi = useMemo<CommandUIController>(() => ({
@@ -518,6 +574,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
     showMemoryStatus,
     showOrSetPermission,
     showStatus,
+    showSubAgentTasks,
     rewindConversation,
     exit,
   }), [
@@ -533,6 +590,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
     showOrResumeSession,
     showOrSetPermission,
     showStatus,
+    showSubAgentTasks,
     usage,
   ]);
 
@@ -586,6 +644,9 @@ export function App({ provider, chatManager, skillManager, mcpStatus }: Props) {
           ) : undefined}
           <Text color="grey">{progress || 'Agent 正在运行'}</Text>
           <Text color="grey">Ctrl+C 取消当前任务</Text>
+          {chatManager.hasForegroundSubAgent() ? (
+            <Text color="grey">Ctrl+B 将当前子 Agent 转到后台</Text>
+          ) : undefined}
         </Box>
       ) : (
         <InputBox

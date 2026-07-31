@@ -45,6 +45,7 @@ export interface ToolContext {
   rootDir: string;
   signal: AbortSignal;
   maxOutputBytes: number;
+  executionState?: import('./execution-state.js').ToolExecutionState;
 }
 
 export interface Tool {
@@ -82,6 +83,9 @@ export type ToolErrorCode =
   | 'MCP_SERVER_UNAVAILABLE'
   | 'MCP_PROTOCOL_ERROR'
   | 'MCP_TOOL_ERROR'
+  | 'SUBAGENT_UNAVAILABLE'
+  | 'SUBAGENT_CONTEXT_ERROR'
+  | 'SUBAGENT_FAILED'
   | 'EXECUTION_ERROR'
   | 'INTERNAL_ERROR';
 

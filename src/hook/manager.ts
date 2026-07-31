@@ -11,6 +11,8 @@ import type {
   HookEventName,
   HookLogger,
   HookRuntime,
+  HookAgentScope,
+  ScopedHookRuntime,
   HookTurnStartInput,
   PreparedHookPromptBatch,
 } from './types.js';
@@ -22,6 +24,11 @@ interface ActiveTurn extends HookTurnStartInput {
 interface PromptEntry {
   id: number;
   content: string;
+}
+
+interface ScopeState {
+  closed: boolean;
+  prompts: PromptEntry[];
 }
 
 const MAX_CONTEXT_TEXT_BYTES = 64 * 1024;
@@ -54,6 +61,7 @@ export class HookManager implements HookRuntime {
   private readonly onceStates = new Map<string, 'running' | 'completed'>();
   private readonly backgroundTasks = new Set<Promise<void>>();
   private readonly shutdown = new AbortController();
+  private readonly scopes = new Set<ScopeState>();
   private closePromise?: Promise<void>;
 
   constructor(
@@ -142,16 +150,70 @@ export class HookManager implements HookRuntime {
   }
 
   preparePromptBatch(): PreparedHookPromptBatch | undefined {
-    const last = this.prompts.at(-1);
-    if (!last) return undefined;
-    return {
-      throughId: last.id,
-      content: this.prompts.map(item => item.content).join('\n\n'),
-    };
+    return this.preparePrompts(this.prompts);
   }
 
   commitPromptBatch(throughId: number): void {
-    while (this.prompts[0]?.id !== undefined && this.prompts[0].id <= throughId) this.prompts.shift();
+    this.commitPrompts(this.prompts, throughId);
+  }
+
+  createAgentScope(input: HookAgentScope): ScopedHookRuntime {
+    const state: ScopeState = { closed: false, prompts: [] };
+    this.scopes.add(state);
+    const context = (
+      event: HookEventName,
+      extra: Partial<HookEventContext> = {},
+    ): HookEventContext => cloneFrozen({
+      event,
+      projectRoot: this.rootDir,
+      session: { id: input.sessionId },
+      timestamp: new Date().toISOString(),
+      turn: { ...input.turn },
+      agent: {
+        id: input.id,
+        kind: input.kind,
+        ...(input.role ? { role: input.role } : {}),
+        sessionId: input.sessionId,
+        ...(input.parentTurnId ? { parentTurnId: input.parentTurnId } : {}),
+      },
+      ...extra,
+    }) as HookEventContext;
+    const dispatch = (eventContext: HookEventContext, signal: AbortSignal) => {
+      if (state.closed) return Promise.resolve({ matched: 0, completed: 0 });
+      return this.dispatchContext(eventContext, signal, state.prompts, true);
+    };
+    return {
+      emitAssistantMessage: async (message, signal) => {
+        await dispatch(context('assistant_message', {
+          message: {
+            role: 'assistant',
+            content: limitText(message.content),
+            toolCalls: message.toolCalls.map(call => ({ id: call.id, name: call.name })),
+          },
+        }), signal);
+      },
+      beforeToolUse: (call, signal) => dispatch(context('pre_tool_use', {
+        tool: { id: call.id, name: call.name, arguments: cloneFrozen(call.arguments) },
+      }), signal),
+      afterToolUse: async (call, result, signal) => {
+        await dispatch(context('post_tool_use', {
+          tool: {
+            id: call.id,
+            name: call.name,
+            arguments: cloneFrozen(call.arguments),
+            result: cloneFrozen(result),
+          },
+        }), signal);
+      },
+      preparePromptBatch: () => this.preparePrompts(state.prompts),
+      commitPromptBatch: throughId => this.commitPrompts(state.prompts, throughId),
+      close: () => {
+        if (state.closed) return;
+        state.closed = true;
+        state.prompts.length = 0;
+        this.scopes.delete(state);
+      },
+    };
   }
 
   close(reason = 'shutdown'): Promise<void> {
@@ -165,6 +227,11 @@ export class HookManager implements HookRuntime {
     if (this.turn) await this.endTurn('cancelled', this.shutdown.signal);
     await this.endSession(reason);
     this.closing = true;
+    for (const scope of this.scopes) {
+      scope.closed = true;
+      scope.prompts.length = 0;
+    }
+    this.scopes.clear();
     this.shutdown.abort();
     await this.waitForBackgroundTasks();
     if (this.systemStarted) {
@@ -200,6 +267,8 @@ export class HookManager implements HookRuntime {
   private async dispatchContext(
     context: HookEventContext,
     signal: AbortSignal,
+    promptSink = this.prompts,
+    nestedAgentForbidden = false,
   ): Promise<HookDispatchResult> {
     if ((this.closed || this.closing) && context.event !== 'system_stop') {
       return { matched: 0, completed: 0 };
@@ -221,6 +290,14 @@ export class HookManager implements HookRuntime {
       }
       if (!conditionMatches) continue;
       matched += 1;
+      if (nestedAgentForbidden && rule.action.type === 'agent') {
+        this.logFailure(rule, context, {
+          status: 'failed',
+          code: 'NESTED_AGENT_FORBIDDEN',
+          message: '子 Agent Hook 不允许再次启动子 Agent',
+        });
+        continue;
+      }
       if (rule.once && this.onceStates.has(rule.source.id)) continue;
       if (rule.once) this.onceStates.set(rule.source.id, 'running');
 
@@ -230,7 +307,7 @@ export class HookManager implements HookRuntime {
           : AbortSignal.any([signal, this.shutdown.signal]);
         let task: Promise<void>;
         task = this.runRule(rule, context, taskSignal)
-          .then(result => this.handleResult(rule, context, result))
+          .then(result => this.handleResult(rule, context, result, promptSink))
           .then(success => {
             if (rule.once) {
               if (success) this.onceStates.set(rule.source.id, 'completed');
@@ -255,7 +332,7 @@ export class HookManager implements HookRuntime {
         ? signal
         : AbortSignal.any([signal, this.shutdown.signal]);
       const result = await this.runRule(rule, context, actionSignal);
-      const success = this.handleResult(rule, context, result);
+      const success = this.handleResult(rule, context, result, promptSink);
       if (rule.once) {
         if (success) this.onceStates.set(rule.source.id, 'completed');
         else this.onceStates.delete(rule.source.id);
@@ -296,15 +373,29 @@ export class HookManager implements HookRuntime {
     rule: CompiledHookRule,
     context: HookEventContext,
     result: HookActionResult,
+    promptSink: PromptEntry[],
   ): boolean {
     if (result.status === 'failed') {
       this.logFailure(rule, context, result);
       return false;
     }
     if (result.prompt?.trim()) {
-      this.prompts.push({ id: ++this.promptSequence, content: limitText(result.prompt.trim()) });
+      promptSink.push({ id: ++this.promptSequence, content: limitText(result.prompt.trim()) });
     }
     return true;
+  }
+
+  private preparePrompts(prompts: readonly PromptEntry[]): PreparedHookPromptBatch | undefined {
+    const last = prompts.at(-1);
+    if (!last) return undefined;
+    return {
+      throughId: last.id,
+      content: prompts.map(item => item.content).join('\n\n'),
+    };
+  }
+
+  private commitPrompts(prompts: PromptEntry[], throughId: number): void {
+    while (prompts[0]?.id !== undefined && prompts[0].id <= throughId) prompts.shift();
   }
 
   private logFailure(

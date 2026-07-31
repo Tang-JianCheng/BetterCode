@@ -1,6 +1,6 @@
 import { serializeToolResult } from '../tool/output-limit.js';
 import { ToolRegistry } from '../tool/registry.js';
-import type { Message, TokenUsage } from '../provider/types.js';
+import type { Message, ProviderRequest, TokenUsage } from '../provider/types.js';
 import { buildSystemPrompt } from '../prompt/builder.js';
 import { buildSystemReminder, collectEnvironment } from '../prompt/reminder.js';
 import type { SupplementalPromptContent } from '../prompt/types.js';
@@ -10,6 +10,8 @@ import type { ContextManageResult } from '../context/types.js';
 import type { ToolCall } from '../tool/types.js';
 import type { ToolResult } from '../tool/types.js';
 import type { HookRuntime } from '../hook/types.js';
+import type { ToolExecutionState } from '../tool/execution-state.js';
+import type { AgentInstructionRuntime } from '../subagent/types.js';
 import { StreamCollector } from './stream-collector.js';
 import { ToolScheduler } from './tool-scheduler.js';
 import type {
@@ -37,14 +39,20 @@ export interface AgentLoopRuntime {
   hooks?: HookRuntime;
   supplemental?: () => SupplementalPromptContent;
   visibleToolNames?: () => ReadonlySet<string> | undefined;
-  transformToolResult?: (input: {
-    call: ToolCall;
-    result: ToolResult;
-    history: readonly Message[];
-    request: AgentLoopRequest;
-    iteration: number;
-    emit: (event: AgentEvent) => void;
-  }) => Promise<ToolResult>;
+  transformToolResult?: (input: ToolResultTransformInput) => Promise<ToolResult>;
+  instructionRuntime?: AgentInstructionRuntime;
+  toolExecutionState?: ToolExecutionState;
+  onInstructionsCommitted?: (messages: readonly Message[]) => void;
+}
+
+export interface ToolResultTransformInput {
+  call: ToolCall;
+  result: ToolResult;
+  history: readonly Message[];
+  request: AgentLoopRequest;
+  providerRequest: Readonly<ProviderRequest>;
+  iteration: number;
+  emit: (event: AgentEvent) => void;
 }
 
 export class AgentLoop {
@@ -69,7 +77,12 @@ export class AgentLoop {
       maxIterations: Math.max(1, options.maxIterations ?? DEFAULT_OPTIONS.maxIterations),
       unknownToolLimit: Math.max(1, options.unknownToolLimit ?? DEFAULT_OPTIONS.unknownToolLimit),
     };
-    this.scheduler = new ToolScheduler(registry, permissionManager, runtime.hooks);
+    this.scheduler = new ToolScheduler(
+      registry,
+      permissionManager,
+      runtime.hooks,
+      runtime.toolExecutionState,
+    );
   }
 
   async execute(
@@ -101,8 +114,15 @@ export class AgentLoop {
         const environment = collectEnvironment(this.registry.rootDir, request.mode);
         const hookPromptBatch = this.runtime.hooks?.preparePromptBatch();
         const supplemental = this.currentSupplemental(hookPromptBatch?.content);
-        const visibleToolNames = this.runtime.visibleToolNames?.();
-        const definitions = visibleToolNames
+        const instructionBatch = this.runtime.instructionRuntime?.prepare();
+        const visibleToolNames = request.toolDefinitions
+          ? new Set(request.toolDefinitions.map(tool => tool.name))
+          : this.runtime.visibleToolNames?.();
+        const definitions = request.toolDefinitions
+          ? request.toolDefinitions
+              .filter(tool => request.mode !== 'plan' || this.registry.effectOf(tool.name) !== 'side_effect')
+              .map(tool => ({ ...tool, inputSchema: structuredClone(tool.inputSchema) }))
+          : visibleToolNames
           ? this.registry.definitionsFor(
               visibleToolNames,
               request.mode === 'plan' ? 'read_only' : undefined,
@@ -117,12 +137,15 @@ export class AgentLoop {
         });
         const managed = await this.contextManager.manage({
           history,
-          runtimeMessages: [{
-            role: 'instruction',
-            instructionKind: 'runtime',
-            content: reminder,
-          }],
-          systemPrompt: this.systemPrompt,
+          runtimeMessages: [
+            ...(instructionBatch?.messages ?? []),
+            {
+              role: 'instruction',
+              instructionKind: 'runtime',
+              content: reminder,
+            },
+          ],
+          systemPrompt: request.systemPrompt ?? this.systemPrompt,
           tools: definitions,
           provider: request.provider,
           trigger: 'automatic',
@@ -136,6 +159,11 @@ export class AgentLoop {
         if (managed.status !== 'ready') {
           emit({ type: 'error', iteration, message: '自动上下文管理未生成可发送请求' });
           return finish('context_error', startedIterations);
+        }
+        if (instructionBatch) {
+          this.runtime.instructionRuntime?.commit(instructionBatch.throughId);
+          history.push(...instructionBatch.messages.map(message => ({ ...message })));
+          this.runtime.onInstructionsCommitted?.(instructionBatch.messages);
         }
         if (hookPromptBatch) this.runtime.hooks?.commitPromptBatch(hookPromptBatch.throughId);
         emit({
@@ -211,6 +239,9 @@ export class AgentLoop {
           maxIterations: this.options.maxIterations,
           stage: 'executing_tools',
         });
+        const executionVisibleToolNames = request.toolDefinitions
+          ? new Set(definitions.map(tool => tool.name))
+          : this.runtime.visibleToolNames?.();
         const batch = await this.scheduler.executeBatch(turn.toolCalls, iteration, {
           mode: request.mode,
           initialUnknownToolStreak: unknownToolStreak,
@@ -220,7 +251,7 @@ export class AgentLoop {
           permissionDecider: request.permissionDecider,
           onProgress: emit,
           onBeforeExecute: this.hooks.beforeToolExecution,
-          ...(visibleToolNames ? { allowedToolNames: visibleToolNames } : {}),
+          ...(executionVisibleToolNames ? { allowedToolNames: executionVisibleToolNames } : {}),
         });
         unknownToolStreak = batch.unknownToolStreak;
 
@@ -231,6 +262,7 @@ export class AgentLoop {
               result: item.result,
               history,
               request,
+              providerRequest: managed.request,
               iteration,
               emit,
             });

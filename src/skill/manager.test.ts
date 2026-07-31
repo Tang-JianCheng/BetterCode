@@ -6,6 +6,7 @@ import test, { type TestContext } from 'node:test';
 import { createCoreToolRegistry } from '../tool/factory.js';
 import { SkillManager } from './manager.js';
 import { LOAD_SKILL_TOOL_NAME } from './load-tool.js';
+import { AgentTool } from '../subagent/agent-tool.js';
 
 function document(name: string, tools: string[], mode = 'shared', extra = '', body = '执行 {{args}}'): string {
   return `---
@@ -231,4 +232,22 @@ permission:
   });
   assert.equal(result.ok, true);
   assert.equal(result.output, '成功');
+});
+
+test('共享 Skill 保留 agent，独立 Skill 强制移除 agent', t => {
+  const { root, home, builtin } = fixture(t);
+  writeFileSync(path.join(builtin, 'shared.md'), document('shared', ['read_file']));
+  writeFileSync(path.join(builtin, 'isolated.md'), document('isolated', ['read_file', 'agent'], 'isolated', 'history: 0\n'));
+  const registry = createCoreToolRegistry(root);
+  registry.register(new AgentTool(), { system: true });
+  const manager = new SkillManager(registry, root, {
+    userHome: home,
+    builtinDirectory: builtin,
+  });
+  manager.initialize();
+  manager.activateShared('shared', '');
+
+  assert.equal(manager.visibleTools().names.has('agent'), true);
+  assert.equal(manager.visibleTools({ name: 'isolated', args: '' }).names.has('agent'), false);
+  assert.equal(manager.visibleTools({ name: 'isolated', args: '' }).names.has('load_skill'), true);
 });

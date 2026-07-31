@@ -14,6 +14,7 @@ import {
   type ToolRuntimeOptions,
 } from './types.js';
 import { PathGuard } from './path-guard.js';
+import type { ToolExecutionState } from './execution-state.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -128,7 +129,11 @@ export class ToolRegistry {
     return undefined;
   }
 
-  async execute(call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
+  async execute(
+    call: ToolCall,
+    signal?: AbortSignal,
+    executionState?: ToolExecutionState,
+  ): Promise<ToolResult> {
     const validationError = this.validate(call);
     if (validationError) return validationError;
 
@@ -164,6 +169,7 @@ export class ToolRegistry {
         rootDir: this.rootDir,
         signal: executionSignal,
         maxOutputBytes: this.options.maxOutputBytes,
+        ...(executionState ? { executionState } : {}),
       }))
       .catch(error => {
         if (signal?.aborted && !timedOut) {

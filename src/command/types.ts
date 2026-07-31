@@ -19,6 +19,7 @@ export interface CommandUIController {
   showMemoryStatus(): void;
   showOrSetPermission(mode?: PermissionMode): void;
   showStatus(): void;
+  showSubAgentTasks(taskId?: string): void;
   rewindConversation(): void;
   exit(): void;
 }

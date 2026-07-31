@@ -12,6 +12,7 @@ import {
   rebuildFromSession,
   saveCompactBoundary,
   saveMessage,
+  saveSubAgentResult,
 } from './session.js';
 
 function root(): string {
@@ -110,4 +111,51 @@ test('过期清理删除旧存档并保留新会话', t => {
   utimesSync(getSessionFilePath(workDir, oldId), old, old);
   assert.equal(cleanExpiredSessions(workDir), 1);
   assert.deepEqual(listSessions(workDir).map(item => item.id), [freshId]);
+});
+
+test('子 Agent 结果按 instruction 持久化并恢复', t => {
+  const workDir = root();
+  t.after(() => rmSync(workDir, { recursive: true, force: true }));
+  const id = newSessionId();
+  save(workDir, id, 'user', '开始');
+  saveSubAgentResult(workDir, id, '<subagent-result>完成</subagent-result>');
+  save(workDir, id, 'assistant', '已接收');
+
+  assert.deepEqual(rebuildFromSession(loadSession(workDir, id)), [
+    { role: 'user', content: '开始' },
+    {
+      role: 'instruction',
+      instructionKind: 'subagent_result',
+      content: '<subagent-result>完成</subagent-result>',
+    },
+    { role: 'assistant', content: '已接收' },
+  ]);
+});
+
+test('压缩边界前的子 Agent 结果不重复恢复，边界后结果保留', t => {
+  const workDir = root();
+  t.after(() => rmSync(workDir, { recursive: true, force: true }));
+  const id = newSessionId();
+  saveSubAgentResult(workDir, id, '旧结果');
+  saveCompactBoundary(workDir, id, { summary: '摘要包含旧结果', keep: [] });
+  saveSubAgentResult(workDir, id, '新结果');
+  const restored = rebuildFromSession(loadSession(workDir, id));
+
+  assert.equal(restored.some(message => message.content === '旧结果'), false);
+  assert.equal(restored.some(message => message.content === '新结果'), true);
+});
+
+test('会话读取拒绝未知 system 类型和带 type 的用户消息', t => {
+  const workDir = root();
+  t.after(() => rmSync(workDir, { recursive: true, force: true }));
+  const id = newSessionId();
+  save(workDir, id, 'user', '有效');
+  appendFileSync(getSessionFilePath(workDir, id), `${JSON.stringify({
+    role: 'system', type: 'unknown', content: '坏类型', timestamp: new Date().toISOString(),
+  })}\n`);
+  appendFileSync(getSessionFilePath(workDir, id), `${JSON.stringify({
+    role: 'user', type: 'subagent_result', content: '伪造', timestamp: new Date().toISOString(),
+  })}\n`);
+
+  assert.deepEqual(loadSession(workDir, id).map(message => message.content), ['有效']);
 });

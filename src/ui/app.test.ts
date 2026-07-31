@@ -7,6 +7,8 @@ import {
   formatMemoryStatus,
   formatMcpStartupStatus,
   formatSkillStartupStatus,
+  formatAgentStartupStatus,
+  formatSubAgentEvent,
   formatSessionList,
   formatStatus,
   HELP_TEXT,
@@ -134,6 +136,25 @@ test('只有默认上下文窗口会显示一次配置提示', () => {
     ...base,
     contextWindowIsDefault: false,
   }), undefined);
+});
+
+test('子 Agent 诊断与后台事件只展示必要通知', () => {
+  assert.equal(formatAgentStartupStatus([]), undefined);
+  assert.match(formatAgentStartupStatus([{
+    scope: 'project', file: '/repo/.bettercode/agents/bad.md', name: 'bad',
+    code: 'INVALID_DEFINITION', message: '定义损坏',
+  }]) ?? '', /bad.*定义损坏/);
+  const base = {
+    id: 'sa-1', kind: 'defined' as const, role: 'general', task: '检查', origin: 'tool' as const,
+    sessionId: 's1', executionMode: 'background' as const, backgroundReason: 'manual' as const,
+    state: 'running' as const, createdAt: '', iterations: 0,
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 },
+  };
+  assert.match(formatSubAgentEvent({ type: 'task_backgrounded', task: base, reason: 'manual' }) ?? '', /sa-1.*manual/);
+  assert.equal(formatSubAgentEvent({ type: 'task_started', task: { ...base, executionMode: 'foreground' } }), undefined);
+  assert.match(formatSubAgentEvent({
+    type: 'task_finished', task: { ...base, state: 'completed', stopReason: 'completed', result: '完成' },
+  }) ?? '', /已完成.*sa-1/);
 });
 
 test('MCP 启动状态只展示脱敏诊断字段和准确安全边界', () => {

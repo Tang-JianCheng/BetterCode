@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createPermissionManager } from '../permission/factory.js';
+import { createCoreToolRegistry } from '../tool/factory.js';
 import { ToolRegistry } from '../tool/registry.js';
+import { ToolExecutionState } from '../tool/execution-state.js';
 import {
   createToolSuccess,
   type Tool,
@@ -347,4 +349,60 @@ test('scheduler 拒绝白名单外工具并让系统工具跳过权限确认', a
   assert.equal(hiddenRuns, 0);
   assert.equal(systemRuns, 1);
   assert.equal(prompts, 0);
+});
+
+test('scheduler 下传读取缓存并在成功副作用后按范围失效', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'first.txt'), 'first');
+  writeFileSync(path.join(root, 'second.txt'), 'second');
+  const registry = createCoreToolRegistry(root);
+  const state = new ToolExecutionState();
+  const scheduler = new ToolScheduler(
+    registry,
+    createPermissionManager(registry, 'allow', { userHome: path.join(root, '.home') }),
+    undefined,
+    state,
+  );
+
+  await scheduler.executeBatch([
+    { id: 'r1', name: 'read_file', arguments: { path: 'first.txt' } },
+    { id: 'r2', name: 'read_file', arguments: { path: 'second.txt' } },
+  ], 1, options());
+  const firstStat = statSync(path.join(root, 'first.txt'));
+  const secondStat = statSync(path.join(root, 'second.txt'));
+  assert.equal(state.getFileRead('first.txt', firstStat.size, firstStat.mtimeMs), 'first');
+  assert.equal(state.getFileRead('second.txt', secondStat.size, secondStat.mtimeMs), 'second');
+
+  await scheduler.executeBatch([{
+    id: 'w1', name: 'write_file', arguments: { path: './first.txt', content: 'changed' },
+  }], 2, options());
+  assert.equal(state.getFileRead('first.txt', firstStat.size, firstStat.mtimeMs), undefined);
+  assert.equal(state.getFileRead('second.txt', secondStat.size, secondStat.mtimeMs), 'second');
+
+  await scheduler.executeBatch([{
+    id: 'c1', name: 'run_command', arguments: { command: 'true' },
+  }], 3, options());
+  assert.equal(state.getFileRead('second.txt', secondStat.size, secondStat.mtimeMs), undefined);
+});
+
+test('scheduler 不会因失败的副作用清理读取缓存', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  registry.register(tool('fails', 'side_effect', async () => {
+    throw new Error('失败');
+  }));
+  const state = new ToolExecutionState();
+  state.setFileRead({ relativePath: 'kept.txt', size: 4, mtimeMs: 1, content: 'kept' });
+  const scheduler = new ToolScheduler(
+    registry,
+    createPermissionManager(registry, 'allow', { userHome: path.join(root, '.home') }),
+    undefined,
+    state,
+  );
+
+  const result = await scheduler.executeBatch([call('f1', 'fails')], 1, options());
+  assert.equal(result.results[0].result.ok, false);
+  assert.equal(state.getFileRead('kept.txt', 4, 1), 'kept');
 });

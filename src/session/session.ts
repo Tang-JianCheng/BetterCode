@@ -12,6 +12,7 @@ import {
 import path from 'node:path';
 
 export const COMPACT_BOUNDARY = 'compact_boundary';
+export const SUBAGENT_RESULT = 'subagent_result';
 export const SESSION_EXPIRY_DAYS = 30;
 const SESSION_DIRECTORY = '.bettercode/sessions';
 const SESSION_ID_PATTERN = /^[a-z0-9]+-[a-f0-9]{8}$/u;
@@ -20,7 +21,7 @@ export interface SessionMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: string;
-  type?: typeof COMPACT_BOUNDARY;
+  type?: typeof COMPACT_BOUNDARY | typeof SUBAGENT_RESULT;
   toolUseId?: string;
 }
 
@@ -42,10 +43,9 @@ export interface SessionInfo {
   modTime: Date;
 }
 
-export interface RestoredMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
+export type RestoredMessage =
+  | { role: 'user' | 'assistant'; content: string }
+  | { role: 'instruction'; instructionKind: typeof SUBAGENT_RESULT; content: string };
 
 export function newSessionId(): string {
   return `${Date.now().toString(36)}-${randomBytes(4).toString('hex')}`;
@@ -91,13 +91,30 @@ export function saveCompactBoundary(
   });
 }
 
+export function saveSubAgentResult(
+  workDir: string,
+  sessionId: string,
+  content: string,
+): void {
+  saveMessage(workDir, sessionId, {
+    role: 'system',
+    content,
+    timestamp: new Date().toISOString(),
+    type: SUBAGENT_RESULT,
+  });
+}
+
 function parseMessage(line: string): SessionMessage | undefined {
   try {
     const value = JSON.parse(line) as Partial<SessionMessage>;
     if (value.role !== 'user' && value.role !== 'assistant' && value.role !== 'system') return undefined;
     if (typeof value.content !== 'string' || value.content.length === 0) return undefined;
     if (typeof value.timestamp !== 'string' || !value.timestamp) return undefined;
-    if (value.type !== undefined && value.type !== COMPACT_BOUNDARY) return undefined;
+    if (value.role === 'system') {
+      if (value.type !== COMPACT_BOUNDARY && value.type !== SUBAGENT_RESULT) return undefined;
+    } else if (value.type !== undefined) {
+      return undefined;
+    }
     return value as SessionMessage;
   } catch {
     return undefined;
@@ -153,10 +170,7 @@ export function rebuildFromSession(saved: readonly SessionMessage[]): RestoredMe
   }
 
   if (!boundary) {
-    return saved
-      .filter((message): message is SessionMessage & { role: 'user' | 'assistant' } =>
-        message.role === 'user' || message.role === 'assistant')
-      .map(message => ({ role: message.role, content: message.content }));
+    return saved.flatMap(message => restoreMessage(message));
   }
 
   const summary = [
@@ -164,15 +178,22 @@ export function rebuildFromSession(saved: readonly SessionMessage[]): RestoredMe
     boundary.summary,
     ...(boundary.keep.length > 0 ? ['近期消息已原样保留。'] : []),
   ].join('\n\n');
-  const afterBoundary = saved.slice(boundaryIndex + 1)
-    .filter((message): message is SessionMessage & { role: 'user' | 'assistant' } =>
-      message.role === 'user' || message.role === 'assistant')
-    .map(message => ({ role: message.role, content: message.content }));
+  const afterBoundary = saved.slice(boundaryIndex + 1).flatMap(message => restoreMessage(message));
   return [
     { role: 'user', content: summary },
     ...boundary.keep,
     ...afterBoundary,
   ];
+}
+
+function restoreMessage(message: SessionMessage): RestoredMessage[] {
+  if (message.role === 'user' || message.role === 'assistant') {
+    return [{ role: message.role, content: message.content }];
+  }
+  if (message.role === 'system' && message.type === SUBAGENT_RESULT) {
+    return [{ role: 'instruction', instructionKind: SUBAGENT_RESULT, content: message.content }];
+  }
+  return [];
 }
 
 export function listSessions(workDir: string): SessionInfo[] {

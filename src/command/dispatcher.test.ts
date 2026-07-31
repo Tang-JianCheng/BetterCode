@@ -19,6 +19,7 @@ function fakeUi(messages: string[]): CommandUIController {
     showMemoryStatus() {},
     showOrSetPermission() {},
     showStatus() {},
+    showSubAgentTasks() {},
     rewindConversation() {},
     exit() {},
   };

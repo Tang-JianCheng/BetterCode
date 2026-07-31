@@ -3,7 +3,15 @@ import type { HookEventContext, HookEventName } from './types.js';
 
 const BLOCKED_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
-const COMMON_FIELDS = new Set(['event', 'projectRoot', 'session.id', 'timestamp']);
+const COMMON_FIELDS = new Set([
+  'event',
+  'projectRoot',
+  'session.id',
+  'timestamp',
+  'agent.id',
+  'agent.kind',
+  'agent.role',
+]);
 const EVENT_FIELDS: Record<HookEventName, ReadonlySet<string>> = {
   system_start: new Set(['system.reason']),
   system_stop: new Set(['system.reason']),

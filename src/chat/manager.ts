@@ -26,6 +26,7 @@ import {
   rebuildFromSession,
   saveCompactBoundary,
   saveMessage,
+  saveSubAgentResult,
   type CompactBoundaryPayload,
   type RestoredMessage,
   type SessionInfo,
@@ -34,6 +35,9 @@ import type { ToolCall } from '../tool/types.js';
 import type { SkillManager } from '../skill/manager.js';
 import type { SkillRunner } from '../skill/runner.js';
 import type { HookManager } from '../hook/manager.js';
+import type { SubAgentCoordinator } from '../subagent/coordinator.js';
+import type { SubAgentResultInbox } from '../subagent/result-inbox.js';
+import type { SubAgentEvent, SubAgentTaskSnapshot } from '../subagent/types.js';
 
 export interface ChatManagerMemoryOptions {
   autoExtract?: boolean;
@@ -44,6 +48,11 @@ export interface ChatManagerMemoryOptions {
 export interface ChatManagerSkillOptions {
   manager?: SkillManager;
   runner?: SkillRunner;
+}
+
+export interface ChatManagerSubAgentOptions {
+  coordinator?: SubAgentCoordinator;
+  inbox?: SubAgentResultInbox;
 }
 
 export interface MemoryStatus {
@@ -88,6 +97,7 @@ export class ChatManager {
   private fileHistory: FileHistory;
   private memoryCursor = 0;
   private memoryGeneration = 0;
+  private activeTurnId?: string;
 
   constructor(
     toolRegistry: ToolRegistry,
@@ -98,6 +108,7 @@ export class ChatManager {
     memoryOptions: ChatManagerMemoryOptions = {},
     private readonly skillOptions: ChatManagerSkillOptions = {},
     private readonly hookManager?: HookManager,
+    private readonly subagentOptions: ChatManagerSubAgentOptions = {},
   ) {
     this.rootDir = toolRegistry.rootDir;
     this.autoExtract = memoryOptions.autoExtract ?? false;
@@ -124,21 +135,52 @@ export class ChatManager {
         visibleToolNames: skillOptions.manager
           ? () => skillOptions.manager!.visibleTools().names
           : undefined,
-        transformToolResult: skillOptions.runner
-          ? async input => skillOptions.runner!.transformToolResult({
-              call: input.call,
-              result: input.result,
-              history: input.history,
-              currentProvider: input.request.provider,
-              options: {
-                mode: input.request.mode,
-                signal: input.request.signal,
-                permissionDecider: input.request.permissionDecider,
-              },
-            })
+        transformToolResult: skillOptions.runner || subagentOptions.coordinator
+          ? async input => {
+              let result = input.result;
+              if (skillOptions.runner) {
+                result = await skillOptions.runner.transformToolResult({
+                  call: input.call,
+                  result,
+                  history: input.history,
+                  currentProvider: input.request.provider,
+                  options: {
+                    mode: input.request.mode,
+                    signal: input.request.signal,
+                    permissionDecider: input.request.permissionDecider,
+                  },
+                });
+              }
+              if (subagentOptions.coordinator) {
+                result = await subagentOptions.coordinator.transformToolResult(
+                  { ...input, result },
+                  {
+                    sessionId: this.sessionId,
+                    ...(this.activeTurnId ? { parentTurnId: this.activeTurnId } : {}),
+                    permissionMode: this.permissionManager.getMode(),
+                    trackToolEdit: call => this.trackToolEdit(call),
+                  },
+                );
+              }
+              return result;
+            }
           : undefined,
+        instructionRuntime: subagentOptions.inbox
+          ? {
+              prepare: () => subagentOptions.inbox!.runtime(this.sessionId).prepare(),
+              commit: throughId => subagentOptions.inbox!.runtime(this.sessionId).commit(throughId),
+            }
+          : undefined,
+        onInstructionsCommitted: messages => {
+          for (const message of messages) {
+            if (message.role === 'instruction' && message.instructionKind === 'subagent_result') {
+              this.persistSubAgentResult(message.content);
+            }
+          }
+        },
       },
     );
+    this.subagentOptions.coordinator?.setActiveSession(this.sessionId);
     Promise.resolve().then(() => cleanExpiredSessions(this.rootDir)).catch(() => {});
   }
 
@@ -191,7 +233,7 @@ export class ChatManager {
       manager.beginExecution();
       let terminal: Extract<AgentEvent, { type: 'stopped' }> | undefined;
       try {
-        await this.hookManager?.startTurn({
+        this.activeTurnId = await this.hookManager?.startTurn({
           task: displayText,
           mode: options.mode ?? 'act',
         }, options.signal ?? new AbortController().signal);
@@ -224,6 +266,7 @@ export class ChatManager {
           terminal?.reason ?? 'stream_error',
           new AbortController().signal,
         );
+        this.activeTurnId = undefined;
         manager.endExecution();
         this.active = false;
       }
@@ -254,6 +297,26 @@ export class ChatManager {
     return this.sessionId;
   }
 
+  listSubAgentTasks(): SubAgentTaskSnapshot[] {
+    return this.subagentOptions.coordinator?.list(this.sessionId) ?? [];
+  }
+
+  getSubAgentTask(taskId: string): SubAgentTaskSnapshot | undefined {
+    return this.subagentOptions.coordinator?.get(this.sessionId, taskId);
+  }
+
+  hasForegroundSubAgent(): boolean {
+    return this.subagentOptions.coordinator?.hasForeground(this.sessionId) ?? false;
+  }
+
+  backgroundCurrentSubAgent(): SubAgentTaskSnapshot | undefined {
+    return this.subagentOptions.coordinator?.moveForegroundToBackground(this.sessionId);
+  }
+
+  subscribeSubAgent(listener: (event: SubAgentEvent) => void): () => void {
+    return this.subagentOptions.coordinator?.subscribe(listener) ?? (() => undefined);
+  }
+
   listSessions(): SessionInfo[] {
     return listSessions(this.rootDir);
   }
@@ -265,6 +328,7 @@ export class ChatManager {
     if (saved.length === 0) throw new Error(`会话不存在或为空: ${sessionId}`);
     const restored = rebuildFromSession(saved);
     if (restored.length === 0) throw new Error(`会话没有可恢复的消息: ${sessionId}`);
+    await this.subagentOptions.coordinator?.cancelSession(this.sessionId, '恢复其他会话');
     await this.hookManager?.endSession('resume');
     await this.contextManager.clear();
     this.history = restored.map(message => ({ ...message }));
@@ -276,6 +340,7 @@ export class ChatManager {
     this.fileHistory = new FileHistory(this.rootDir, sessionId);
     this.permissionManager.clearSessionRules();
     this.skillOptions.manager?.clearActive();
+    this.subagentOptions.coordinator?.setActiveSession(sessionId);
     await this.hookManager?.startSession(sessionId, 'resume');
     return restored;
   }
@@ -368,6 +433,7 @@ export class ChatManager {
   async clear(): Promise<void> {
     if (this.closed) throw new Error('ChatManager 已关闭');
     if (this.active) throw new Error('Agent 运行期间不能清空会话');
+    await this.subagentOptions.coordinator?.cancelSession(this.sessionId, '清空会话');
     await this.hookManager?.endSession('clear');
     await this.contextManager.clear();
     this.history = [];
@@ -379,12 +445,14 @@ export class ChatManager {
     this.fileHistory = new FileHistory(this.rootDir, this.sessionId);
     this.permissionManager.clearSessionRules();
     this.skillOptions.manager?.clearActive();
+    this.subagentOptions.coordinator?.setActiveSession(this.sessionId);
     await this.hookManager?.startSession(this.sessionId, 'clear');
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     if (this.active) throw new Error('Agent 运行期间不能关闭 ChatManager');
+    await this.subagentOptions.coordinator?.cancelSession(this.sessionId, '关闭会话');
     await this.hookManager?.endSession('shutdown');
     await Promise.allSettled([...this.backgroundTasks]);
     await this.contextManager.close();
@@ -439,7 +507,7 @@ export class ChatManager {
       let terminalEvent: Extract<AgentEvent, { type: 'stopped' }> | undefined;
       let compacted = false;
       try {
-        await this.hookManager?.startTurn({ task: userMessage, mode }, signal);
+        this.activeTurnId = await this.hookManager?.startTurn({ task: userMessage, mode }, signal);
         await this.hookManager?.emitUserMessage(userMessage, signal);
         this.fileHistory.makeSnapshot(this.history.length, userMessage);
         this.persistMessage('user', userMessage);
@@ -482,6 +550,7 @@ export class ChatManager {
           terminalEvent?.reason ?? (signal.aborted ? 'cancelled' : 'stream_error'),
           new AbortController().signal,
         );
+        this.activeTurnId = undefined;
         this.skillOptions.manager?.endExecution();
         this.active = false;
       }
@@ -500,6 +569,15 @@ export class ChatManager {
       });
     } catch {
       // 会话存档失败不影响当前 Agent 任务。
+    }
+  }
+
+  private persistSubAgentResult(content: string): void {
+    if (!this.sessionPersistence || !content.trim()) return;
+    try {
+      saveSubAgentResult(this.rootDir, this.sessionId, content);
+    } catch {
+      // 子 Agent 结果存档失败不影响当前 Agent 任务。
     }
   }
 

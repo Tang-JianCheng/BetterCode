@@ -10,7 +10,11 @@ export interface TokenUsage {
   cacheReadInputTokens: number;
 }
 
-export type InstructionKind = 'runtime' | 'context_summary' | 'context_boundary';
+export type InstructionKind =
+  | 'runtime'
+  | 'context_summary'
+  | 'context_boundary'
+  | 'subagent_result';
 
 export interface OffloadedToolResult {
   kind: 'offloaded_tool_result';

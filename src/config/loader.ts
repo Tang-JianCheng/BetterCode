@@ -1,6 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
-import type { AppConfig, ProviderConfig } from './types.js';
+import type {
+  AgentModelAliases,
+  AppConfig,
+  ProviderConfig,
+  SubAgentConfig,
+} from './types.js';
+
+const AGENT_MODEL_TIERS = new Set(['haiku', 'sonnet', 'opus']);
+const SUBAGENT_FIELDS = new Set([
+  'foreground_timeout_ms',
+  'fork_max_iterations',
+  'retained_tasks',
+  'denied_tools',
+]);
 
 /**
  * 校验单个 provider 配置，不合法时抛 Error。
@@ -42,6 +55,81 @@ function resolveEnvVars(value: string): string {
     }
     return envValue;
   });
+}
+
+function record(value: unknown, field: string): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${field} 必须是对象`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function positiveInteger(
+  value: unknown,
+  field: string,
+  minimum: number,
+  maximum: number,
+): number {
+  if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) {
+    throw new Error(`${field} 必须是 ${minimum} 到 ${maximum} 的整数`);
+  }
+  return value as number;
+}
+
+function parseAgentModels(value: unknown, providerNames: ReadonlySet<string>): AgentModelAliases | undefined {
+  if (value === undefined) return undefined;
+  const raw = record(value, 'agent_models');
+  const aliases: AgentModelAliases = {};
+  for (const [tier, providerName] of Object.entries(raw)) {
+    if (!AGENT_MODEL_TIERS.has(tier)) throw new Error(`agent_models 包含未知档位: ${tier}`);
+    if (typeof providerName !== 'string' || !providerName.trim()) {
+      throw new Error(`agent_models.${tier} 必须是非空 Provider 名称`);
+    }
+    const normalized = providerName.trim();
+    if (!providerNames.has(normalized)) {
+      throw new Error(`agent_models.${tier} 指向不存在 Provider: ${normalized}`);
+    }
+    aliases[tier as keyof AgentModelAliases] = normalized;
+  }
+  return aliases;
+}
+
+function parseSubAgents(value: unknown): SubAgentConfig | undefined {
+  if (value === undefined) return undefined;
+  const raw = record(value, 'subagents');
+  for (const key of Object.keys(raw)) {
+    if (!SUBAGENT_FIELDS.has(key)) throw new Error(`subagents 包含未知字段: ${key}`);
+  }
+  let deniedTools: string[] | undefined;
+  if (raw.denied_tools !== undefined) {
+    if (!Array.isArray(raw.denied_tools) ||
+        raw.denied_tools.some(item => typeof item !== 'string' || !item.trim())) {
+      throw new Error('subagents.denied_tools 必须是非空字符串数组');
+    }
+    deniedTools = [...new Set(raw.denied_tools.map(item => (item as string).trim()))];
+  }
+  return {
+    ...(raw.foreground_timeout_ms === undefined ? {} : {
+      foreground_timeout_ms: positiveInteger(
+        raw.foreground_timeout_ms,
+        'subagents.foreground_timeout_ms',
+        1_000,
+        3_600_000,
+      ),
+    }),
+    ...(raw.fork_max_iterations === undefined ? {} : {
+      fork_max_iterations: positiveInteger(
+        raw.fork_max_iterations,
+        'subagents.fork_max_iterations',
+        1,
+        100,
+      ),
+    }),
+    ...(raw.retained_tasks === undefined ? {} : {
+      retained_tasks: positiveInteger(raw.retained_tasks, 'subagents.retained_tasks', 1, 10_000),
+    }),
+    ...(deniedTools ? { denied_tools: deniedTools } : {}),
+  };
 }
 
 /**
@@ -107,6 +195,12 @@ export function loadConfig(path: string = './config.yaml'): AppConfig {
   if (defaults.length > 1) {
     throw new Error(`有 ${defaults.length} 个供应商标记为 default，只能有一个默认供应商`);
   }
+
+  const providerNames = new Set(config.providers.map(provider => provider.name));
+  const agentModels = parseAgentModels(obj.agent_models, providerNames);
+  const subagents = parseSubAgents(obj.subagents);
+  if (agentModels) config.agent_models = agentModels;
+  if (subagents) config.subagents = subagents;
 
   return config;
 }

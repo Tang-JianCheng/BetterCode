@@ -1,5 +1,6 @@
 import type { AgentMode, AgentStopReason } from '../agent/types.js';
 import type { JsonObject, ToolCall, ToolResult } from '../tool/types.js';
+import type { SubAgentKind } from '../subagent/types.js';
 
 export type HookEventName =
   | 'system_start'
@@ -39,6 +40,13 @@ export interface HookBaseContext {
   projectRoot: string;
   session: { id: string; reason?: string };
   timestamp: string;
+  agent?: {
+    id: string;
+    kind: SubAgentKind;
+    role?: string;
+    sessionId: string;
+    parentTurnId?: string;
+  };
   system?: { reason: string };
   turn?: {
     id: string;
@@ -84,7 +92,7 @@ export type CompiledHookAction =
       headers: Readonly<Record<string, CompiledTextTemplate>>;
       body?: CompiledJsonTemplate;
     }
-  | { type: 'agent'; prompt: CompiledTextTemplate };
+  | { type: 'agent'; prompt: CompiledTextTemplate; role?: string };
 
 export interface CompiledHookRule {
   source: HookSource;
@@ -109,6 +117,8 @@ export type HookFailureCode =
   | 'HTTP_CANCELLED'
   | 'INVALID_DECISION'
   | 'TEMPLATE_ERROR'
+  | 'AGENT_FAILED'
+  | 'NESTED_AGENT_FORBIDDEN'
   | 'NOT_IMPLEMENTED'
   | 'INTERNAL_ERROR';
 
@@ -163,6 +173,23 @@ export interface HookRuntime {
   afterToolUse(call: ToolCall, result: ToolResult, signal: AbortSignal): Promise<void>;
   preparePromptBatch(): PreparedHookPromptBatch | undefined;
   commitPromptBatch(throughId: number): void;
+}
+
+export interface HookAgentScope {
+  id: string;
+  kind: SubAgentKind;
+  role?: string;
+  sessionId: string;
+  parentTurnId?: string;
+  turn: {
+    id: string;
+    mode: AgentMode;
+    task: string;
+  };
+}
+
+export interface ScopedHookRuntime extends HookRuntime {
+  close(): void;
 }
 
 export interface HookTurnStartInput {

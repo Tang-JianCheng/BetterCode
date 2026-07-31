@@ -1,4 +1,5 @@
 import type { LLMProvider, Message, TokenUsage } from '../provider/types.js';
+import type { ToolDefinition } from '../tool/types.js';
 import type { ContextEvent } from '../context/types.js';
 import type {
   PermissionDecider,
@@ -81,6 +82,8 @@ export interface AgentLoopRequest {
   provider: LLMProvider;
   signal: AbortSignal;
   permissionDecider?: PermissionDecider;
+  systemPrompt?: string;
+  toolDefinitions?: readonly ToolDefinition[];
 }
 
 export interface AgentOutcome {

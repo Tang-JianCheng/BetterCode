@@ -13,6 +13,7 @@ import type {
 import { createCoreToolRegistry } from '../tool/factory.js';
 import { ToolRegistry } from '../tool/registry.js';
 import { createToolSuccess, type Tool } from '../tool/types.js';
+import { ToolExecutionState } from '../tool/execution-state.js';
 import type { AgentEvent } from './types.js';
 import { AgentLoop } from './loop.js';
 
@@ -479,4 +480,181 @@ test('plan mode read tools still pass through permission checks', async t => {
     provider.calls[1].messages.find(message => message.role === 'tool')?.content ?? '',
     /PERMISSION_DENIED/,
   );
+});
+
+test('agent loop 支持固定 System 和工具定义并把 ProviderRequest 快照交给转换器', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = createCoreToolRegistry(root);
+  writeFileSync(path.join(root, 'note.txt'), 'hello');
+  const provider = new FakeProvider([
+    [toolCall('read-1', 'read_file', { path: 'note.txt' }), done()],
+    [{ type: 'text_delta', content: '完成' }, done()],
+  ]);
+  const fixedTools = registry.definitions().filter(tool => tool.name === 'read_file');
+  let captured: ProviderRequest | undefined;
+  const loop = new AgentLoop(
+    registry,
+    createPermissionManager(registry, 'allow', { userHome: path.join(root, '.home') }),
+    {},
+    {},
+    undefined,
+    {},
+    { transformToolResult: async input => {
+      captured = structuredClone(input.providerRequest);
+      return input.result;
+    } },
+  );
+  const outcome = await loop.execute({
+    history: [{ role: 'user', content: '父消息' }],
+    userMessage: '读取',
+    mode: 'act',
+    provider,
+    signal: new AbortController().signal,
+    systemPrompt: '固定子 Agent System',
+    toolDefinitions: fixedTools,
+  }, () => undefined);
+
+  assert.equal(outcome.reason, 'completed');
+  assert.equal(provider.calls[0].systemPrompt, '固定子 Agent System');
+  assert.deepEqual(provider.calls[0].tools.map(tool => tool.name), ['read_file']);
+  assert.deepEqual(captured, provider.calls[0]);
+  assert.notEqual(captured, provider.calls[0]);
+});
+
+test('agent loop 对外部指令执行 prepare/commit 并只提交一次', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = createCoreToolRegistry(root);
+  const provider = new FakeProvider([[{ type: 'text_delta', content: '已处理' }, done()]]);
+  let commits = 0;
+  let persisted = 0;
+  const message = {
+    role: 'instruction' as const,
+    instructionKind: 'subagent_result' as const,
+    content: '<subagent-result>后台完成</subagent-result>',
+  };
+  const loop = new AgentLoop(
+    registry,
+    createPermissionManager(registry, 'allow', { userHome: path.join(root, '.home') }),
+    {}, {}, undefined, {},
+    {
+      instructionRuntime: {
+        prepare: () => commits === 0 ? {
+          throughId: 1,
+          entries: [{ id: 1, taskId: 'sa-1', sessionId: 's1', content: message.content, createdAt: '' }],
+          messages: [message],
+        } : undefined,
+        commit: () => { commits += 1; return []; },
+      },
+      onInstructionsCommitted: messages => { persisted += messages.length; },
+    },
+  );
+  const outcome = await loop.execute({
+    history: [], userMessage: '继续', mode: 'act', provider,
+    signal: new AbortController().signal,
+  }, () => undefined);
+
+  assert.equal(commits, 1);
+  assert.equal(persisted, 1);
+  assert.equal(provider.calls[0].messages.some(item => item.role === 'instruction' && item.instructionKind === 'subagent_result'), true);
+  assert.equal(outcome.history.some(item => item.role === 'instruction' && item.instructionKind === 'subagent_result'), true);
+});
+
+test('上下文阻塞时 agent loop 不提交外部指令', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let commits = 0;
+  const provider: LLMProvider = {
+    name: 'tiny', model: 'tiny', contextWindow: 1, contextWindowIsDefault: false,
+    async chat() { throw new Error('不应调用 Provider'); },
+  };
+  const registry = createCoreToolRegistry(root);
+  const outcome = await new AgentLoop(
+    registry,
+    createPermissionManager(registry, 'allow', { userHome: path.join(root, '.home') }),
+    {}, {}, undefined, {},
+    {
+      instructionRuntime: {
+        prepare: () => ({
+          throughId: 1, entries: [],
+          messages: [{ role: 'instruction', instructionKind: 'subagent_result', content: '待提交' }],
+        }),
+        commit: () => { commits += 1; return []; },
+      },
+    },
+  ).execute({
+    history: [], userMessage: '继续', mode: 'act', provider,
+    signal: new AbortController().signal,
+  }, () => undefined);
+
+  assert.equal(outcome.reason, 'context_error');
+  assert.equal(commits, 0);
+});
+
+test('模型流期间动态工具集合收窄会阻止尚未执行的调用', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  let runs = 0;
+  registry.register({
+    name: 'read', effect: 'read_only', description: 'read',
+    inputSchema: { type: 'object', additionalProperties: false },
+    permission: { targetArgument: 'target', targetKind: 'value', defaultTarget: 'read', risk: 'read' },
+    async execute() { runs += 1; return createToolSuccess('ok'); },
+  });
+  let visible = new Set(['read']);
+  const provider: LLMProvider = {
+    name: 'dynamic', model: 'dynamic', contextWindow: 128_000, contextWindowIsDefault: false,
+    async chat(_request, emit) {
+      emit({ type: 'tool_call', call: { id: 'r1', name: 'read', arguments: {} } });
+      visible = new Set();
+      emit(done());
+    },
+  };
+  const events: AgentEvent[] = [];
+  const outcome = await new AgentLoop(
+    registry,
+    createPermissionManager(registry, 'allow', { userHome: path.join(root, '.home') }),
+    { maxIterations: 1 }, {}, undefined, {},
+    { visibleToolNames: () => visible },
+  ).execute({
+    history: [], userMessage: '读取', mode: 'act', provider,
+    signal: new AbortController().signal,
+  }, event => events.push(event));
+
+  assert.equal(outcome.reason, 'max_iterations');
+  assert.equal(runs, 0);
+  assert.equal(events.find(event => event.type === 'tool_result')?.type === 'tool_result'
+    ? events.find(event => event.type === 'tool_result')?.result.error?.code
+    : undefined, 'TOOL_UNAVAILABLE');
+});
+
+test('两个 AgentLoop 的 ToolExecutionState 读取缓存互不共享', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'note.txt'), 'hello');
+  const firstState = new ToolExecutionState();
+  const secondState = new ToolExecutionState();
+  const execute = async (state: ToolExecutionState) => {
+    const provider = new FakeProvider([
+      [toolCall('read-1', 'read_file', { path: 'note.txt' }), done()],
+      [{ type: 'text_delta', content: '完成' }, done()],
+    ]);
+    const registry = createCoreToolRegistry(root);
+    await new AgentLoop(
+      registry,
+      createPermissionManager(registry, 'allow', { userHome: path.join(root, '.home') }),
+      {}, {}, undefined, {}, { toolExecutionState: state },
+    ).execute({
+      history: [], userMessage: '读取', mode: 'act', provider,
+      signal: new AbortController().signal,
+    }, () => undefined);
+    const toolMessage = provider.calls[1].messages.find(message => message.role === 'tool');
+    return toolMessage?.content ?? '';
+  };
+
+  assert.match(await execute(firstState), /"cached":false/);
+  assert.match(await execute(firstState), /"cached":true/);
+  assert.match(await execute(secondState), /"cached":false/);
 });

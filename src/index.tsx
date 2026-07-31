@@ -7,7 +7,7 @@ import { createProvider } from './provider/factory.js';
 import { createCoreToolRegistry } from './tool/factory.js';
 import { ChatManager } from './chat/manager.js';
 import { App } from './ui/app.js';
-import { createPermissionManager } from './permission/factory.js';
+import { createPermissionManager, createPermissionManagerFactory } from './permission/factory.js';
 import type { PermissionMode } from './permission/types.js';
 import { createMcpManager } from './mcp/factory.js';
 import type { McpManager } from './mcp/manager.js';
@@ -22,6 +22,13 @@ import { compileHooks } from './hook/compiler.js';
 import { DefaultHookActionExecutor } from './hook/action-executor.js';
 import { JsonlHookLogger } from './hook/logger.js';
 import { HookManager } from './hook/manager.js';
+import { AgentTool } from './subagent/agent-tool.js';
+import { AgentDefinitionManager } from './subagent/definition-manager.js';
+import { SubAgentTaskManager } from './subagent/task-manager.js';
+import { SubAgentResultInbox } from './subagent/result-inbox.js';
+import { SubAgentRunner } from './subagent/runner.js';
+import { SubAgentCoordinator } from './subagent/coordinator.js';
+import { resolveSubAgentOptions } from './subagent/types.js';
 
 function isPermissionMode(value: string | undefined): value is PermissionMode {
   return value === 'strict' || value === 'default' || value === 'allow';
@@ -52,6 +59,9 @@ async function main() {
   let chatManager: ChatManager | undefined;
   let skillManager: SkillManager | undefined;
   let hookManager: HookManager | undefined;
+  let agentDefinitionManager: AgentDefinitionManager | undefined;
+  let subAgentCoordinator: SubAgentCoordinator | undefined;
+  let unsubscribeSkillDefinitions: (() => void) | undefined;
   try {
     const permissionMode = values['permission-mode'];
     if (!isPermissionMode(permissionMode)) {
@@ -89,6 +99,7 @@ async function main() {
     const toolRegistry = createCoreToolRegistry(rootDir);
     mcpManager = createMcpManager(rootDir);
     const mcpStatus = await mcpManager.initialize(toolRegistry);
+    toolRegistry.register(new AgentTool(), { system: true });
 
     // 6. 发现 Skill 并注册按需工具
     const commandTokens = createDefaultCommandRegistry()
@@ -101,14 +112,56 @@ async function main() {
     skillManager.initialize();
     skillManager.startWatching();
 
-    // 7. 基于完整工具列表创建权限与 Hook 运行时
+    // 7. 基于完整工具列表创建子 Agent、权限与 Hook 运行时
+    const resolvedSubagents = resolveSubAgentOptions(appConfig.subagents);
+    agentDefinitionManager = new AgentDefinitionManager(toolRegistry, rootDir, {
+      modelAliases: appConfig.agent_models,
+      providerNames: appConfig.providers.map(item => item.name),
+      deniedTools: resolvedSubagents.deniedTools,
+    });
+    const agentSnapshot = agentDefinitionManager.initialize();
+    agentDefinitionManager.startWatching();
+    unsubscribeSkillDefinitions = skillManager.subscribe(() => {
+      agentDefinitionManager?.reload();
+    });
     const permissionManager = createPermissionManager(toolRegistry, permissionMode);
+    const permissionFactory = createPermissionManagerFactory(toolRegistry);
+    const taskManager = new SubAgentTaskManager(
+      resolvedSubagents.foregroundTimeoutMs,
+      resolvedSubagents.retainedTasks,
+    );
+    const resultInbox = new SubAgentResultInbox();
+    const subAgentRunner = new SubAgentRunner(toolRegistry, permissionFactory, {
+      hookManager: () => hookManager,
+      skillManager,
+    });
+    subAgentCoordinator = new SubAgentCoordinator(
+      toolRegistry,
+      agentDefinitionManager,
+      providerResolver,
+      subAgentRunner,
+      taskManager,
+      resultInbox,
+      resolvedSubagents,
+      { defaultProvider: () => provider },
+    );
     const loadedHooks = new HookConfigLoader(rootDir).load();
     const compiledHooks = compileHooks(loadedHooks);
     hookManager = new HookManager(
       rootDir,
       compiledHooks,
-      new DefaultHookActionExecutor(rootDir),
+      new DefaultHookActionExecutor(rootDir, {
+        runHookAgent: input => {
+          if (!subAgentCoordinator) {
+            return Promise.resolve({
+              status: 'failed',
+              code: 'SUBAGENT_UNAVAILABLE',
+              message: '子 Agent 协调器尚未初始化',
+            });
+          }
+          return subAgentCoordinator.runHookAgent(input);
+        },
+      }),
       new JsonlHookLogger(rootDir, loadedHooks.secretValues),
     );
     const customInstructions = loadInstructions(rootDir);
@@ -130,6 +183,7 @@ async function main() {
       { autoExtract: true },
       { manager: skillManager, runner: skillRunner },
       hookManager,
+      { coordinator: subAgentCoordinator, inbox: resultInbox },
     );
 
     await hookManager.startSystem(chatManager.getSessionId(), 'startup');
@@ -137,7 +191,13 @@ async function main() {
 
     // 8. 启动 TUI
     const { waitUntilExit } = render(
-      React.createElement(App, { provider, chatManager, skillManager, mcpStatus }),
+      React.createElement(App, {
+        provider,
+        chatManager,
+        skillManager,
+        mcpStatus,
+        agentDiagnostics: agentSnapshot.diagnostics,
+      }),
       { exitOnCtrlC: false },
     );
 
@@ -151,6 +211,9 @@ async function main() {
     } catch (error) {
       console.error(`[上下文清理] ${error instanceof Error ? error.message : String(error)}`);
     }
+    await subAgentCoordinator?.close();
+    unsubscribeSkillDefinitions?.();
+    await agentDefinitionManager?.close();
     await hookManager?.close();
     await skillManager?.close();
     const diagnostics = await mcpManager?.close() ?? [];
