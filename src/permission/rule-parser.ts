@@ -1,4 +1,5 @@
-import { escape, Minimatch } from 'minimatch';
+import { escape } from 'minimatch';
+import { compilePattern as compileTextPattern, PatternCompileError } from '../matcher/pattern.js';
 import type { PermissionTargetKind } from '../tool/types.js';
 import { isMcpToolName } from '../mcp/naming.js';
 import type {
@@ -35,55 +36,29 @@ function parseExpression(expression: string): { toolName: string; pattern?: stri
   return { toolName, pattern };
 }
 
-function literalLength(pattern: string): number {
-  let length = 0;
-  let escaped = false;
-  for (const character of pattern) {
-    if (escaped) {
-      length += 1;
-      escaped = false;
-    } else if (character === '\\') {
-      escaped = true;
-    } else if (!'*?[]'.includes(character)) {
-      length += 1;
-    }
-  }
-  if (escaped) length += 1;
-  return length;
-}
-
-function compilePattern(pattern: string, targetKind: PermissionTargetKind): {
+function compilePermissionPattern(pattern: string, targetKind: PermissionTargetKind): {
   kind: Exclude<PermissionPatternKind, 'tool'>;
+  literalLength: number;
   matches: (target: string) => boolean;
 } {
-  let matcher: Minimatch;
   try {
-    const compiledPattern = targetKind === 'command' || targetKind === 'value' || targetKind === 'arguments'
-      ? pattern.replaceAll('/', '\uE000')
-      : pattern;
-    matcher = new Minimatch(compiledPattern, {
-      dot: true,
-      matchBase: false,
-      nocase: false,
-      nobrace: true,
-      nocomment: true,
-      noext: true,
-      nonegate: true,
-      windowsPathsNoEscape: false,
+    const compiled = compileTextPattern({
+      pattern,
+      syntax: 'auto',
+      targetMode: targetKind === 'command' || targetKind === 'value' || targetKind === 'arguments'
+        ? 'literal'
+        : 'path',
     });
+    return {
+      kind: compiled.kind as Exclude<PermissionPatternKind, 'tool'>,
+      literalLength: compiled.literalLength,
+      matches: compiled.matches,
+    };
   } catch (error) {
     throw new PermissionRuleError(
-      `权限规则 glob 无效: ${error instanceof Error ? error.message : String(error)}`,
+      `权限规则 glob 无效: ${error instanceof PatternCompileError ? error.message : String(error)}`,
     );
   }
-  return {
-    kind: matcher.hasMagic() ? 'glob' : 'exact',
-    matches: target => matcher.match(
-      targetKind === 'command' || targetKind === 'value' || targetKind === 'arguments'
-        ? target.replaceAll('/', '\uE000')
-        : target,
-    ),
-  };
 }
 
 export function parsePermissionRule(
@@ -115,7 +90,7 @@ export function parsePermissionRule(
     };
   }
 
-  const compiled = compilePattern(parsed.pattern, targetKind);
+  const compiled = compilePermissionPattern(parsed.pattern, targetKind);
   return {
     ...raw,
     toolName: parsed.toolName,
@@ -123,7 +98,7 @@ export function parsePermissionRule(
     patternKind: compiled.kind,
     layer,
     order,
-    literalLength: literalLength(parsed.pattern),
+    literalLength: compiled.literalLength,
     matches: compiled.matches,
   };
 }

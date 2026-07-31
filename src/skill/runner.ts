@@ -11,6 +11,7 @@ import { createToolError, createToolSuccess, type ToolCall, type ToolResult } fr
 import { LOAD_SKILL_TOOL_NAME } from './load-tool.js';
 import type { SkillManager } from './manager.js';
 import type { SkillExecutionScope, SkillProviderResolver } from './types.js';
+import type { HookRuntime } from '../hook/types.js';
 
 function historyGroups(history: readonly Message[]): Message[][] {
   const filtered = history.filter(message => message.role !== 'instruction' || message.instructionKind !== 'runtime');
@@ -53,6 +54,7 @@ export interface SkillRunnerOptions {
   loop?: Partial<AgentLoopOptions>;
   context?: Partial<ContextManagerOptions>;
   supplemental?: SupplementalPromptContent;
+  hooks?: HookRuntime;
 }
 
 export class SkillRunner {
@@ -122,6 +124,7 @@ export class SkillRunner {
     const scope: SkillExecutionScope = { name: skill.name, args };
     const contextManager = new ContextManager(this.registry.rootDir, this.options.context);
     const runtime: AgentLoopRuntime = {
+      hooks: this.options.hooks,
       supplemental: () => this.manager.promptContent(scope),
       visibleToolNames: () => this.manager.visibleTools(scope).names,
     };

@@ -9,6 +9,7 @@ import { ContextManager } from '../context/manager.js';
 import type { ContextManageResult } from '../context/types.js';
 import type { ToolCall } from '../tool/types.js';
 import type { ToolResult } from '../tool/types.js';
+import type { HookRuntime } from '../hook/types.js';
 import { StreamCollector } from './stream-collector.js';
 import { ToolScheduler } from './tool-scheduler.js';
 import type {
@@ -33,6 +34,7 @@ const EMPTY_USAGE: TokenUsage = {
 };
 
 export interface AgentLoopRuntime {
+  hooks?: HookRuntime;
   supplemental?: () => SupplementalPromptContent;
   visibleToolNames?: () => ReadonlySet<string> | undefined;
   transformToolResult?: (input: {
@@ -67,7 +69,7 @@ export class AgentLoop {
       maxIterations: Math.max(1, options.maxIterations ?? DEFAULT_OPTIONS.maxIterations),
       unknownToolLimit: Math.max(1, options.unknownToolLimit ?? DEFAULT_OPTIONS.unknownToolLimit),
     };
-    this.scheduler = new ToolScheduler(registry, permissionManager);
+    this.scheduler = new ToolScheduler(registry, permissionManager, runtime.hooks);
   }
 
   async execute(
@@ -97,7 +99,8 @@ export class AgentLoop {
         startedIterations = iteration;
 
         const environment = collectEnvironment(this.registry.rootDir, request.mode);
-        const supplemental = this.currentSupplemental();
+        const hookPromptBatch = this.runtime.hooks?.preparePromptBatch();
+        const supplemental = this.currentSupplemental(hookPromptBatch?.content);
         const visibleToolNames = this.runtime.visibleToolNames?.();
         const definitions = visibleToolNames
           ? this.registry.definitionsFor(
@@ -134,6 +137,7 @@ export class AgentLoop {
           emit({ type: 'error', iteration, message: '自动上下文管理未生成可发送请求' });
           return finish('context_error', startedIterations);
         }
+        if (hookPromptBatch) this.runtime.hooks?.commitPromptBatch(hookPromptBatch.throughId);
         emit({
           type: 'progress',
           iteration,
@@ -182,6 +186,15 @@ export class AgentLoop {
           });
         }
 
+        try {
+          await this.runtime.hooks?.emitAssistantMessage({
+            content: turn.text,
+            toolCalls: turn.toolCalls,
+          }, request.signal);
+        } catch {
+          // Hook 运行时异常不能改变模型响应。
+        }
+
         if (turn.toolCalls.length === 0) {
           if (turn.text) history.push({ role: 'assistant', content: turn.text });
           try {
@@ -221,6 +234,17 @@ export class AgentLoop {
               iteration,
               emit,
             });
+          }
+        }
+
+        if (this.runtime.hooks) {
+          for (const item of batch.results) {
+            if (!item.executed) continue;
+            try {
+              await this.runtime.hooks.afterToolUse(item.call, item.result, request.signal);
+            } catch {
+              // 钩子运行时异常不能改变最终工具结果。
+            }
           }
         }
 
@@ -293,11 +317,12 @@ export class AgentLoop {
     });
   }
 
-  private currentSupplemental(): SupplementalPromptContent {
+  private currentSupplemental(hookInstructions?: string): SupplementalPromptContent {
     const dynamic = this.runtime.supplemental?.() ?? {};
     return {
       ...this.supplemental,
       ...dynamic,
+      hookInstructions,
       activeSkills: [
         ...(this.supplemental.activeSkills ?? []),
         ...(dynamic.activeSkills ?? []),

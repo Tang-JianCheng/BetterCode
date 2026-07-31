@@ -1,0 +1,78 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { compileHooks, HookCompileError } from './compiler.js';
+import type { HookEventContext, LoadedHookConfig } from './types.js';
+
+function config(value: Record<string, unknown>): LoadedHookConfig {
+  return {
+    secretValues: [],
+    rules: [{
+      source: { layer: 'project', file: '/project/.bettercode/hooks.yaml', index: 0, id: 'project:0' },
+      value,
+    }],
+  };
+}
+
+function preContext(command: string): HookEventContext {
+  return {
+    event: 'pre_tool_use',
+    projectRoot: '/project',
+    session: { id: 'session' },
+    timestamp: '2026-07-31T00:00:00.000Z',
+    turn: { id: 'turn', mode: 'act', task: 'test' },
+    tool: { id: 'call', name: 'run_command', arguments: { command } },
+  };
+}
+
+test('Hook compiler 编译 all、正则和反向条件', () => {
+  const [rule] = compileHooks(config({
+    event: 'pre_tool_use',
+    if: {
+      all: [
+        { field: 'tool.name', match: 'exact', value: 'run_command' },
+        { field: 'tool.arguments.command', match: 'regex', value: '(^|\\s)git\\s+push', negate: true },
+      ],
+    },
+    action: { type: 'command', command: 'echo ok' },
+  }));
+
+  assert.equal(rule.condition?.matches(preContext('git status')), true);
+  assert.equal(rule.condition?.matches(preContext('git push origin main')), false);
+});
+
+test('Hook compiler 严格拒绝前置 once、后台 prompt 和未知字段', () => {
+  assert.throws(() => compileHooks(config({
+    event: 'pre_tool_use',
+    once: true,
+    action: { type: 'command', command: 'echo ok' },
+  })), HookCompileError);
+  assert.throws(() => compileHooks(config({
+    event: 'turn_start',
+    background: true,
+    action: { type: 'prompt', prompt: 'hello' },
+  })), HookCompileError);
+  assert.throws(() => compileHooks(config({
+    event: 'turn_start',
+    action: { type: 'prompt', prompt: 'hello' },
+    priority: 1,
+  })), HookCompileError);
+  assert.throws(() => compileHooks(config({
+    event: 'post_tool_use',
+    action: { type: 'http', url: 'https://example.test', headers: { 'bad header': 'x' } },
+  })), HookCompileError);
+  assert.throws(() => compileHooks(config({
+    event: 'turn_start',
+    action: { type: 'prompt', prompt: 'broken {{turn.task' },
+  })), HookCompileError);
+});
+
+test('Prompt 和 HTTP JSON 模板保留结构化字段', () => {
+  const [prompt] = compileHooks(config({
+    event: 'pre_tool_use',
+    action: { type: 'prompt', prompt: '检查 {{tool.name}}: {{tool.arguments}}' },
+  }));
+  assert.match(
+    prompt.action.type === 'prompt' ? prompt.action.prompt.render(preContext('git status')) : '',
+    /run_command.*git status/,
+  );
+});

@@ -37,6 +37,7 @@ export interface AvailableSkill {
 }
 
 export interface SupplementalPromptContent {
+  hookInstructions?: string;
   customInstructions?: string;
   availableSkills?: readonly AvailableSkill[];
   activeSkills?: readonly ActivatedSkill[];

@@ -17,6 +17,11 @@ import { SkillManager } from './skill/manager.js';
 import { SkillRunner } from './skill/runner.js';
 import { createDefaultCommandRegistry } from './command/builtins.js';
 import type { LLMProvider } from './provider/types.js';
+import { HookConfigLoader } from './hook/config-loader.js';
+import { compileHooks } from './hook/compiler.js';
+import { DefaultHookActionExecutor } from './hook/action-executor.js';
+import { JsonlHookLogger } from './hook/logger.js';
+import { HookManager } from './hook/manager.js';
 
 function isPermissionMode(value: string | undefined): value is PermissionMode {
   return value === 'strict' || value === 'default' || value === 'allow';
@@ -46,6 +51,7 @@ async function main() {
   let mcpManager: McpManager | undefined;
   let chatManager: ChatManager | undefined;
   let skillManager: SkillManager | undefined;
+  let hookManager: HookManager | undefined;
   try {
     const permissionMode = values['permission-mode'];
     if (!isPermissionMode(permissionMode)) {
@@ -95,8 +101,16 @@ async function main() {
     skillManager.initialize();
     skillManager.startWatching();
 
-    // 7. 基于完整工具列表创建权限、Skill 运行器与对话管理器
+    // 7. 基于完整工具列表创建权限与 Hook 运行时
     const permissionManager = createPermissionManager(toolRegistry, permissionMode);
+    const loadedHooks = new HookConfigLoader(rootDir).load();
+    const compiledHooks = compileHooks(loadedHooks);
+    hookManager = new HookManager(
+      rootDir,
+      compiledHooks,
+      new DefaultHookActionExecutor(rootDir),
+      new JsonlHookLogger(rootDir, loadedHooks.secretValues),
+    );
     const customInstructions = loadInstructions(rootDir);
     const longTermMemory = new MemoryManager(rootDir).buildSystemReminder();
     const supplemental = { customInstructions, longTermMemory };
@@ -105,7 +119,7 @@ async function main() {
       permissionManager,
       skillManager,
       providerResolver,
-      { supplemental },
+      { supplemental, hooks: hookManager },
     );
     chatManager = new ChatManager(
       toolRegistry,
@@ -115,7 +129,11 @@ async function main() {
       {},
       { autoExtract: true },
       { manager: skillManager, runner: skillRunner },
+      hookManager,
     );
+
+    await hookManager.startSystem(chatManager.getSessionId(), 'startup');
+    await hookManager.startSession(chatManager.getSessionId(), 'startup');
 
     // 8. 启动 TUI
     const { waitUntilExit } = render(
@@ -133,6 +151,7 @@ async function main() {
     } catch (error) {
       console.error(`[上下文清理] ${error instanceof Error ? error.message : String(error)}`);
     }
+    await hookManager?.close();
     await skillManager?.close();
     const diagnostics = await mcpManager?.close() ?? [];
     for (const diagnostic of diagnostics) {

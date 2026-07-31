@@ -1,6 +1,6 @@
 # BetterCode
 
-BetterCode 是一个用于学习和交流的终端代码 Agent。它支持流式对话、内置工具、Agent Loop、Plan Mode、权限控制、MCP 工具发现、Skill、长会话上下文管理和跨会话记忆。
+BetterCode 是一个用于学习和交流的终端代码 Agent。它支持流式对话、内置工具、Agent Loop、Plan Mode、权限控制、MCP 工具发现、Skill、生命周期 Hook、长会话上下文管理和跨会话记忆。
 
 ## 命令系统
 
@@ -66,6 +66,76 @@ review/
 ```
 
 `.tool.yaml` 声明工具名称、说明、Schema、脚本、读写效果和权限画像。`.mjs` 从 stdin 读取一次 JSON 参数，并向 stdout 输出结构化 ToolResult JSON。脚本由 Node.js 直接启动，不经过 Shell；它仍继承 BetterCode 进程权限，本章不提供操作系统级沙箱或网络隔离。
+
+## Hook 系统
+
+Hook 用声明式 YAML 在固定生命周期事件上执行自动化动作。三个配置文件按用户、项目共享、项目本地顺序追加加载；任一存在的文件无效时 BetterCode 会拒绝启动，避免安全规则被静默跳过。
+
+```text
+~/.bettercode/hooks.yaml
+<project>/.bettercode/hooks.yaml
+<project>/.bettercode/hooks.local.yaml
+```
+
+基础格式：
+
+```yaml
+version: 1
+hooks:
+  - event: pre_tool_use
+    if:
+      all:
+        - field: tool.name
+          match: exact
+          value: run_command
+        - field: tool.arguments.command
+          match: regex
+          value: '(^|\s)git\s+push($|\s)'
+    action:
+      type: command
+      command: node .bettercode/hooks/check-push.mjs
+    timeout_ms: 5000
+```
+
+支持十个事件：
+
+| 层级 | 事件 |
+|---|---|
+| 系统 | `system_start`、`system_stop` |
+| 会话 | `session_start`、`session_end` |
+| 用户任务 | `turn_start`、`turn_end` |
+| 消息 | `user_message`、`assistant_message` |
+| 工具 | `pre_tool_use`、`post_tool_use` |
+
+一次 turn 是一条用户输入到 Agent 停止的完整过程，不随内部模型迭代重复。条件使用 `all` 或 `any` 组合，原子匹配支持 `exact`、`glob`、`regex` 和 `negate: true`；工具事件可读取 `tool.name`、`tool.arguments.<字段>`，执行后还可读取 `tool.result`。
+
+四种动作：
+
+- `command`：在项目根通过系统 Shell 执行，完整事件 JSON 从 stdin 传入。
+- `prompt`：把 `{{field.path}}` 模板渲染为下一次模型请求的 runtime instruction，只消费一次，不进入稳定 System Prompt 或真实历史。
+- `http`：向 HTTP/HTTPS 地址发送事件 JSON，支持 method、headers、body、事件模板和 `${VAR}` 环境变量。
+- `agent`：当前只校验配置并记录未实现日志，不会启动子 Agent。
+
+`pre_tool_use` 命令 stdout 或 HTTP 2xx 响应可返回统一决定：
+
+```json
+{ "decision": "allow" }
+```
+
+```json
+{ "decision": "deny", "reason": "禁止直接推送受保护分支" }
+```
+
+只有合法的明确 `deny` 会阻止工具，并把原因作为 `HOOK_DENIED` 工具结果交给模型。`allow` 只表示当前 Hook 不拒绝，工具仍需通过 Plan Mode、危险命令黑名单、路径沙箱、权限规则和人工确认。Hook 超时、网络错误、非零退出或非法决定只写日志，不中断 Agent 主流程。
+
+- `once: true` 表示当前 BetterCode 进程内成功执行一次；失败后可以重试，重启后重置。
+- `background: true` 表示后台执行，Agent 不等待结果。
+- `pre_tool_use` 禁止 `once`、后台执行和 agent 动作；prompt 动作也禁止后台执行。
+- 命令和 HTTP 默认超时 30 秒，可通过 `timeout_ms` 设置为 1 毫秒到 5 分钟。
+- 修改 Hook YAML 后需要重启 BetterCode，本章不支持热更新。
+- 运行期失败日志写入 `.bettercode/logs/hooks.jsonl`，本地配置和日志默认不提交。
+
+Hook 命令与 HTTP 是用户主动安装的本地自动化代码，不经过 Agent 工具权限系统，并继承 BetterCode 进程可见的环境和操作系统权限。只应加载可信 Hook 配置；本章不提供操作系统沙箱、网络白名单或日志轮转。
 
 ## 记忆系统
 

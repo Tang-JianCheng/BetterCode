@@ -33,6 +33,7 @@ import {
 import type { ToolCall } from '../tool/types.js';
 import type { SkillManager } from '../skill/manager.js';
 import type { SkillRunner } from '../skill/runner.js';
+import type { HookManager } from '../hook/manager.js';
 
 export interface ChatManagerMemoryOptions {
   autoExtract?: boolean;
@@ -96,6 +97,7 @@ export class ChatManager {
     contextOptions: Partial<ContextManagerOptions> = {},
     memoryOptions: ChatManagerMemoryOptions = {},
     private readonly skillOptions: ChatManagerSkillOptions = {},
+    private readonly hookManager?: HookManager,
   ) {
     this.rootDir = toolRegistry.rootDir;
     this.autoExtract = memoryOptions.autoExtract ?? false;
@@ -115,6 +117,7 @@ export class ChatManager {
         onLoopComplete: (history, provider) => this.scheduleMemoryExtraction(history, provider),
       },
       {
+        hooks: hookManager,
         supplemental: skillOptions.manager
           ? () => skillOptions.manager!.promptContent()
           : undefined,
@@ -188,6 +191,14 @@ export class ChatManager {
       manager.beginExecution();
       let terminal: Extract<AgentEvent, { type: 'stopped' }> | undefined;
       try {
+        await this.hookManager?.startTurn({
+          task: displayText,
+          mode: options.mode ?? 'act',
+        }, options.signal ?? new AbortController().signal);
+        await this.hookManager?.emitUserMessage(
+          displayText,
+          options.signal ?? new AbortController().signal,
+        );
         this.fileHistory.makeSnapshot(this.history.length, displayText);
         this.persistMessage('user', displayText);
         const sourceHistory = [...this.history];
@@ -209,6 +220,10 @@ export class ChatManager {
         });
         terminal = { type: 'stopped', reason: 'stream_error', iterations: 0, finalText: '' };
       } finally {
+        await this.hookManager?.endTurn(
+          terminal?.reason ?? 'stream_error',
+          new AbortController().signal,
+        );
         manager.endExecution();
         this.active = false;
       }
@@ -250,6 +265,7 @@ export class ChatManager {
     if (saved.length === 0) throw new Error(`会话不存在或为空: ${sessionId}`);
     const restored = rebuildFromSession(saved);
     if (restored.length === 0) throw new Error(`会话没有可恢复的消息: ${sessionId}`);
+    await this.hookManager?.endSession('resume');
     await this.contextManager.clear();
     this.history = restored.map(message => ({ ...message }));
     this.latestPlan = undefined;
@@ -260,6 +276,7 @@ export class ChatManager {
     this.fileHistory = new FileHistory(this.rootDir, sessionId);
     this.permissionManager.clearSessionRules();
     this.skillOptions.manager?.clearActive();
+    await this.hookManager?.startSession(sessionId, 'resume');
     return restored;
   }
 
@@ -351,6 +368,7 @@ export class ChatManager {
   async clear(): Promise<void> {
     if (this.closed) throw new Error('ChatManager 已关闭');
     if (this.active) throw new Error('Agent 运行期间不能清空会话');
+    await this.hookManager?.endSession('clear');
     await this.contextManager.clear();
     this.history = [];
     this.latestPlan = undefined;
@@ -361,11 +379,13 @@ export class ChatManager {
     this.fileHistory = new FileHistory(this.rootDir, this.sessionId);
     this.permissionManager.clearSessionRules();
     this.skillOptions.manager?.clearActive();
+    await this.hookManager?.startSession(this.sessionId, 'clear');
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     if (this.active) throw new Error('Agent 运行期间不能关闭 ChatManager');
+    await this.hookManager?.endSession('shutdown');
     await Promise.allSettled([...this.backgroundTasks]);
     await this.contextManager.close();
     this.closed = true;
@@ -419,6 +439,8 @@ export class ChatManager {
       let terminalEvent: Extract<AgentEvent, { type: 'stopped' }> | undefined;
       let compacted = false;
       try {
+        await this.hookManager?.startTurn({ task: userMessage, mode }, signal);
+        await this.hookManager?.emitUserMessage(userMessage, signal);
         this.fileHistory.makeSnapshot(this.history.length, userMessage);
         this.persistMessage('user', userMessage);
         const outcome = await this.loop.execute({
@@ -456,6 +478,10 @@ export class ChatManager {
           finalText: '',
         };
       } finally {
+        await this.hookManager?.endTurn(
+          terminalEvent?.reason ?? (signal.aborted ? 'cancelled' : 'stream_error'),
+          new AbortController().signal,
+        );
         this.skillOptions.manager?.endExecution();
         this.active = false;
       }

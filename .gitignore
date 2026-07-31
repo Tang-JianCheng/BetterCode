@@ -1,4 +1,6 @@
 .bettercode/permissions.local.yaml
+.bettercode/hooks.local.yaml
+.bettercode/logs/
 .bettercode/context/
 .bettercode/sessions/
 .bettercode/prompt_history.jsonl

@@ -7,10 +7,12 @@ import {
   type ToolResult,
 } from '../tool/types.js';
 import type { AgentEvent, AgentMode } from './types.js';
+import type { HookRuntime } from '../hook/types.js';
 
 export interface ScheduledToolResult {
   call: ToolCall;
   result: ToolResult;
+  executed: boolean;
 }
 
 export interface ToolBatchResult {
@@ -44,6 +46,7 @@ export class ToolScheduler {
   constructor(
     private readonly registry: ToolRegistry,
     private readonly permissionManager: PermissionManager,
+    private readonly hooks?: HookRuntime,
   ) {}
 
   async executeBatch(
@@ -54,6 +57,7 @@ export class ToolScheduler {
     const results = new Map<number, ToolResult>();
     const readOnly: IndexedCall[] = [];
     const sideEffects: IndexedCall[] = [];
+    const executedIndices = new Set<number>();
     let unknownToolStreak = options.initialUnknownToolStreak;
     let unknownToolLimitReached = false;
 
@@ -84,9 +88,19 @@ export class ToolScheduler {
         const validationError = this.registry.validate(call);
         if (validationError) {
           results.set(index, validationError);
-        } else if (this.registry.isSystem(call.name)) {
-          (tool.effect === 'read_only' ? readOnly : sideEffects).push({ index, call });
         } else {
+          const hookResult = await this.hooks?.beforeToolUse(call, options.signal);
+          if (hookResult?.denied) {
+            results.set(index, createToolError('HOOK_DENIED', hookResult.denied.reason, {
+              hookLayer: hookResult.denied.source.layer,
+              hookRule: hookResult.denied.source.index + 1,
+            }));
+            continue;
+          }
+          if (this.registry.isSystem(call.name)) {
+            (tool.effect === 'read_only' ? readOnly : sideEffects).push({ index, call });
+            continue;
+          }
           options.onProgress({
             type: 'progress',
             iteration,
@@ -153,6 +167,7 @@ export class ToolScheduler {
       } catch {
         // 快照失败不能阻断已获授权的工具调用。
       }
+      executedIndices.add(index);
       const result = await this.registry.execute(call, options.signal);
       results.set(index, result);
     };
@@ -174,7 +189,11 @@ export class ToolScheduler {
     }
 
     return {
-      results: calls.map((call, index) => ({ call, result: results.get(index)! })),
+      results: calls.map((call, index) => ({
+        call,
+        result: results.get(index)!,
+        executed: executedIndices.has(index),
+      })),
       unknownToolStreak,
       unknownToolLimitReached,
       cancelled: options.signal.aborted,

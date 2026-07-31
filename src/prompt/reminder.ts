@@ -82,6 +82,8 @@ export function isFullModeReminder(iteration: number): boolean {
 export function buildSystemReminder(input: ReminderInput): string {
   const { environment, supplemental } = input;
   const sections: string[] = [];
+  const hookInstructions = cleanOptional(supplemental?.hookInstructions);
+  if (hookInstructions) sections.push(`## Hook 补充指令\n${hookInstructions}`);
   const skills = supplemental?.activeSkills
     ?.map(skill => ({
       name: cleanOptional(skill.name),
