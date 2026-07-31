@@ -181,6 +181,7 @@ export interface HookAgentScope {
   role?: string;
   sessionId: string;
   parentTurnId?: string;
+  projectRoot?: string;
   turn: {
     id: string;
     mode: AgentMode;

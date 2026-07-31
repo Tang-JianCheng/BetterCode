@@ -28,6 +28,14 @@ export function formatTaskDetail(task: SubAgentTaskSnapshot | undefined, taskId:
     task.result?.trim() || task.error?.message || '暂无结果',
     MAX_DETAIL_TEXT_BYTES,
   ).value;
+  const worktree = task.worktree
+    ? [
+        `Worktree: ${task.worktree.state}`,
+        ...(task.worktree.path ? [`Worktree 路径: ${task.worktree.path}`] : []),
+        ...(task.worktree.branch ? [`Worktree 分支: ${task.worktree.branch}`] : []),
+        ...(task.worktree.reasons?.length ? [`Worktree 原因: ${task.worktree.reasons.join('；')}`] : []),
+      ]
+    : [];
   return [
     `任务 ID: ${task.id}`,
     `类型: ${label(task)}`,
@@ -38,6 +46,7 @@ export function formatTaskDetail(task: SubAgentTaskSnapshot | undefined, taskId:
     `Token: 输入 ${task.usage.inputTokens} / 输出 ${task.usage.outputTokens} / 总计 ${task.usage.totalTokens}`,
     `缓存: 创建 ${task.usage.cacheCreationInputTokens} / 命中 ${task.usage.cacheReadInputTokens}`,
     `任务: ${task.task}`,
+    ...worktree,
     `结果: ${result}`,
   ].join('\n');
 }

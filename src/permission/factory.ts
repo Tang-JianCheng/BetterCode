@@ -11,7 +11,7 @@ export interface PermissionFactoryOptions {
 }
 
 export interface PermissionManagerFactory {
-  create(mode: PermissionMode): PermissionManager;
+  create(mode: PermissionMode, registry?: ToolRegistry): PermissionManager;
 }
 
 export function createPermissionManager(
@@ -38,6 +38,6 @@ export function createPermissionManagerFactory(
   options: PermissionFactoryOptions = {},
 ): PermissionManagerFactory {
   return {
-    create: mode => createPermissionManager(registry, mode, options),
+    create: (mode, targetRegistry = registry) => createPermissionManager(targetRegistry, mode, options),
   };
 }

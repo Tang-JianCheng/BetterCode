@@ -5,3 +5,5 @@
 .bettercode/sessions/
 .bettercode/prompt_history.jsonl
 .bettercode/file-history/
+.bettercode/worktrees/
+.bettercode/worktree-state/

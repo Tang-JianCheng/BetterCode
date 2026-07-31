@@ -165,7 +165,7 @@ export class HookManager implements HookRuntime {
       extra: Partial<HookEventContext> = {},
     ): HookEventContext => cloneFrozen({
       event,
-      projectRoot: this.rootDir,
+      projectRoot: path.resolve(input.projectRoot ?? this.rootDir),
       session: { id: input.sessionId },
       timestamp: new Date().toISOString(),
       turn: { ...input.turn },

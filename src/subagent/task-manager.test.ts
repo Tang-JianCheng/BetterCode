@@ -173,3 +173,27 @@ test('每个会话只允许一个前台任务且重复转后台无副作用', as
   gate.resolve(outcome());
   await manager.close();
 });
+
+test('任务管理器发布并保留 Worktree 生命周期状态', async () => {
+  const manager = new SubAgentTaskManager(1_000, 10);
+  const gate = deferred<AgentOutcome>();
+  const events: string[] = [];
+  manager.subscribe(event => { if (event.type === 'task_worktree') events.push(event.worktree.state); });
+  const task = manager.start({
+    kind: 'defined', role: 'reviewer', task: '隔离任务', origin: 'tool', sessionId: 's1', isolation: 'worktree',
+  }, async () => gate.promise);
+  assert.equal(task.worktree?.name, `reviewer/${task.id}`);
+  manager.updateWorktree(task.id, {
+    isolation: 'worktree', name: `reviewer/${task.id}`, path: '/worktree', branch: 'bettercode/worktree/reviewer/task',
+    baseCommit: 'abc', state: 'active',
+  });
+  manager.updateWorktree(task.id, {
+    isolation: 'worktree', name: `reviewer/${task.id}`, path: '/worktree', branch: 'bettercode/worktree/reviewer/task',
+    baseCommit: 'abc', state: 'retained', reasons: ['存在未提交修改'],
+  });
+  assert.deepEqual(events, ['active', 'retained']);
+  assert.equal(manager.get('s1', task.id)?.worktree?.state, 'retained');
+  gate.resolve(outcome());
+  await manager.waitForeground(task.id, new AbortController().signal);
+  await manager.close();
+});

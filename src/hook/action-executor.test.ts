@@ -49,7 +49,7 @@ process.stdout.write(JSON.stringify({ decision: context.tool.name === 'run_comma
   });
   const result = await new DefaultHookActionExecutor(root).execute(
     rule,
-    context,
+    { ...context, projectRoot: root },
     new AbortController().signal,
   );
   assert.deepEqual(result.status === 'success' ? result.decision : undefined, {

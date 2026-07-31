@@ -8,6 +8,7 @@ import type {
   SubAgentKind,
   SubAgentTaskRecord,
   SubAgentTaskSnapshot,
+  SubAgentWorktreeState,
 } from './types.js';
 
 const EMPTY_USAGE: TokenUsage = {
@@ -27,6 +28,7 @@ export interface StartSubAgentTaskInput {
   sessionId: string;
   parentTurnId?: string;
   background?: SubAgentBackgroundReason;
+  isolation?: 'worktree';
 }
 
 export type ForegroundWaitResult =
@@ -73,8 +75,9 @@ export class SubAgentTaskManager {
       throw new Error('当前会话已有前台子 Agent');
     }
     const now = new Date().toISOString();
+    const taskId = `sa-${randomUUID()}`;
     const record: SubAgentTaskRecord = {
-      id: `sa-${randomUUID()}`,
+      id: taskId,
       kind: input.kind,
       ...(input.role ? { role: input.role } : {}),
       task: input.task,
@@ -87,6 +90,13 @@ export class SubAgentTaskManager {
       createdAt: now,
       iterations: 0,
       usage: { ...EMPTY_USAGE },
+      ...(input.isolation === 'worktree' && input.role ? {
+        worktree: {
+          isolation: 'worktree' as const,
+          name: `${input.role}/${taskId}`,
+          state: 'preparing' as const,
+        },
+      } : {}),
     };
     let resolveCompletion!: (task: SubAgentTaskSnapshot) => void;
     let resolveBackground!: (task: SubAgentTaskSnapshot) => void;
@@ -121,7 +131,7 @@ export class SubAgentTaskManager {
       })
       .catch(error => this.finalizeFailed(
         control,
-        'SUBAGENT_FAILED',
+        control.record.worktree?.state === 'failed' ? 'SUBAGENT_WORKTREE_ERROR' : 'SUBAGENT_FAILED',
         error instanceof Error ? error.message : String(error),
       ));
     if (input.background) {
@@ -204,6 +214,13 @@ export class SubAgentTaskManager {
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  updateWorktree(taskId: string, worktree: SubAgentWorktreeState): void {
+    const control = this.tasks.get(taskId);
+    if (!control || isTerminal(control.record)) return;
+    control.record.worktree = structuredClone(worktree);
+    this.publish({ type: 'task_worktree', taskId, worktree: structuredClone(worktree) });
   }
 
   async cancelSession(sessionId: string, reason: string): Promise<void> {

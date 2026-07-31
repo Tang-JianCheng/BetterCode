@@ -29,6 +29,14 @@ import { SubAgentResultInbox } from './subagent/result-inbox.js';
 import { SubAgentRunner } from './subagent/runner.js';
 import { SubAgentCoordinator } from './subagent/coordinator.js';
 import { resolveSubAgentOptions } from './subagent/types.js';
+import { resolveWorktreeOptions } from './worktree/types.js';
+import { WorktreePathGuard } from './worktree/path-guard.js';
+import { WorktreeMetadataStore } from './worktree/metadata-store.js';
+import { GitWorktreeClient } from './worktree/git-client.js';
+import { WorktreeInitializer } from './worktree/initializer.js';
+import { WorktreeManager } from './worktree/manager.js';
+import { WorktreeCleanupScheduler } from './worktree/cleanup.js';
+import { ProjectRuntimeFactory } from './runtime/project-runtime.js';
 
 function isPermissionMode(value: string | undefined): value is PermissionMode {
   return value === 'strict' || value === 'default' || value === 'allow';
@@ -62,6 +70,8 @@ async function main() {
   let agentDefinitionManager: AgentDefinitionManager | undefined;
   let subAgentCoordinator: SubAgentCoordinator | undefined;
   let unsubscribeSkillDefinitions: (() => void) | undefined;
+  let worktreeManager: WorktreeManager | undefined;
+  let worktreeCleanup: WorktreeCleanupScheduler | undefined;
   try {
     const permissionMode = values['permission-mode'];
     if (!isPermissionMode(permissionMode)) {
@@ -126,6 +136,35 @@ async function main() {
     });
     const permissionManager = createPermissionManager(toolRegistry, permissionMode);
     const permissionFactory = createPermissionManagerFactory(toolRegistry);
+    const projectRuntimeFactory = new ProjectRuntimeFactory(toolRegistry, permissionFactory);
+    const resolvedWorktrees = resolveWorktreeOptions(appConfig.worktrees);
+    try {
+      const worktreeGuard = new WorktreePathGuard(rootDir);
+      const worktreeMetadata = new WorktreeMetadataStore(worktreeGuard);
+      const worktreeGit = new GitWorktreeClient();
+      const worktreeInitializer = new WorktreeInitializer(
+        worktreeGuard,
+        worktreeGit,
+        resolvedWorktrees,
+      );
+      worktreeManager = new WorktreeManager(
+        worktreeGuard,
+        worktreeMetadata,
+        worktreeGit,
+        worktreeInitializer,
+      );
+      await worktreeManager.initialize();
+      worktreeCleanup = new WorktreeCleanupScheduler(
+        worktreeManager,
+        worktreeMetadata,
+        resolvedWorktrees.retentionMs,
+        resolvedWorktrees.cleanupIntervalMs,
+      );
+      worktreeCleanup.start();
+    } catch (error) {
+      worktreeManager = undefined;
+      console.error(`[Worktree] 隔离能力不可用: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const taskManager = new SubAgentTaskManager(
       resolvedSubagents.foregroundTimeoutMs,
       resolvedSubagents.retainedTasks,
@@ -134,6 +173,8 @@ async function main() {
     const subAgentRunner = new SubAgentRunner(toolRegistry, permissionFactory, {
       hookManager: () => hookManager,
       skillManager,
+      projectRuntimeFactory,
+      ...(worktreeManager ? { worktreeManager } : {}),
     });
     subAgentCoordinator = new SubAgentCoordinator(
       toolRegistry,
@@ -212,6 +253,8 @@ async function main() {
       console.error(`[上下文清理] ${error instanceof Error ? error.message : String(error)}`);
     }
     await subAgentCoordinator?.close();
+    await worktreeCleanup?.close();
+    await worktreeManager?.close();
     unsubscribeSkillDefinitions?.();
     await agentDefinitionManager?.close();
     await hookManager?.close();

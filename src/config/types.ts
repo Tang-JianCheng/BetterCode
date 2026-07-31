@@ -33,9 +33,30 @@ export interface SubAgentConfig {
   denied_tools?: string[];
 }
 
+export interface WorktreeCopyRuleConfig {
+  source: string;
+  target?: string;
+  required?: boolean;
+}
+
+export interface WorktreeSymlinkRuleConfig {
+  source: string;
+  target?: string;
+  required?: boolean;
+}
+
+export interface WorktreeConfig {
+  retention_days?: number;
+  cleanup_interval_ms?: number;
+  copy_files?: WorktreeCopyRuleConfig[];
+  ignored_files?: WorktreeCopyRuleConfig[];
+  symlinks?: WorktreeSymlinkRuleConfig[];
+}
+
 /** config.yaml 顶层结构 */
 export interface AppConfig {
   providers: ProviderConfig[];
   agent_models?: AgentModelAliases;
   subagents?: SubAgentConfig;
+  worktrees?: WorktreeConfig;
 }

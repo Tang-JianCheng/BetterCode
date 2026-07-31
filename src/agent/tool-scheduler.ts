@@ -9,6 +9,8 @@ import {
 import type { AgentEvent, AgentMode } from './types.js';
 import type { HookRuntime } from '../hook/types.js';
 import type { ToolExecutionState } from '../tool/execution-state.js';
+import path from 'node:path';
+import { realpathSync } from 'node:fs';
 
 export interface ScheduledToolResult {
   call: ToolCall;
@@ -175,7 +177,12 @@ export class ToolScheduler {
       if (result.ok && this.registry.effectOf(call.name) === 'side_effect') {
         const filePath = call.arguments.path;
         if ((call.name === 'write_file' || call.name === 'edit_file') && typeof filePath === 'string') {
-          this.executionState?.invalidateFile(filePath);
+          const absolute = path.resolve(this.registry.rootDir, filePath);
+          try {
+            this.executionState?.invalidateFile(realpathSync(absolute));
+          } catch {
+            this.executionState?.invalidateFile(absolute);
+          }
         } else {
           this.executionState?.invalidateAllFiles();
         }

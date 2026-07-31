@@ -27,6 +27,7 @@ test('Agent parser 解析完整元信息并保留 tools 缺省差异', () => {
   assert.equal(parsed.metadata.model, 'haiku');
   assert.equal(parsed.metadata.maxIterations, 8);
   assert.equal(parsed.metadata.permissionMode, 'strict');
+  assert.equal(parsed.metadata.isolation, 'none');
   assert.equal(parsed.body, '只读取必要事实并返回证据。');
 
   const withoutTools = parseAgentDefinitionDocument(VALID.replace('tools: [read_file]\n', ''));
@@ -39,6 +40,7 @@ test('Agent parser 拒绝缺失、未知、重复和非法字段', () => {
   const cases = [
     [VALID.replace('background_tools: [read_file]\n', ''), /background_tools/],
     [VALID.replace('permission_mode: strict', 'permission_mode: prompt'), /permission_mode/],
+    [VALID.replace('permission_mode: strict', 'permission_mode: strict\nisolation: container'), /isolation/],
     [VALID.replace('max_iterations: 8', 'max_iterations: 0'), /max_iterations/],
     [VALID.replace('tools: [read_file]', 'tools: [read_file, read_file]'), /重复/],
     [VALID.replace('description: 调研代码', 'description: 调研代码\nunknown: true'), /未知字段/],
@@ -47,6 +49,13 @@ test('Agent parser 拒绝缺失、未知、重复和非法字段', () => {
   for (const [content, expected] of cases) {
     assert.throws(() => parseAgentDefinitionDocument(content), expected);
   }
+});
+
+test('Agent parser 接受 Worktree 隔离声明', () => {
+  const parsed = parseAgentDefinitionDocument(
+    VALID.replace('permission_mode: strict', 'permission_mode: strict\nisolation: worktree'),
+  );
+  assert.equal(parsed.metadata.isolation, 'worktree');
 });
 
 test('名称预提取在损坏文档中仍支持覆盖分组', () => {

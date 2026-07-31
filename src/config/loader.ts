@@ -5,6 +5,8 @@ import type {
   AppConfig,
   ProviderConfig,
   SubAgentConfig,
+  WorktreeConfig,
+  WorktreeCopyRuleConfig,
 } from './types.js';
 
 const AGENT_MODEL_TIERS = new Set(['haiku', 'sonnet', 'opus']);
@@ -14,6 +16,14 @@ const SUBAGENT_FIELDS = new Set([
   'retained_tasks',
   'denied_tools',
 ]);
+const WORKTREE_FIELDS = new Set([
+  'retention_days',
+  'cleanup_interval_ms',
+  'copy_files',
+  'ignored_files',
+  'symlinks',
+]);
+const WORKTREE_RULE_FIELDS = new Set(['source', 'target', 'required']);
 
 /**
  * 校验单个 provider 配置，不合法时抛 Error。
@@ -132,6 +142,62 @@ function parseSubAgents(value: unknown): SubAgentConfig | undefined {
   };
 }
 
+function worktreePath(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} 必须是非空相对路径`);
+  const normalized = value.trim();
+  if (normalized.startsWith('/') || normalized.startsWith('\\') || /^[A-Za-z]:/u.test(normalized) || normalized.includes('\\')) {
+    throw new Error(`${field} 必须使用项目内正斜杠相对路径`);
+  }
+  if (normalized.split('/').some(part => part === '..')) throw new Error(`${field} 不能包含 .. 路径段`);
+  return normalized;
+}
+
+function parseWorktreeRules(value: unknown, field: string): WorktreeCopyRuleConfig[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 100) throw new Error(`${field} 必须是最多 100 条规则的数组`);
+  return value.map((item, index) => {
+    const raw = record(item, `${field}[${index}]`);
+    for (const key of Object.keys(raw)) {
+      if (!WORKTREE_RULE_FIELDS.has(key)) throw new Error(`${field}[${index}] 包含未知字段: ${key}`);
+    }
+    if (raw.required !== undefined && typeof raw.required !== 'boolean') {
+      throw new Error(`${field}[${index}].required 必须是布尔值`);
+    }
+    return {
+      source: worktreePath(raw.source, `${field}[${index}].source`),
+      ...(raw.target === undefined ? {} : { target: worktreePath(raw.target, `${field}[${index}].target`) }),
+      ...(raw.required === undefined ? {} : { required: raw.required }),
+    };
+  });
+}
+
+function parseWorktrees(value: unknown): WorktreeConfig | undefined {
+  if (value === undefined) return undefined;
+  const raw = record(value, 'worktrees');
+  for (const key of Object.keys(raw)) {
+    if (!WORKTREE_FIELDS.has(key)) throw new Error(`worktrees 包含未知字段: ${key}`);
+  }
+  const copyFiles = parseWorktreeRules(raw.copy_files, 'worktrees.copy_files');
+  const ignoredFiles = parseWorktreeRules(raw.ignored_files, 'worktrees.ignored_files');
+  const symlinks = parseWorktreeRules(raw.symlinks, 'worktrees.symlinks');
+  return {
+    ...(raw.retention_days === undefined ? {} : {
+      retention_days: positiveInteger(raw.retention_days, 'worktrees.retention_days', 1, 3650),
+    }),
+    ...(raw.cleanup_interval_ms === undefined ? {} : {
+      cleanup_interval_ms: positiveInteger(
+        raw.cleanup_interval_ms,
+        'worktrees.cleanup_interval_ms',
+        60_000,
+        86_400_000,
+      ),
+    }),
+    ...(copyFiles ? { copy_files: copyFiles } : {}),
+    ...(ignoredFiles ? { ignored_files: ignoredFiles } : {}),
+    ...(symlinks ? { symlinks } : {}),
+  };
+}
+
 /**
  * 读取并解析 YAML 配置文件。
  * @param path 配置文件路径，默认 ./config.yaml
@@ -199,8 +265,10 @@ export function loadConfig(path: string = './config.yaml'): AppConfig {
   const providerNames = new Set(config.providers.map(provider => provider.name));
   const agentModels = parseAgentModels(obj.agent_models, providerNames);
   const subagents = parseSubAgents(obj.subagents);
+  const worktrees = parseWorktrees(obj.worktrees);
   if (agentModels) config.agent_models = agentModels;
   if (subagents) config.subagents = subagents;
+  if (worktrees) config.worktrees = worktrees;
 
   return config;
 }

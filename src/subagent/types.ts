@@ -40,6 +40,7 @@ export function resolveSubAgentOptions(input: {
 
 export type AgentDefinitionScope = 'plugin' | 'builtin' | 'user' | 'project';
 export type AgentDefinitionModel = 'inherit' | AgentModelTier;
+export type AgentIsolation = 'none' | 'worktree';
 
 export interface AgentDefinitionMetadata {
   name: string;
@@ -50,6 +51,7 @@ export interface AgentDefinitionMetadata {
   model: AgentDefinitionModel;
   maxIterations: number;
   permissionMode: PermissionMode;
+  isolation: AgentIsolation;
 }
 
 export interface AgentDefinition extends AgentDefinitionMetadata {
@@ -95,6 +97,16 @@ export type SubAgentTaskState = 'waiting' | 'running' | 'completed' | 'failed' |
 export type SubAgentExecutionMode = 'foreground' | 'background';
 export type SubAgentBackgroundReason = 'explicit' | 'timeout' | 'manual' | 'fork' | 'hook';
 
+export interface SubAgentWorktreeState {
+  isolation: 'worktree';
+  name: string;
+  path?: string;
+  branch?: string;
+  baseCommit?: string;
+  state: 'preparing' | 'active' | 'deleted' | 'retained' | 'failed';
+  reasons?: readonly string[];
+}
+
 export interface SubAgentTaskRecord {
   id: string;
   kind: SubAgentKind;
@@ -114,6 +126,7 @@ export interface SubAgentTaskRecord {
   usage: TokenUsage;
   result?: string;
   error?: { code: string; message: string };
+  worktree?: SubAgentWorktreeState;
 }
 
 export type SubAgentTaskSnapshot = Readonly<SubAgentTaskRecord>;
@@ -131,6 +144,7 @@ export type SubAgentEvent =
   | { type: 'task_tool_call'; taskId: string; iteration: number; call: ToolCall }
   | { type: 'task_tool_result'; taskId: string; iteration: number; call: ToolCall; result: ToolResult }
   | { type: 'task_usage'; taskId: string; usage: TokenUsage }
+  | { type: 'task_worktree'; taskId: string; worktree: SubAgentWorktreeState }
   | {
       type: 'task_backgrounded';
       task: SubAgentTaskSnapshot;
@@ -186,6 +200,7 @@ export interface SubAgentRunContext {
   sessionId: string;
   parentTurnId?: string;
   trackToolEdit?: (call: ToolCall) => void;
+  updateWorktree?: (worktree: SubAgentWorktreeState) => void;
 }
 
 export interface HookAgentRunInput {

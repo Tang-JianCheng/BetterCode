@@ -21,6 +21,12 @@ function formatResult(task: SubAgentTaskSnapshot): string {
     `状态：${task.state}`,
     `类型：${task.kind}${task.role ? ` / ${task.role}` : ''}`,
     `停止原因：${task.stopReason ?? 'unknown'}`,
+    ...(task.worktree ? [
+      `Worktree：${task.worktree.state}`,
+      ...(task.worktree.path ? [`Worktree 路径：${task.worktree.path}`] : []),
+      ...(task.worktree.branch ? [`Worktree 分支：${task.worktree.branch}`] : []),
+      ...(task.worktree.reasons?.length ? [`Worktree 原因：${task.worktree.reasons.join('；')}`] : []),
+    ] : []),
     `Token：输入 ${task.usage.inputTokens} / 输出 ${task.usage.outputTokens} / ` +
       `缓存创建 ${task.usage.cacheCreationInputTokens} / 缓存命中 ${task.usage.cacheReadInputTokens}`,
     '结果：',

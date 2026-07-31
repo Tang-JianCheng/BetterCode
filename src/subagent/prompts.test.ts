@@ -16,6 +16,7 @@ const definition: AgentDefinition = {
   model: 'inherit',
   maxIterations: 5,
   permissionMode: 'default',
+  isolation: 'none',
   scope: 'project',
   entryPath: '/project/.bettercode/agents/reviewer.md',
   body: '你负责审查代码并给出准确结论。',

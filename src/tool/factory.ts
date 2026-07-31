@@ -8,6 +8,15 @@ import { PathGuard } from './path-guard.js';
 import { ToolRegistry } from './registry.js';
 import type { ToolRuntimeOptions } from './types.js';
 
+export const CORE_TOOL_NAMES = new Set([
+  'read_file',
+  'write_file',
+  'edit_file',
+  'run_command',
+  'find_files',
+  'search_code',
+]);
+
 export function createCoreToolRegistry(
   rootDir: string,
   options?: Partial<ToolRuntimeOptions>,
@@ -22,5 +31,18 @@ export function createCoreToolRegistry(
   registry.register(new FindFilesTool(pathGuard));
   registry.register(new SearchCodeTool(pathGuard));
 
+  return registry;
+}
+
+export function createScopedToolRegistry(
+  rootDir: string,
+  source: ToolRegistry,
+  options?: Partial<ToolRuntimeOptions>,
+): ToolRegistry {
+  const registry = createCoreToolRegistry(rootDir, options);
+  for (const registration of source.registrationSnapshot()) {
+    if (CORE_TOOL_NAMES.has(registration.tool.name)) continue;
+    registry.register(registration.tool, { ...registration.options });
+  }
   return registry;
 }

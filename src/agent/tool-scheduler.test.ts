@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -371,19 +371,21 @@ test('scheduler 下传读取缓存并在成功副作用后按范围失效', asyn
   ], 1, options());
   const firstStat = statSync(path.join(root, 'first.txt'));
   const secondStat = statSync(path.join(root, 'second.txt'));
-  assert.equal(state.getFileRead('first.txt', firstStat.size, firstStat.mtimeMs), 'first');
-  assert.equal(state.getFileRead('second.txt', secondStat.size, secondStat.mtimeMs), 'second');
+  const firstPath = realpathSync(path.join(root, 'first.txt'));
+  const secondPath = realpathSync(path.join(root, 'second.txt'));
+  assert.equal(state.getFileRead(firstPath, firstStat.size, firstStat.mtimeMs), 'first');
+  assert.equal(state.getFileRead(secondPath, secondStat.size, secondStat.mtimeMs), 'second');
 
   await scheduler.executeBatch([{
     id: 'w1', name: 'write_file', arguments: { path: './first.txt', content: 'changed' },
   }], 2, options());
-  assert.equal(state.getFileRead('first.txt', firstStat.size, firstStat.mtimeMs), undefined);
-  assert.equal(state.getFileRead('second.txt', secondStat.size, secondStat.mtimeMs), 'second');
+  assert.equal(state.getFileRead(firstPath, firstStat.size, firstStat.mtimeMs), undefined);
+  assert.equal(state.getFileRead(secondPath, secondStat.size, secondStat.mtimeMs), 'second');
 
   await scheduler.executeBatch([{
     id: 'c1', name: 'run_command', arguments: { command: 'true' },
   }], 3, options());
-  assert.equal(state.getFileRead('second.txt', secondStat.size, secondStat.mtimeMs), undefined);
+  assert.equal(state.getFileRead(secondPath, secondStat.size, secondStat.mtimeMs), undefined);
 });
 
 test('scheduler 不会因失败的副作用清理读取缓存', async t => {
@@ -394,7 +396,7 @@ test('scheduler 不会因失败的副作用清理读取缓存', async t => {
     throw new Error('失败');
   }));
   const state = new ToolExecutionState();
-  state.setFileRead({ relativePath: 'kept.txt', size: 4, mtimeMs: 1, content: 'kept' });
+  state.setFileRead({ absolutePath: path.join(root, 'kept.txt'), size: 4, mtimeMs: 1, content: 'kept' });
   const scheduler = new ToolScheduler(
     registry,
     createPermissionManager(registry, 'allow', { userHome: path.join(root, '.home') }),
@@ -404,5 +406,5 @@ test('scheduler 不会因失败的副作用清理读取缓存', async t => {
 
   const result = await scheduler.executeBatch([call('f1', 'fails')], 1, options());
   assert.equal(result.results[0].result.ok, false);
-  assert.equal(state.getFileRead('kept.txt', 4, 1), 'kept');
+  assert.equal(state.getFileRead(path.join(root, 'kept.txt'), 4, 1), 'kept');
 });

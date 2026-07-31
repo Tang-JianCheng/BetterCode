@@ -71,7 +71,7 @@ export class DefaultHookActionExecutor implements HookActionExecutorContract {
       const result = rule.action.type === 'command'
         ? await executeHookCommand({
             command: rule.action.command,
-            rootDir: this.rootDir,
+            rootDir: context.projectRoot,
             context,
             timeoutMs: rule.timeoutMs,
             signal,

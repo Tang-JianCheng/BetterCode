@@ -40,7 +40,7 @@ export class ReadFileTool implements Tool {
     }
 
     const stat = statSync(target.absolute);
-    const cached = context.executionState?.getFileRead(target.relative, stat.size, stat.mtimeMs);
+    const cached = context.executionState?.getFileRead(target.absolute, stat.size, stat.mtimeMs);
     const bytes = cached === undefined ? readFileSync(target.absolute) : Buffer.from(cached, 'utf8');
     let content: string;
     if (cached !== undefined) {
@@ -52,7 +52,7 @@ export class ReadFileTool implements Tool {
         throw new ToolFailure('NOT_TEXT_FILE', `文件不是有效的 UTF-8 文本: ${filePath}`);
       }
       context.executionState?.setFileRead({
-        relativePath: target.relative,
+        absolutePath: target.absolute,
         size: stat.size,
         mtimeMs: stat.mtimeMs,
         content,

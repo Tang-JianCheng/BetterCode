@@ -11,6 +11,7 @@ const ALLOWED_FIELDS = new Set([
   'model',
   'max_iterations',
   'permission_mode',
+  'isolation',
 ]);
 
 export class AgentDefinitionParseError extends Error {
@@ -101,6 +102,9 @@ export function parseAgentDefinitionDocument(content: string): {
     );
   }
   if (!body) throw new AgentDefinitionParseError(`Agent ${name} 的正文不能为空`);
+  if (value.isolation !== undefined && value.isolation !== 'none' && value.isolation !== 'worktree') {
+    throw new AgentDefinitionParseError(`Agent ${name} 的 isolation 必须是 none 或 worktree`);
+  }
   return {
     metadata: {
       name,
@@ -111,6 +115,7 @@ export function parseAgentDefinitionDocument(content: string): {
       model: value.model,
       maxIterations: value.max_iterations as number,
       permissionMode: value.permission_mode,
+      isolation: value.isolation ?? 'none',
     },
     body,
   };

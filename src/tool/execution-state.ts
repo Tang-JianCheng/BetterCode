@@ -1,25 +1,19 @@
 export interface CachedFileRead {
-  relativePath: string;
+  absolutePath: string;
   size: number;
   mtimeMs: number;
   content: string;
 }
 
-function normalizeRelativePath(relativePath: string): string {
-  const parts: string[] = [];
-  for (const part of relativePath.replaceAll('\\', '/').split('/')) {
-    if (!part || part === '.') continue;
-    if (part === '..') parts.pop();
-    else parts.push(part);
-  }
-  return parts.join('/');
+function normalizeAbsolutePath(absolutePath: string): string {
+  return absolutePath.replaceAll('\\', '/');
 }
 
 export class ToolExecutionState {
   private readonly fileReads = new Map<string, CachedFileRead>();
 
-  getFileRead(relativePath: string, size: number, mtimeMs: number): string | undefined {
-    const key = normalizeRelativePath(relativePath);
+  getFileRead(absolutePath: string, size: number, mtimeMs: number): string | undefined {
+    const key = normalizeAbsolutePath(absolutePath);
     const entry = this.fileReads.get(key);
     if (!entry) return undefined;
     if (entry.size !== size || entry.mtimeMs !== mtimeMs) {
@@ -30,12 +24,12 @@ export class ToolExecutionState {
   }
 
   setFileRead(entry: CachedFileRead): void {
-    const relativePath = normalizeRelativePath(entry.relativePath);
-    this.fileReads.set(relativePath, { ...entry, relativePath });
+    const absolutePath = normalizeAbsolutePath(entry.absolutePath);
+    this.fileReads.set(absolutePath, { ...entry, absolutePath });
   }
 
-  invalidateFile(relativePath: string): void {
-    this.fileReads.delete(normalizeRelativePath(relativePath));
+  invalidateFile(absolutePath: string): void {
+    this.fileReads.delete(normalizeAbsolutePath(absolutePath));
   }
 
   invalidateAllFiles(): void {

@@ -23,6 +23,11 @@ export interface ToolRegistrationOptions {
   system?: boolean;
 }
 
+export interface ToolRegistrationSnapshot {
+  tool: Tool;
+  options: Readonly<ToolRegistrationOptions>;
+}
+
 export class ToolRegistry {
   readonly rootDir: string;
   private readonly tools = new Map<string, Tool>();
@@ -102,6 +107,13 @@ export class ToolRegistry {
 
   names(): string[] {
     return [...this.tools.keys()];
+  }
+
+  registrationSnapshot(): readonly ToolRegistrationSnapshot[] {
+    return Object.freeze([...this.tools.entries()].map(([name, tool]) => Object.freeze({
+      tool,
+      options: Object.freeze({ ...(this.registrations.get(name) ?? {}) }),
+    })));
   }
 
   isSystem(name: string): boolean {

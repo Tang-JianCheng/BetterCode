@@ -118,6 +118,7 @@ export class SubAgentCoordinator implements HookAgentRunner {
       task: input.prompt,
       origin: 'hook',
       sessionId: input.sessionId,
+      ...(definition.isolation === 'worktree' ? { isolation: 'worktree' as const } : {}),
       ...(input.background ? { background: 'hook' as const } : {}),
     }, (signal, emit) => this.runner.run({
       kind: 'defined',
@@ -128,7 +129,11 @@ export class SubAgentCoordinator implements HookAgentRunner {
       foregroundTools: tools.foreground,
       backgroundTools: tools.background,
       isBackground: () => this.tasks.get(input.sessionId, taskId)?.executionMode === 'background',
-    }, { taskId, sessionId: input.sessionId }, signal, emit));
+    }, {
+      taskId,
+      sessionId: input.sessionId,
+      updateWorktree: worktree => this.tasks.updateWorktree(taskId, worktree),
+    }, signal, emit));
     taskId = started.id;
     if (input.background) return { status: 'backgrounded', taskId };
     const waited = await this.tasks.waitForeground(taskId, input.signal);
@@ -205,6 +210,7 @@ export class SubAgentCoordinator implements HookAgentRunner {
       task,
       origin: 'tool',
       sessionId: context.sessionId,
+      ...(definition.isolation === 'worktree' ? { isolation: 'worktree' as const } : {}),
       ...(context.parentTurnId ? { parentTurnId: context.parentTurnId } : {}),
       ...(background ? { background } : {}),
     }, (signal, emit) => this.runner.run({
@@ -221,6 +227,7 @@ export class SubAgentCoordinator implements HookAgentRunner {
       sessionId: context.sessionId,
       ...(context.parentTurnId ? { parentTurnId: context.parentTurnId } : {}),
       ...(context.trackToolEdit ? { trackToolEdit: context.trackToolEdit } : {}),
+      updateWorktree: worktree => this.tasks.updateWorktree(taskId, worktree),
     }, signal, emit));
     taskId = started.id;
     return this.waitOrBackground(started, input.request.signal);
@@ -284,10 +291,17 @@ export class SubAgentCoordinator implements HookAgentRunner {
       return createToolSuccess(bounded(waited.task.result ?? ''), {
         subagentTaskId: waited.task.id,
         subagentState: waited.task.state,
+        ...(waited.task.worktree?.path ? { worktreePath: waited.task.worktree.path } : {}),
+        ...(waited.task.worktree?.branch ? { worktreeBranch: waited.task.worktree.branch } : {}),
+        ...(waited.task.worktree ? { worktreeState: waited.task.worktree.state } : {}),
       });
     }
     return createToolError(
-      waited.task.error?.code === 'CANCELLED' ? 'CANCELLED' : 'SUBAGENT_FAILED',
+      waited.task.error?.code === 'CANCELLED'
+        ? 'CANCELLED'
+        : waited.task.error?.code === 'SUBAGENT_WORKTREE_ERROR'
+          ? 'SUBAGENT_WORKTREE_ERROR'
+          : 'SUBAGENT_FAILED',
       waited.task.error?.message ?? '子 Agent 执行失败',
       { subagentTaskId: waited.task.id, subagentState: waited.task.state },
     );

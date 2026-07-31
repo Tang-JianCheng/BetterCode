@@ -22,3 +22,8 @@ providers:
     context_window: 128000
     base_url: https://api.openai.com/v1
     api_key: ${OPENAI_API_KEY}
+
+# Worktree 隔离可选配置，未声明时使用相同默认值。
+worktrees:
+  retention_days: 7
+  cleanup_interval_ms: 3600000

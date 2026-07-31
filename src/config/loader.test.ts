@@ -75,3 +75,40 @@ ${extra}`);
     assert.throws(() => loadConfig(file), expected);
   }
 });
+
+test('Worktree 配置解析规则与安全边界', async t => {
+  const file = await withConfig(t);
+  await writeFile(file, `providers:
+  - name: test
+    protocol: openai
+    model: model
+    base_url: https://example.test
+    api_key: key
+worktrees:
+  retention_days: 9
+  cleanup_interval_ms: 120000
+  copy_files:
+    - source: .env.local
+      required: true
+  symlinks:
+    - source: node_modules
+      target: node_modules
+`);
+  const config = loadConfig(file);
+  assert.equal(config.worktrees?.retention_days, 9);
+  assert.equal(config.worktrees?.cleanup_interval_ms, 120_000);
+  assert.equal(config.worktrees?.copy_files?.[0].required, true);
+  for (const source of ['/tmp/file', '../file', 'a\\b']) {
+    await writeFile(file, `providers:
+  - name: test
+    protocol: openai
+    model: model
+    base_url: https://example.test
+    api_key: key
+worktrees:
+  copy_files:
+    - source: ${JSON.stringify(source)}
+`);
+    assert.throws(() => loadConfig(file), /相对路径|正斜杠|不能包含/);
+  }
+});

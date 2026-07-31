@@ -12,6 +12,7 @@ function definition(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
     model: 'inherit',
     maxIterations: 5,
     permissionMode: 'default',
+    isolation: 'none',
     scope: 'builtin',
     entryPath: '/agent.md',
     body: '测试',
