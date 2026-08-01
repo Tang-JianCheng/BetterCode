@@ -1,5 +1,6 @@
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { TeamError } from './errors.js';
 
 interface LockPayload {
@@ -81,6 +82,9 @@ export class FileLock {
   private tryAcquire(generation?: number): boolean {
     let descriptor: number | undefined;
     try {
+      const directory = path.dirname(this.lockFile);
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      chmodSync(directory, 0o700);
       descriptor = openSync(this.lockFile, 'wx', 0o600);
       const now = this.now();
       const payload: LockPayload = {
