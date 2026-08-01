@@ -4,6 +4,8 @@ import type { PermissionDecider } from '../permission/types.js';
 import {
   createToolError,
   type ToolCall,
+  type ToolExecutionObserver,
+  type ToolExecutionPolicy,
   type ToolResult,
 } from '../tool/types.js';
 import type { AgentEvent, AgentMode } from './types.js';
@@ -51,6 +53,8 @@ export class ToolScheduler {
     private readonly permissionManager: PermissionManager,
     private readonly hooks?: HookRuntime,
     private readonly executionState?: ToolExecutionState,
+    private readonly policy?: ToolExecutionPolicy,
+    private readonly observer?: ToolExecutionObserver,
   ) {}
 
   async executeBatch(
@@ -93,6 +97,18 @@ export class ToolScheduler {
         if (validationError) {
           results.set(index, validationError);
         } else {
+          const policyResult = await this.policy?.authorize({
+            call,
+            tool,
+            mode: options.mode,
+            iteration,
+            rootDir: this.registry.rootDir,
+            signal: options.signal,
+          });
+          if (policyResult) {
+            results.set(index, policyResult);
+            continue;
+          }
           const hookResult = await this.hooks?.beforeToolUse(call, options.signal);
           if (hookResult?.denied) {
             results.set(index, createToolError('HOOK_DENIED', hookResult.denied.reason, {
@@ -171,8 +187,36 @@ export class ToolScheduler {
       } catch {
         // 快照失败不能阻断已获授权的工具调用。
       }
+      const tool = this.registry.get(call.name)!;
+      const observation = {
+        call,
+        tool,
+        mode: options.mode,
+        iteration,
+        rootDir: this.registry.rootDir,
+        signal: options.signal,
+      };
+      try {
+        await this.observer?.beforeExecute(observation);
+      } catch (error) {
+        results.set(index, createToolError(
+          'TEAM_STATE_ERROR',
+          `工具执行前状态持久化失败: ${error instanceof Error ? error.message : String(error)}`,
+        ));
+        return;
+      }
       executedIndices.add(index);
-      const result = await this.registry.execute(call, options.signal, this.executionState);
+      let result = await this.registry.execute(call, options.signal, this.executionState);
+      try {
+        await this.observer?.afterExecute({ ...observation, result });
+      } catch (error) {
+        result = createToolError(
+          'TEAM_STATE_ERROR',
+          `工具执行结果持久化失败: ${error instanceof Error ? error.message : String(error)}`,
+          { originalOk: result.ok },
+          result.output,
+        );
+      }
       results.set(index, result);
       if (result.ok && this.registry.effectOf(call.name) === 'side_effect') {
         const filePath = call.arguments.path;

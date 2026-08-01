@@ -3,11 +3,13 @@ import type { AgentModelAliases, AgentModelTier } from '../config/types.js';
 import type { PermissionMode } from '../permission/types.js';
 import type { LLMProvider, Message, ProviderRequest, TokenUsage } from '../provider/types.js';
 import type { ToolCall, ToolDefinition, ToolResult } from '../tool/types.js';
+import { TEAM_TOOL_NAMES } from '../team/types.js';
 
 export const AGENT_TOOL_NAME = 'agent';
 export const IMMUTABLE_SUBAGENT_DENIED_TOOLS = Object.freeze([
   AGENT_TOOL_NAME,
   'load_skill',
+  ...TEAM_TOOL_NAMES,
 ]);
 
 export const DEFAULT_SUBAGENT_FOREGROUND_TIMEOUT_MS = 120_000;

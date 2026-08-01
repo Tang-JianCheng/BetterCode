@@ -63,6 +63,26 @@ export interface ToolRuntimeOptions {
   maxOutputBytes: number;
 }
 
+export interface ToolPolicyInput {
+  call: ToolCall;
+  tool: Tool;
+  mode: import('../agent/types.js').AgentMode;
+  iteration: number;
+  rootDir: string;
+  signal: AbortSignal;
+}
+
+export interface ToolExecutionPolicy {
+  authorize(input: ToolPolicyInput): Promise<ToolResult | undefined> | ToolResult | undefined;
+}
+
+export interface ToolExecutionObservation extends ToolPolicyInput {}
+
+export interface ToolExecutionObserver {
+  beforeExecute(input: ToolExecutionObservation): Promise<void> | void;
+  afterExecute(input: ToolExecutionObservation & { result: ToolResult }): Promise<void> | void;
+}
+
 export type ToolErrorCode =
   | 'INVALID_ARGUMENTS'
   | 'TOOL_NOT_FOUND'
@@ -87,6 +107,13 @@ export type ToolErrorCode =
   | 'SUBAGENT_CONTEXT_ERROR'
   | 'SUBAGENT_WORKTREE_ERROR'
   | 'SUBAGENT_FAILED'
+  | 'TEAM_UNAVAILABLE'
+  | 'TEAM_CONFLICT'
+  | 'TEAM_LOCK_TIMEOUT'
+  | 'TEAM_APPROVAL_REQUIRED'
+  | 'TEAM_BACKEND_UNAVAILABLE'
+  | 'TEAM_INTEGRATION_ERROR'
+  | 'TEAM_STATE_ERROR'
   | 'EXECUTION_ERROR'
   | 'INTERNAL_ERROR';
 

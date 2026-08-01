@@ -8,6 +8,7 @@ import { createCoreToolRegistry } from '../tool/factory.js';
 import { ToolRegistry } from '../tool/registry.js';
 import { ToolExecutionState } from '../tool/execution-state.js';
 import {
+  createToolError,
   createToolSuccess,
   type Tool,
   type ToolCall,
@@ -308,6 +309,52 @@ test('scheduler does not prompt for invalid arguments or count permission denial
   assert.equal(result.unknownToolStreak, 0);
   assert.equal(result.unknownToolLimitReached, false);
   assert.equal(prompts, 0);
+});
+
+test('scheduler 在 Hook 和权限前执行硬策略并记录工具边界', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  const timeline: string[] = [];
+  registry.register(tool('write', 'side_effect', async () => {
+    timeline.push('execute');
+    return createToolSuccess('ok');
+  }));
+  const permissionManager = createPermissionManager(
+    registry,
+    'allow',
+    { userHome: path.join(root, '.home') },
+  );
+  const denied = new ToolScheduler(
+    registry,
+    permissionManager,
+    { beforeToolUse: async () => { timeline.push('hook'); return {}; } } as never,
+    undefined,
+    { authorize: () => { timeline.push('policy'); return createToolError('TEAM_APPROVAL_REQUIRED', '未批准'); } },
+    {
+      beforeExecute: () => { timeline.push('before'); },
+      afterExecute: () => { timeline.push('after'); },
+    },
+  );
+  const deniedResult = await denied.executeBatch([call('1', 'write')], 1, options());
+  assert.equal(deniedResult.results[0].result.error?.code, 'TEAM_APPROVAL_REQUIRED');
+  assert.deepEqual(timeline, ['policy']);
+
+  timeline.length = 0;
+  const allowed = new ToolScheduler(
+    registry,
+    permissionManager,
+    undefined,
+    undefined,
+    { authorize: () => { timeline.push('policy'); return undefined; } },
+    {
+      beforeExecute: () => { timeline.push('before'); },
+      afterExecute: () => { timeline.push('after'); },
+    },
+  );
+  const allowedResult = await allowed.executeBatch([call('2', 'write')], 1, options());
+  assert.equal(allowedResult.results[0].result.ok, true);
+  assert.deepEqual(timeline, ['policy', 'before', 'execute', 'after']);
 });
 
 test('scheduler 拒绝白名单外工具并让系统工具跳过权限确认', async t => {

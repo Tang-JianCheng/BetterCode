@@ -11,6 +11,7 @@ import type { ToolCall } from '../tool/types.js';
 import type { ToolResult } from '../tool/types.js';
 import type { HookRuntime } from '../hook/types.js';
 import type { ToolExecutionState } from '../tool/execution-state.js';
+import type { ToolExecutionObserver, ToolExecutionPolicy } from '../tool/types.js';
 import type { AgentInstructionRuntime } from '../subagent/types.js';
 import { StreamCollector } from './stream-collector.js';
 import { ToolScheduler } from './tool-scheduler.js';
@@ -43,6 +44,8 @@ export interface AgentLoopRuntime {
   instructionRuntime?: AgentInstructionRuntime;
   toolExecutionState?: ToolExecutionState;
   onInstructionsCommitted?: (messages: readonly Message[]) => void;
+  toolPolicy?: ToolExecutionPolicy;
+  toolObserver?: ToolExecutionObserver;
 }
 
 export interface ToolResultTransformInput {
@@ -82,6 +85,8 @@ export class AgentLoop {
       permissionManager,
       runtime.hooks,
       runtime.toolExecutionState,
+      runtime.toolPolicy,
+      runtime.toolObserver,
     );
   }
 

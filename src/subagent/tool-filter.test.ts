@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { AgentDefinition } from './types.js';
 import { resolveDefinedToolSnapshot, resolveForkToolDefinitions } from './tool-filter.js';
+import { IMMUTABLE_SUBAGENT_DENIED_TOOLS } from './types.js';
 
 function definition(overrides: Partial<AgentDefinition> = {}): AgentDefinition {
   return {
@@ -43,4 +44,19 @@ test('Fork 工具保持父顺序并移除禁用项', () => {
   const filtered = resolveForkToolDefinitions({ parentTools: tools, deniedTools: new Set(['agent']) });
   assert.deepEqual(filtered.map(tool => tool.name), ['search_code', 'read_file']);
   assert.notEqual(filtered[0].inputSchema, tools[0].inputSchema);
+});
+
+test('普通子 Agent 永久移除全部团队工具', () => {
+  const registryNames = ['read_file', 'team_status', 'team_task', 'team_message', 'team_integrate'];
+  const snapshot = resolveDefinedToolSnapshot({
+    registryNames,
+    definition: definition(),
+    deniedTools: new Set(IMMUTABLE_SUBAGENT_DENIED_TOOLS),
+  });
+  assert.deepEqual([...snapshot.foreground], ['read_file']);
+  const fork = resolveForkToolDefinitions({
+    parentTools: registryNames.map(name => ({ name, description: name, inputSchema: {} })),
+    deniedTools: new Set(IMMUTABLE_SUBAGENT_DENIED_TOOLS),
+  });
+  assert.deepEqual(fork.map(item => item.name), ['read_file']);
 });
