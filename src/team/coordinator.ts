@@ -126,10 +126,13 @@ export class TeamCoordinator {
   async archiveTeam(name: string): Promise<TeamSnapshot> {
     const snapshot = this.options.repository.get(name);
     if (!snapshot) throw new TeamError('TEAM_NOT_FOUND', `团队不存在: ${name}`);
-    const actor: LeadActor = { kind: 'lead', team: name, sessionId: 'archive', generation: snapshot.team.generation };
-    for (const member of snapshot.members.filter(item => item.state !== 'terminated')) {
+    if (snapshot.team.state === 'archived') return snapshot;
+    const archiving = snapshot.team.state === 'archiving' ? snapshot : this.options.repository.beginArchive(name);
+    const actor: LeadActor = { kind: 'lead', team: name, sessionId: 'archive', generation: archiving.team.generation };
+    for (const member of archiving.members.filter(item => item.state !== 'terminated')) {
       await this.terminateMember(actor, member.name, '团队归档');
     }
+    await this.cleanupArchivedWorktrees(name);
     const archived = this.options.repository.archive(name);
     this.publish({ type: 'team_changed', team: name, summary: `团队 ${name} 已归档` });
     return archived;
@@ -287,10 +290,11 @@ export class TeamCoordinator {
   }
 
   private async terminateMember(actor: LeadActor, name: string, reason: string, signal = AbortSignal.timeout(10_000)): Promise<TeamMemberRecord> {
-    this.requireLead(actor);
+    this.requireLead(actor, true);
     let member = this.options.repository.getMember(actor.team, name);
     if (!member) throw new TeamError('TEAM_MEMBER_NOT_FOUND', `成员不存在: ${name}`);
     if (member.state === 'terminated') return member;
+    const currentTaskId = member.currentTaskId;
     member = this.options.repository.writeMember(actor.team, { ...member, state: 'stopping', lastActiveAt: new Date().toISOString() }, member.revision);
     const backend = this.options.backends.get(member.backend, member.backendName);
     if (backend && member.backendInstanceId) await backend.terminate(this.instance(member), signal);
@@ -301,6 +305,10 @@ export class TeamCoordinator {
       lastActiveAt: new Date().toISOString(),
       lastError: teamDiagnostic('TEAM_STATE_ERROR', reason),
     }, member.revision);
+    const task = currentTaskId ? this.options.tasks.get(actor.team, currentTaskId) : undefined;
+    if (task && !['completed', 'failed', 'cancelled'].includes(task.state)) {
+      this.options.tasks.cancel(actor, task.id, reason);
+    }
     this.publish({ type: 'member_changed', team: actor.team, member: name, summary: `成员 ${name} 已终止` });
     return member;
   }
@@ -389,10 +397,33 @@ export class TeamCoordinator {
     throw new TeamError('TEAM_STATE_ERROR', `未知集成动作: ${action}`);
   }
 
-  private requireLead(actor: LeadActor) {
+  private requireLead(actor: LeadActor, allowArchiving = false) {
     const team = this.options.repository.get(actor.team)?.team;
-    if (!team || team.generation !== actor.generation || team.state !== 'active') throw new TeamError('TEAM_STATE_ERROR', 'Team Lead 身份已失效');
+    const validState = team?.state === 'active' || (allowArchiving && team?.state === 'archiving');
+    if (!team || team.generation !== actor.generation || !validState) throw new TeamError('TEAM_STATE_ERROR', 'Team Lead 身份已失效');
     return team;
+  }
+
+  private async cleanupArchivedWorktrees(team: string): Promise<void> {
+    if (!this.options.worktrees) return;
+    for (const member of this.options.repository.listMembers(team)) {
+      if (!member.worktreeName) continue;
+      let result;
+      try {
+        result = await this.options.worktrees.remove(member.worktreeName);
+      } catch {
+        continue;
+      }
+      if (result.status !== 'deleted' && result.status !== 'missing') continue;
+      const current = this.options.repository.getMember(team, member.name);
+      if (!current) continue;
+      this.options.repository.writeMember(team, {
+        ...current,
+        rootDir: this.options.projectRoot,
+        worktreeName: undefined,
+        worktreeBranch: undefined,
+      }, current.revision);
+    }
   }
 
   private instance(member: TeamMemberRecord): BackendInstance {

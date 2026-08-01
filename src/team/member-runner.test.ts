@@ -115,3 +115,28 @@ test('共享根目录上下文不能在角色新增写工具后直接恢复', as
     /新增副作用工具|共享根目录/,
   );
 });
+
+test('新运行代次可以继承安全上下文并拒绝未确认副作用', async t => {
+  const { runner, repository, tasks, provider, taskId, guard, generation } = await fixture(t);
+  await runner.run({ team: 'alpha', member: 'alice', taskId, provider, signal: new AbortController().signal });
+  const lead = { kind: 'lead', team: 'alpha', sessionId: 's', generation } as const;
+  tasks.reopen(lead, taskId);
+  tasks.assign(lead, taskId, 'alice');
+  repository.activate('alpha', 'next-session', 'repo');
+  const nextGeneration = repository.get('alpha')!.team.generation;
+  await runner.run({ team: 'alpha', member: 'alice', taskId, provider, signal: new AbortController().signal });
+  assert.equal(new MemberContextStore(guard).read('alpha', 'alice')?.generation, nextGeneration);
+
+  const current = repository.getMember('alpha', 'alice')!;
+  const nextLead = { kind: 'lead', team: 'alpha', sessionId: 'next-session', generation: nextGeneration } as const;
+  tasks.reopen(nextLead, taskId);
+  tasks.assign(nextLead, taskId, 'alice');
+  repository.writeMember('alpha', { ...current, state: 'interrupted', currentTaskId: taskId }, current.revision);
+  const journal = new OperationJournal(guard, 'alpha', 'alice', resolveTeamOptions().mailbox);
+  await journal.start({ toolCallId: 'call-1', toolName: 'write_file', arguments: {}, taskId, contextRevision: 2 });
+  await assert.rejects(
+    () => runner.run({ team: 'alpha', member: 'alice', taskId, provider, signal: new AbortController().signal }),
+    /未确认的副作用操作/,
+  );
+  assert.equal(repository.getMember('alpha', 'alice')?.state, 'interrupted');
+});

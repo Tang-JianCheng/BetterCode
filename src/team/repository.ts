@@ -177,6 +177,10 @@ export class TeamRepository {
     return this.setTeamState(nameInput, 'archived');
   }
 
+  beginArchive(nameInput: string): TeamSnapshot {
+    return this.setTeamState(nameInput, 'archiving');
+  }
+
   restore(nameInput: string): TeamSnapshot {
     return this.setTeamState(nameInput, 'active');
   }
@@ -217,7 +221,7 @@ export class TeamRepository {
     return this.diagnostics.map(item => ({ ...item }));
   }
 
-  private setTeamState(nameInput: string, state: 'active' | 'archived'): TeamSnapshot {
+  private setTeamState(nameInput: string, state: 'active' | 'archiving' | 'archived'): TeamSnapshot {
     const name = this.guard.teamName(nameInput);
     const store = this.teamStore(name);
     const current = store.read();
@@ -231,7 +235,7 @@ export class TeamRepository {
     }, current.revision);
     this.updateIndex(index => {
       const activeBySession = Object.fromEntries(
-        Object.entries(index.activeBySession).filter(([, active]) => active !== name || state !== 'archived'),
+        Object.entries(index.activeBySession).filter(([, active]) => active !== name || state === 'active'),
       );
       return {
         ...index,

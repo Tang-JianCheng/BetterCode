@@ -63,9 +63,17 @@ export class TeamMemberRunner {
     }
     if (team.generation !== member.generation) throw new TeamError('TEAM_STATE_ERROR', '成员运行代次已失效');
     const resolved = this.options.runtimeResolver.resolve(input.team, member, task, input.provider);
+    const journal = this.options.journal(input.team, input.member);
+    const uncertainOperations = journal.uncertain();
+    if (uncertainOperations.length > 0) {
+      throw new TeamError(
+        'TEAM_STATE_ERROR',
+        `成员存在 ${uncertainOperations.length} 个未确认的副作用操作，必须由 Team Lead 解决后才能恢复`,
+      );
+    }
     let lease: WorktreeLease | undefined;
     let runtime: ProjectRuntimeScope | undefined;
-    let context = this.options.contexts.read(input.team, input.member, team.generation);
+    let context = this.options.contexts.read(input.team, input.member);
     const baseContextUsage = context?.usage ?? EMPTY_USAGE;
     try {
       if (context && resolved.requiresWorktree && !member.worktreeName) {
@@ -90,7 +98,6 @@ export class TeamMemberRunner {
       if (context && (context.roleRevision !== resolved.roleRevision || context.systemPromptHash !== systemPromptHash)) {
         context = { ...context, roleRevision: resolved.roleRevision, systemPromptHash };
       }
-      const journal = this.options.journal(input.team, input.member);
       const operationIds = new Map<string, string>();
       const observer = this.operationObserver(journal, resolved, () => context?.revision ?? 0, operationIds);
       const loop = new AgentLoop(
@@ -113,6 +120,7 @@ export class TeamMemberRunner {
             ? createToolError('PERMISSION_DENIED', '团队成员非交互运行，当前工具没有明确放行规则')
             : result,
           onCheckpoint: checkpoint => {
+            this.assertCurrentGeneration(resolved.actor.team, resolved.actor.member, resolved.actor.generation);
             context = this.saveContext({
               previous: context,
               team: input.team,
@@ -238,6 +246,8 @@ export class TeamMemberRunner {
     lease?: WorktreeLease,
   ): Promise<TeamMemberRecord> {
     const actor = { kind: 'member', team: input.team, member: member.name, generation: member.generation } as const;
+    const lead = { kind: 'lead', team: input.team, sessionId: 'member-runner', generation: member.generation } as const;
+    const readyBefore = new Set(this.options.tasks.list(lead).filter(item => item.state === 'ready').map(item => item.id));
     let task = this.options.tasks.get(input.team, initialTask.id) ?? initialTask;
     if (outcome.reason === 'completed' && task.state === 'ready' && !member.requiresApproval) {
       task = this.options.tasks.report(actor, { taskId: task.id, state: 'running' });
@@ -254,7 +264,7 @@ export class TeamMemberRunner {
       : task.state === 'completed' || task.state === 'failed'
         ? 'idle'
         : outcome.reason === 'completed' ? 'idle' : 'interrupted';
-    const updated = this.updateMember(input.team, member, {
+    let updated = this.updateMember(input.team, member, {
       state,
       currentTaskId: state === 'idle' ? undefined : task.id,
       usage: addUsage(member.usage, outcome.usage),
@@ -269,6 +279,47 @@ export class TeamMemberRunner {
         summary: `成员 ${member.name} 已完成任务 ${task.id}`,
       });
     }
+    if (task.state === 'completed') {
+      const readyTasks = this.options.tasks.list(lead)
+        .filter(item => item.state === 'ready' && item.assignee);
+      const newlyReady = readyTasks.filter(item => !readyBefore.has(item.id));
+      const selectedByMember = new Map<string, TeamTaskRecord>();
+      for (const candidate of readyTasks) {
+        if (!selectedByMember.has(candidate.assignee!)) selectedByMember.set(candidate.assignee!, candidate);
+      }
+      for (const [assignee, selected] of selectedByMember) {
+        const current = this.options.repository.getMember(input.team, assignee);
+        if (!current) continue;
+        const currentTask = current.currentTaskId ? this.options.tasks.get(input.team, current.currentTaskId) : undefined;
+        if (currentTask && ['ready', 'running', 'waiting_approval'].includes(currentTask.state)) continue;
+        const assigned = this.options.repository.writeMember(input.team, {
+          ...current,
+          currentTaskId: selected.id,
+          lastActiveAt: new Date().toISOString(),
+        }, current.revision);
+        if (assignee === member.name) updated = assigned;
+        if (readyBefore.has(selected.id)) {
+          await this.options.mailbox.send(lead, {
+            recipient: assignee,
+            type: 'task_notification',
+            taskId: selected.id,
+            body: selected.description,
+            summary: `成员空闲，继续执行任务 ${selected.id}`,
+            wake: true,
+          });
+        }
+      }
+      for (const next of newlyReady) {
+        await this.options.mailbox.send(lead, {
+          recipient: next.assignee!,
+          type: 'task_notification',
+          taskId: next.id,
+          body: next.description,
+          summary: `前置任务完成，任务 ${next.id} 已可执行`,
+          wake: true,
+        });
+      }
+    }
     return updated;
   }
 
@@ -277,6 +328,14 @@ export class TeamMemberRunner {
       ...member,
       ...changes,
     }, member.revision);
+  }
+
+  private assertCurrentGeneration(team: string, member: string, generation: number): void {
+    const currentTeam = this.options.repository.get(team)?.team;
+    const currentMember = this.options.repository.getMember(team, member);
+    if (!currentTeam || !currentMember || currentTeam.generation !== generation || currentMember.generation !== generation) {
+      throw new TeamError('TEAM_STATE_ERROR', '成员运行代次已失效，拒绝保存旧 Worker 状态');
+    }
   }
 }
 

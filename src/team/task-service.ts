@@ -180,7 +180,7 @@ export class TeamTaskService {
   }
 
   cancel(actor: LeadActor, taskId: string, reason: string): TeamTaskRecord {
-    this.assertLead(actor);
+    this.assertLead(actor, true);
     return this.updateCollection(actor.team, collection => {
       const task = this.requireTask(collection, taskId);
       if (TERMINAL_STATES.has(task.state)) return task;
@@ -366,9 +366,10 @@ export class TeamTaskService {
     return task;
   }
 
-  private assertLead(actor: LeadActor): void {
+  private assertLead(actor: LeadActor, allowArchiving = false): void {
     const team = this.repository.get(actor.team)?.team;
-    if (!team || team.generation !== actor.generation || team.state !== 'active') {
+    const validState = team?.state === 'active' || (allowArchiving && team?.state === 'archiving');
+    if (!team || team.generation !== actor.generation || !validState) {
       throw new TeamError('TEAM_STATE_ERROR', 'Team Lead 身份已失效');
     }
   }

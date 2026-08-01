@@ -121,15 +121,29 @@ test('TeamCoordinator 重启代次同步空闲成员并隔离旧 actor', async t
 });
 
 test('TeamCoordinator 终止成员并归档团队', async t => {
-  const { coordinator, repository, context, events } = fixture(t);
+  const { coordinator, repository, tasks, context, events } = fixture(t);
   coordinator.createTeam('alpha', 's1');
   const actor = () => coordinator.leadActor('s1');
   await execute(coordinator, actor, 'team_member', {
     action: 'create', member: 'alice', role: 'coder', backend: 'coroutine',
   }, context);
+  const task = await execute(coordinator, actor, 'team_task', {
+    action: 'create', title: '待终止任务', description: '验证终止语义', dependencies: [],
+  }, context);
+  await execute(coordinator, actor, 'team_task', { action: 'assign', task_id: task.id, member: 'alice' }, context);
   await execute(coordinator, actor, 'team_member', { action: 'terminate', member: 'alice', reason: '完成' }, context);
   assert.equal(repository.getMember('alpha', 'alice')?.state, 'terminated');
+  assert.equal(tasks.get('alpha', String(task.id))?.state, 'cancelled');
+  await execute(coordinator, actor, 'team_member', {
+    action: 'create', member: 'bob', role: 'coder', backend: 'coroutine',
+  }, context);
+  const archiveTask = await execute(coordinator, actor, 'team_task', {
+    action: 'create', title: '归档中任务', description: '由归档流程取消', dependencies: [],
+  }, context);
+  await execute(coordinator, actor, 'team_task', { action: 'assign', task_id: archiveTask.id, member: 'bob' }, context);
   const archived = await coordinator.archiveTeam('alpha');
   assert.equal(archived.team.state, 'archived');
+  assert.equal(repository.getMember('alpha', 'bob')?.state, 'terminated');
+  assert.equal(tasks.get('alpha', String(archiveTask.id))?.state, 'cancelled');
   assert.ok(events.includes('stop:co-alice'));
 });

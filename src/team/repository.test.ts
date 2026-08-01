@@ -6,6 +6,7 @@ import test from 'node:test';
 import { TeamError } from './errors.js';
 import { TeamPathGuard } from './path-guard.js';
 import { TeamRepository } from './repository.js';
+import { TeamTaskService } from './task-service.js';
 import type { TeamMemberRecord } from './types.js';
 
 const usage = {
@@ -45,6 +46,17 @@ test('团队激活校验仓库与归档状态', t => {
     error instanceof TeamError && error.code === 'TEAM_ARCHIVED');
   repository.restore('alpha');
   assert.equal(repository.activate('alpha', 'session', 'repo-1').team.state, 'active');
+});
+
+test('团队进入归档阶段后立即解除会话绑定并拒绝新操作', t => {
+  const { guard, repository } = setup(t);
+  repository.create({ name: 'alpha', repositoryId: 'repo-1', projectRoot: '/tmp/repo' });
+  const active = repository.activate('alpha', 'session', 'repo-1');
+  const archiving = repository.beginArchive('alpha');
+  assert.equal(archiving.team.state, 'archiving');
+  assert.equal(repository.activeForSession('session'), undefined);
+  const actor = { kind: 'lead', team: 'alpha', sessionId: 'session', generation: active.team.generation } as const;
+  assert.throws(() => new TeamTaskService(guard, repository).list(actor), /身份已失效/);
 });
 
 test('新运行代次把遗留运行成员标记为中断', t => {
