@@ -5,6 +5,9 @@ import type {
   AppConfig,
   ProviderConfig,
   SubAgentConfig,
+  TeamConfig,
+  TeamCustomTerminalConfig,
+  TeamProcessTemplateConfig,
   WorktreeConfig,
   WorktreeCopyRuleConfig,
 } from './types.js';
@@ -24,6 +27,19 @@ const WORKTREE_FIELDS = new Set([
   'symlinks',
 ]);
 const WORKTREE_RULE_FIELDS = new Set(['source', 'target', 'required']);
+const TEAM_FIELDS = new Set(['coordinator', 'mailbox', 'runtime', 'integration', 'custom_terminals']);
+const TEAM_COORDINATOR_FIELDS = new Set(['enabled']);
+const TEAM_MAILBOX_FIELDS = new Set(['lock_timeout_ms', 'retry_interval_ms', 'stale_lock_ms']);
+const TEAM_RUNTIME_FIELDS = new Set([
+  'heartbeat_interval_ms',
+  'heartbeat_timeout_ms',
+  'stop_timeout_ms',
+  'inbox_poll_interval_ms',
+]);
+const TEAM_INTEGRATION_FIELDS = new Set(['timeout_ms', 'validation_commands']);
+const TEAM_TERMINAL_FIELDS = new Set(['name', 'detect', 'spawn', 'wake', 'terminate']);
+const TEAM_PROCESS_FIELDS = new Set(['command', 'args']);
+const TEAM_TEMPLATE_PLACEHOLDERS = new Set(['worker_descriptor', 'cwd', 'pane_id']);
 
 /**
  * 校验单个 provider 配置，不合法时抛 Error。
@@ -198,6 +214,151 @@ function parseWorktrees(value: unknown): WorktreeConfig | undefined {
   };
 }
 
+function assertKnownFields(raw: Record<string, unknown>, fields: ReadonlySet<string>, name: string): void {
+  for (const key of Object.keys(raw)) {
+    if (!fields.has(key)) throw new Error(`${name} 包含未知字段: ${key}`);
+  }
+}
+
+function optionalBoolean(value: unknown, field: string): boolean | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'boolean') throw new Error(`${field} 必须是布尔值`);
+  return value;
+}
+
+function processTemplate(value: unknown, field: string): TeamProcessTemplateConfig {
+  const raw = record(value, field);
+  assertKnownFields(raw, TEAM_PROCESS_FIELDS, field);
+  if (typeof raw.command !== 'string' || !raw.command.trim()) {
+    throw new Error(`${field}.command 必须是非空字符串`);
+  }
+  if (raw.args !== undefined && (!Array.isArray(raw.args) || raw.args.some(item => typeof item !== 'string'))) {
+    throw new Error(`${field}.args 必须是字符串数组`);
+  }
+  const args = (raw.args as string[] | undefined) ?? [];
+  for (const [index, argument] of args.entries()) {
+    for (const match of argument.matchAll(/\{([^{}]+)\}/gu)) {
+      if (!TEAM_TEMPLATE_PLACEHOLDERS.has(match[1])) {
+        throw new Error(`${field}.args[${index}] 包含未知占位符: ${match[1]}`);
+      }
+    }
+  }
+  return { command: raw.command.trim(), ...(args.length > 0 ? { args: [...args] } : {}) };
+}
+
+function parseTeamTerminals(value: unknown): TeamCustomTerminalConfig[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 20) {
+    throw new Error('teams.custom_terminals 必须是最多 20 项的数组');
+  }
+  const names = new Set<string>();
+  return value.map((item, index) => {
+    const field = `teams.custom_terminals[${index}]`;
+    const raw = record(item, field);
+    assertKnownFields(raw, TEAM_TERMINAL_FIELDS, field);
+    if (typeof raw.name !== 'string' || !raw.name.trim()) throw new Error(`${field}.name 必须是非空字符串`);
+    const name = raw.name.trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9_-]{0,63}$/u.test(name)) throw new Error(`${field}.name 格式无效`);
+    if (names.has(name)) throw new Error(`teams.custom_terminals 名称重复: ${name}`);
+    names.add(name);
+    return {
+      name,
+      detect: processTemplate(raw.detect, `${field}.detect`),
+      spawn: processTemplate(raw.spawn, `${field}.spawn`),
+      wake: processTemplate(raw.wake, `${field}.wake`),
+      ...(raw.terminate === undefined ? {} : {
+        terminate: processTemplate(raw.terminate, `${field}.terminate`),
+      }),
+    };
+  });
+}
+
+function parseTeams(value: unknown): TeamConfig | undefined {
+  if (value === undefined) return undefined;
+  const raw = record(value, 'teams');
+  assertKnownFields(raw, TEAM_FIELDS, 'teams');
+
+  let coordinator: TeamConfig['coordinator'];
+  if (raw.coordinator !== undefined) {
+    const item = record(raw.coordinator, 'teams.coordinator');
+    assertKnownFields(item, TEAM_COORDINATOR_FIELDS, 'teams.coordinator');
+    const enabled = optionalBoolean(item.enabled, 'teams.coordinator.enabled');
+    coordinator = enabled === undefined ? {} : { enabled };
+  }
+
+  let mailbox: TeamConfig['mailbox'];
+  if (raw.mailbox !== undefined) {
+    const item = record(raw.mailbox, 'teams.mailbox');
+    assertKnownFields(item, TEAM_MAILBOX_FIELDS, 'teams.mailbox');
+    mailbox = {
+      ...(item.lock_timeout_ms === undefined ? {} : {
+        lock_timeout_ms: positiveInteger(item.lock_timeout_ms, 'teams.mailbox.lock_timeout_ms', 100, 60_000),
+      }),
+      ...(item.retry_interval_ms === undefined ? {} : {
+        retry_interval_ms: positiveInteger(item.retry_interval_ms, 'teams.mailbox.retry_interval_ms', 10, 5_000),
+      }),
+      ...(item.stale_lock_ms === undefined ? {} : {
+        stale_lock_ms: positiveInteger(item.stale_lock_ms, 'teams.mailbox.stale_lock_ms', 100, 600_000),
+      }),
+    };
+    const retry = mailbox.retry_interval_ms ?? 50;
+    const stale = mailbox.stale_lock_ms ?? 30_000;
+    if (stale <= retry) throw new Error('teams.mailbox.stale_lock_ms 必须大于 retry_interval_ms');
+  }
+
+  let runtime: TeamConfig['runtime'];
+  if (raw.runtime !== undefined) {
+    const item = record(raw.runtime, 'teams.runtime');
+    assertKnownFields(item, TEAM_RUNTIME_FIELDS, 'teams.runtime');
+    runtime = {
+      ...(item.heartbeat_interval_ms === undefined ? {} : {
+        heartbeat_interval_ms: positiveInteger(item.heartbeat_interval_ms, 'teams.runtime.heartbeat_interval_ms', 250, 60_000),
+      }),
+      ...(item.heartbeat_timeout_ms === undefined ? {} : {
+        heartbeat_timeout_ms: positiveInteger(item.heartbeat_timeout_ms, 'teams.runtime.heartbeat_timeout_ms', 500, 300_000),
+      }),
+      ...(item.stop_timeout_ms === undefined ? {} : {
+        stop_timeout_ms: positiveInteger(item.stop_timeout_ms, 'teams.runtime.stop_timeout_ms', 1_000, 120_000),
+      }),
+      ...(item.inbox_poll_interval_ms === undefined ? {} : {
+        inbox_poll_interval_ms: positiveInteger(item.inbox_poll_interval_ms, 'teams.runtime.inbox_poll_interval_ms', 250, 60_000),
+      }),
+    };
+    const heartbeat = runtime.heartbeat_interval_ms ?? 2_000;
+    const timeout = runtime.heartbeat_timeout_ms ?? 10_000;
+    if (timeout <= heartbeat) throw new Error('teams.runtime.heartbeat_timeout_ms 必须大于 heartbeat_interval_ms');
+  }
+
+  let integration: TeamConfig['integration'];
+  if (raw.integration !== undefined) {
+    const item = record(raw.integration, 'teams.integration');
+    assertKnownFields(item, TEAM_INTEGRATION_FIELDS, 'teams.integration');
+    if (item.validation_commands !== undefined &&
+        (!Array.isArray(item.validation_commands) ||
+          item.validation_commands.some(command => typeof command !== 'string' || !command.trim()) ||
+          item.validation_commands.length > 20)) {
+      throw new Error('teams.integration.validation_commands 必须是最多 20 条非空命令的数组');
+    }
+    integration = {
+      ...(item.timeout_ms === undefined ? {} : {
+        timeout_ms: positiveInteger(item.timeout_ms, 'teams.integration.timeout_ms', 1_000, 3_600_000),
+      }),
+      ...(item.validation_commands === undefined ? {} : {
+        validation_commands: (item.validation_commands as string[]).map(command => command.trim()),
+      }),
+    };
+  }
+
+  const customTerminals = parseTeamTerminals(raw.custom_terminals);
+  return {
+    ...(coordinator ? { coordinator } : {}),
+    ...(mailbox ? { mailbox } : {}),
+    ...(runtime ? { runtime } : {}),
+    ...(integration ? { integration } : {}),
+    ...(customTerminals ? { custom_terminals: customTerminals } : {}),
+  };
+}
+
 /**
  * 读取并解析 YAML 配置文件。
  * @param path 配置文件路径，默认 ./config.yaml
@@ -266,9 +427,11 @@ export function loadConfig(path: string = './config.yaml'): AppConfig {
   const agentModels = parseAgentModels(obj.agent_models, providerNames);
   const subagents = parseSubAgents(obj.subagents);
   const worktrees = parseWorktrees(obj.worktrees);
+  const teams = parseTeams(obj.teams);
   if (agentModels) config.agent_models = agentModels;
   if (subagents) config.subagents = subagents;
   if (worktrees) config.worktrees = worktrees;
+  if (teams) config.teams = teams;
 
   return config;
 }

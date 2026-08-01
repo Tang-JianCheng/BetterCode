@@ -53,10 +53,46 @@ export interface WorktreeConfig {
   symlinks?: WorktreeSymlinkRuleConfig[];
 }
 
+export interface TeamProcessTemplateConfig {
+  command: string;
+  args?: string[];
+}
+
+export interface TeamCustomTerminalConfig {
+  name: string;
+  detect: TeamProcessTemplateConfig;
+  spawn: TeamProcessTemplateConfig;
+  wake: TeamProcessTemplateConfig;
+  terminate?: TeamProcessTemplateConfig;
+}
+
+export interface TeamConfig {
+  coordinator?: {
+    enabled?: boolean;
+  };
+  mailbox?: {
+    lock_timeout_ms?: number;
+    retry_interval_ms?: number;
+    stale_lock_ms?: number;
+  };
+  runtime?: {
+    heartbeat_interval_ms?: number;
+    heartbeat_timeout_ms?: number;
+    stop_timeout_ms?: number;
+    inbox_poll_interval_ms?: number;
+  };
+  integration?: {
+    timeout_ms?: number;
+    validation_commands?: string[];
+  };
+  custom_terminals?: TeamCustomTerminalConfig[];
+}
+
 /** config.yaml 顶层结构 */
 export interface AppConfig {
   providers: ProviderConfig[];
   agent_models?: AgentModelAliases;
   subagents?: SubAgentConfig;
   worktrees?: WorktreeConfig;
+  teams?: TeamConfig;
 }

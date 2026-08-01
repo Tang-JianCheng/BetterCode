@@ -112,3 +112,63 @@ worktrees:
     assert.throws(() => loadConfig(file), /相对路径|正斜杠|不能包含/);
   }
 });
+
+test('团队配置解析双锁、运行边界和终端模板', async t => {
+  const file = await withConfig(t);
+  await writeFile(file, `providers:
+  - name: test
+    protocol: openai
+    model: model
+    base_url: https://example.test
+    api_key: key
+teams:
+  coordinator:
+    enabled: true
+  mailbox:
+    lock_timeout_ms: 6000
+    retry_interval_ms: 60
+    stale_lock_ms: 40000
+  runtime:
+    heartbeat_interval_ms: 1500
+    heartbeat_timeout_ms: 9000
+    stop_timeout_ms: 12000
+    inbox_poll_interval_ms: 2500
+  integration:
+    timeout_ms: 240000
+    validation_commands: [pnpm check]
+  custom_terminals:
+    - name: custom-pane
+      detect: { command: custom, args: [detect] }
+      spawn: { command: custom, args: [spawn, "{worker_descriptor}", "{cwd}"] }
+      wake: { command: custom, args: [wake, "{pane_id}"] }
+`);
+  const config = loadConfig(file);
+  assert.equal(config.teams?.coordinator?.enabled, true);
+  assert.equal(config.teams?.mailbox?.stale_lock_ms, 40_000);
+  assert.equal(config.teams?.runtime?.heartbeat_timeout_ms, 9_000);
+  assert.deepEqual(config.teams?.integration?.validation_commands, ['pnpm check']);
+  assert.equal(config.teams?.custom_terminals?.[0].name, 'custom-pane');
+});
+
+test('团队配置拒绝危险关系和未知占位符', async t => {
+  const cases = [
+    ['teams:\n  unknown: true\n', /未知字段/],
+    ['teams:\n  mailbox:\n    retry_interval_ms: 100\n    stale_lock_ms: 100\n', /必须大于/],
+    ['teams:\n  runtime:\n    heartbeat_interval_ms: 5000\n    heartbeat_timeout_ms: 5000\n', /必须大于/],
+    [
+      'teams:\n  custom_terminals:\n    - name: pane\n      detect: { command: x }\n      spawn: { command: x, args: ["{secret}"] }\n      wake: { command: x }\n',
+      /未知占位符/,
+    ],
+  ] as const;
+  for (const [extra, expected] of cases) {
+    const file = await withConfig(t);
+    await writeFile(file, `providers:
+  - name: test
+    protocol: openai
+    model: model
+    base_url: https://example.test
+    api_key: key
+${extra}`);
+    assert.throws(() => loadConfig(file), expected);
+  }
+});
