@@ -46,6 +46,11 @@ export interface AgentLoopRuntime {
   onInstructionsCommitted?: (messages: readonly Message[]) => void;
   toolPolicy?: ToolExecutionPolicy;
   toolObserver?: ToolExecutionObserver;
+  onCheckpoint?: (input: {
+    history: readonly Message[];
+    usage: Readonly<TokenUsage>;
+    iteration: number;
+  }) => Promise<void> | void;
 }
 
 export interface ToolResultTransformInput {
@@ -230,6 +235,7 @@ export class AgentLoop {
 
         if (turn.toolCalls.length === 0) {
           if (turn.text) history.push({ role: 'assistant', content: turn.text });
+          await this.runtime.onCheckpoint?.({ history, usage: cumulativeUsage, iteration });
           try {
             this.hooks.onLoopComplete?.([...history], request.provider);
           } catch {
@@ -306,6 +312,7 @@ export class AgentLoop {
           maxIterations: this.options.maxIterations,
           stage: 'tools_complete',
         });
+        await this.runtime.onCheckpoint?.({ history, usage: cumulativeUsage, iteration });
 
         if (batch.cancelled || request.signal.aborted) return finish('cancelled', iteration);
         if (batch.unknownToolLimitReached) return finish('unknown_tool_limit', iteration);
