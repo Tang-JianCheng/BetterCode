@@ -42,6 +42,7 @@ export interface AgentLoopRuntime {
   visibleToolNames?: () => ReadonlySet<string> | undefined;
   transformToolResult?: (input: ToolResultTransformInput) => Promise<ToolResult>;
   instructionRuntime?: AgentInstructionRuntime;
+  instructionRuntimes?: readonly AgentInstructionRuntime[];
   toolExecutionState?: ToolExecutionState;
   onInstructionsCommitted?: (messages: readonly Message[]) => void;
   toolPolicy?: ToolExecutionPolicy;
@@ -124,7 +125,14 @@ export class AgentLoop {
         const environment = collectEnvironment(this.registry.rootDir, request.mode);
         const hookPromptBatch = this.runtime.hooks?.preparePromptBatch();
         const supplemental = this.currentSupplemental(hookPromptBatch?.content);
-        const instructionBatch = this.runtime.instructionRuntime?.prepare();
+        const instructionRuntimes = [
+          ...(this.runtime.instructionRuntime ? [this.runtime.instructionRuntime] : []),
+          ...(this.runtime.instructionRuntimes ?? []),
+        ];
+        const instructionBatches = instructionRuntimes.flatMap(runtime => {
+          const batch = runtime.prepare();
+          return batch ? [{ runtime, batch }] : [];
+        });
         const visibleToolNames = request.toolDefinitions
           ? new Set(request.toolDefinitions.map(tool => tool.name))
           : this.runtime.visibleToolNames?.();
@@ -148,7 +156,7 @@ export class AgentLoop {
         const managed = await this.contextManager.manage({
           history,
           runtimeMessages: [
-            ...(instructionBatch?.messages ?? []),
+            ...instructionBatches.flatMap(item => item.batch.messages),
             {
               role: 'instruction',
               instructionKind: 'runtime',
@@ -170,10 +178,10 @@ export class AgentLoop {
           emit({ type: 'error', iteration, message: '自动上下文管理未生成可发送请求' });
           return finish('context_error', startedIterations);
         }
-        if (instructionBatch) {
-          this.runtime.instructionRuntime?.commit(instructionBatch.throughId);
-          history.push(...instructionBatch.messages.map(message => ({ ...message })));
-          this.runtime.onInstructionsCommitted?.(instructionBatch.messages);
+        for (const { runtime, batch } of instructionBatches) {
+          await runtime.commit(batch.throughId);
+          history.push(...batch.messages.map(message => ({ ...message })));
+          this.runtime.onInstructionsCommitted?.(batch.messages);
         }
         if (hookPromptBatch) this.runtime.hooks?.commitPromptBatch(hookPromptBatch.throughId);
         emit({

@@ -77,3 +77,25 @@ export function buildMemberSupplemental(environment: MemberPromptEnvironment): S
     }],
   };
 }
+
+export function buildLeadSupplemental(status: Record<string, unknown>): SupplementalPromptContent {
+  if (status.active !== true) return {};
+  const team = status.team as { name?: string; generation?: number } | undefined;
+  const members = Array.isArray(status.members) ? status.members.length : 0;
+  const tasks = Array.isArray(status.tasks) ? status.tasks.length : 0;
+  const coordinator = status.coordinator as { active?: boolean } | undefined;
+  return {
+    activeSkills: [{
+      name: 'BetterCode Team Lead',
+      content: [
+        `你是团队 ${team?.name ?? 'unknown'} 的 Team Lead，当前运行代次为 ${team?.generation ?? 'unknown'}。`,
+        `当前共有 ${members} 名成员、${tasks} 个任务。`,
+        '优先使用 team_* 专用工具拆分任务、派发成员、处理审批和集成代码。',
+        '成员之间可以直接通过团队邮箱协作，不要把所有消息都经由主对话中转。',
+        coordinator?.active
+          ? 'Coordinator 模式已启用：你只负责编排、决策和 Git 集成，不得直接修改项目文件。'
+          : '普通 Team Lead 模式已启用：必要时仍可直接使用普通工具。',
+      ].join('\n'),
+    }],
+  };
+}

@@ -3,14 +3,14 @@ import { TeamError } from '../errors.js';
 import type { BackendInstance, BackendProbeContext, SpawnMemberInput, TeamMemberBackend, TerminateResult } from './types.js';
 
 export interface CoroutineMemberOperation {
-  run(member: SpawnMemberInput['member'], signal: AbortSignal): Promise<void>;
-  wake?(member: SpawnMemberInput['member']): Promise<void>;
+  run(input: SpawnMemberInput, signal: AbortSignal): Promise<void>;
+  wake?(input: SpawnMemberInput): Promise<void>;
 }
 
 export class CoroutineBackend implements TeamMemberBackend {
   readonly kind = 'coroutine' as const;
   readonly name = 'coroutine';
-  private readonly controls = new Map<string, { member: SpawnMemberInput['member']; controller: AbortController; operation: Promise<void> }>();
+  private readonly controls = new Map<string, { input: SpawnMemberInput; controller: AbortController; operation: Promise<void> }>();
 
   constructor(private readonly runner: CoroutineMemberOperation) {}
 
@@ -21,16 +21,16 @@ export class CoroutineBackend implements TeamMemberBackend {
   spawn(input: SpawnMemberInput): Promise<BackendInstance> {
     const id = `co-${randomUUID()}`;
     const controller = new AbortController();
-    const operation = Promise.resolve().then(() => this.runner.run(input.member, controller.signal));
+    const operation = Promise.resolve().then(() => this.runner.run(input, controller.signal));
     operation.catch(() => {}).finally(() => this.controls.delete(id));
-    this.controls.set(id, { member: input.member, controller, operation });
+    this.controls.set(id, { input, controller, operation });
     return Promise.resolve({ kind: 'coroutine', id });
   }
 
   async wake(instance: BackendInstance): Promise<void> {
     const control = this.controls.get(instance.id);
     if (!control) throw new TeamError('TEAM_BACKEND_UNAVAILABLE', '协程成员实例不存在');
-    await this.runner.wake?.(control.member);
+    await this.runner.wake?.(control.input);
   }
 
   async terminate(instance: BackendInstance, signal: AbortSignal): Promise<TerminateResult> {

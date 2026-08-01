@@ -20,6 +20,7 @@ export interface CommandUIController {
   showOrSetPermission(mode?: PermissionMode): void;
   showStatus(): void;
   showSubAgentTasks(taskId?: string): void;
+  manageTeam(args: string): Promise<void>;
   rewindConversation(): void;
   exit(): void;
 }

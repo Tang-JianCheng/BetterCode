@@ -136,13 +136,16 @@ export class TeamRepository {
     const now = new Date().toISOString();
     const team = store.write({ ...current, generation: current.generation + 1, updatedAt: now }, current.revision);
     const members = this.listMembers(name).map(member => {
-      if (member.state !== 'running' && member.state !== 'stopping') return member;
+      if (member.state === 'terminated') return member;
+      const interrupted = member.state === 'running' || member.state === 'stopping';
       return this.writeMember(name, {
         ...member,
-        state: 'interrupted',
+        state: interrupted ? 'interrupted' : member.state,
         generation: team.generation,
         lastActiveAt: now,
-        lastError: teamDiagnostic('TEAM_STATE_ERROR', 'BetterCode 重启后运行成员已标记为中断'),
+        ...(interrupted ? {
+          lastError: teamDiagnostic('TEAM_STATE_ERROR', 'BetterCode 重启后运行成员已标记为中断'),
+        } : {}),
       }, member.revision);
     });
     this.updateIndex(index => ({

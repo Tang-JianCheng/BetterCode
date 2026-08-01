@@ -14,7 +14,8 @@ export type InstructionKind =
   | 'runtime'
   | 'context_summary'
   | 'context_boundary'
-  | 'subagent_result';
+  | 'subagent_result'
+  | 'team_notification';
 
 export interface OffloadedToolResult {
   kind: 'offloaded_tool_result';

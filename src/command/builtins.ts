@@ -108,6 +108,12 @@ function definitions(): CommandDefinition[] {
       },
     },
     {
+      name: 'team', aliases: [], description: '管理长期团队',
+      usage: '/team list|create <名称>|use <名称>|status|archive <名称>|restore <名称>',
+      argumentHint: '<动作>', type: 'local',
+      handler: ({ args, ui }) => ui.manageTeam(args),
+    },
+    {
       name: 'rewind', aliases: [], description: '回滚文件或对话检查点', usage: '/rewind',
       type: 'ui', hidden: true,
       handler: invocation => {

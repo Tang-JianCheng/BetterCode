@@ -38,6 +38,9 @@ import type { HookManager } from '../hook/manager.js';
 import type { SubAgentCoordinator } from '../subagent/coordinator.js';
 import type { SubAgentResultInbox } from '../subagent/result-inbox.js';
 import type { SubAgentEvent, SubAgentTaskSnapshot } from '../subagent/types.js';
+import type { TeamCoordinator, TeamEvent } from '../team/coordinator.js';
+import type { TeamLeadInbox } from '../team/lead-inbox.js';
+import { resolveVisibleTools } from '../tool/visibility.js';
 
 export interface ChatManagerMemoryOptions {
   autoExtract?: boolean;
@@ -53,6 +56,11 @@ export interface ChatManagerSkillOptions {
 export interface ChatManagerSubAgentOptions {
   coordinator?: SubAgentCoordinator;
   inbox?: SubAgentResultInbox;
+}
+
+export interface ChatManagerTeamOptions {
+  coordinator?: TeamCoordinator;
+  inbox?: TeamLeadInbox;
 }
 
 export interface MemoryStatus {
@@ -109,6 +117,7 @@ export class ChatManager {
     private readonly skillOptions: ChatManagerSkillOptions = {},
     private readonly hookManager?: HookManager,
     private readonly subagentOptions: ChatManagerSubAgentOptions = {},
+    private readonly teamOptions: ChatManagerTeamOptions = {},
   ) {
     this.rootDir = toolRegistry.rootDir;
     this.autoExtract = memoryOptions.autoExtract ?? false;
@@ -129,12 +138,32 @@ export class ChatManager {
       },
       {
         hooks: hookManager,
-        supplemental: skillOptions.manager
-          ? () => skillOptions.manager!.promptContent()
-          : undefined,
-        visibleToolNames: skillOptions.manager
-          ? () => skillOptions.manager!.visibleTools().names
-          : undefined,
+        supplemental: () => {
+          const skill = skillOptions.manager?.promptContent() ?? {};
+          const team = this.teamOptions.coordinator?.promptContent(this.sessionId) ?? {};
+          return {
+            ...skill,
+            ...team,
+            activeSkills: [...(skill.activeSkills ?? []), ...(team.activeSkills ?? [])],
+          };
+        },
+        visibleToolNames: () => {
+          const team = this.teamOptions.coordinator?.active(this.sessionId);
+          const coordinatorStatus = this.teamOptions.coordinator?.status(this.sessionId).coordinator as { active?: boolean } | undefined;
+          return resolveVisibleTools({
+            allNames: toolRegistry.names(),
+            effectOf: name => toolRegistry.effectOf(name),
+            ...(skillOptions.manager ? { skillNames: skillOptions.manager.visibleTools().names } : {}),
+            ...(team ? {
+              team: {
+                active: true,
+                actor: 'lead',
+                coordinator: coordinatorStatus?.active === true,
+              },
+            } : {}),
+            mode: 'act',
+          });
+        },
         transformToolResult: skillOptions.runner || subagentOptions.coordinator
           ? async input => {
               let result = input.result;
@@ -171,6 +200,19 @@ export class ChatManager {
               commit: throughId => subagentOptions.inbox!.runtime(this.sessionId).commit(throughId),
             }
           : undefined,
+        instructionRuntimes: teamOptions.inbox && teamOptions.coordinator
+          ? [{
+              prepare: () => teamOptions.inbox!.runtime(
+                this.sessionId,
+                () => teamOptions.coordinator!.leadActor(this.sessionId),
+              ).prepare(),
+              commit: throughId => teamOptions.inbox!.runtime(
+                this.sessionId,
+                () => teamOptions.coordinator!.leadActor(this.sessionId),
+              ).commit(throughId),
+            }]
+          : undefined,
+        toolPolicy: teamOptions.coordinator?.toolPolicy(() => this.sessionId),
         onInstructionsCommitted: messages => {
           for (const message of messages) {
             if (message.role === 'instruction' && message.instructionKind === 'subagent_result') {
@@ -317,6 +359,40 @@ export class ChatManager {
     return this.subagentOptions.coordinator?.subscribe(listener) ?? (() => undefined);
   }
 
+  subscribeTeam(listener: (event: TeamEvent) => void): () => void {
+    return this.teamOptions.coordinator?.subscribe(listener) ?? (() => undefined);
+  }
+
+  getTeamStatus(): Record<string, unknown> {
+    return this.teamOptions.coordinator?.status(this.sessionId) ?? { active: false };
+  }
+
+  async manageTeam(args: string): Promise<string> {
+    const coordinator = this.teamOptions.coordinator;
+    if (!coordinator) throw new Error('团队系统未初始化');
+    const [action = 'status', name, ...rest] = args.trim().split(/\s+/u).filter(Boolean);
+    if (rest.length > 0) throw new Error('团队命令参数过多');
+    if (action === 'list') return formatTeamValue(coordinator.listTeams().map(item => item.team));
+    if (action === 'status') return formatTeamValue(coordinator.status(this.sessionId));
+    if (action === 'create') {
+      if (!name) throw new Error('用法: /team create <名称>');
+      return formatTeamValue(coordinator.createTeam(name, this.sessionId));
+    }
+    if (action === 'use') {
+      if (!name) throw new Error('用法: /team use <名称>');
+      return formatTeamValue(coordinator.useTeam(name, this.sessionId));
+    }
+    if (action === 'archive') {
+      if (!name) throw new Error('用法: /team archive <名称>');
+      return formatTeamValue(await coordinator.archiveTeam(name));
+    }
+    if (action === 'restore') {
+      if (!name) throw new Error('用法: /team restore <名称>');
+      return formatTeamValue(coordinator.restoreTeam(name));
+    }
+    throw new Error('用法: /team list|create <名称>|use <名称>|status|archive <名称>|restore <名称>');
+  }
+
   listSessions(): SessionInfo[] {
     return listSessions(this.rootDir);
   }
@@ -328,7 +404,9 @@ export class ChatManager {
     if (saved.length === 0) throw new Error(`会话不存在或为空: ${sessionId}`);
     const restored = rebuildFromSession(saved);
     if (restored.length === 0) throw new Error(`会话没有可恢复的消息: ${sessionId}`);
-    await this.subagentOptions.coordinator?.cancelSession(this.sessionId, '恢复其他会话');
+    const previousSessionId = this.sessionId;
+    await this.subagentOptions.coordinator?.cancelSession(previousSessionId, '恢复其他会话');
+    this.teamOptions.inbox?.discardSession(previousSessionId);
     await this.hookManager?.endSession('resume');
     await this.contextManager.clear();
     this.history = restored.map(message => ({ ...message }));
@@ -433,7 +511,9 @@ export class ChatManager {
   async clear(): Promise<void> {
     if (this.closed) throw new Error('ChatManager 已关闭');
     if (this.active) throw new Error('Agent 运行期间不能清空会话');
-    await this.subagentOptions.coordinator?.cancelSession(this.sessionId, '清空会话');
+    const previousSessionId = this.sessionId;
+    await this.subagentOptions.coordinator?.cancelSession(previousSessionId, '清空会话');
+    this.teamOptions.inbox?.discardSession(previousSessionId);
     await this.hookManager?.endSession('clear');
     await this.contextManager.clear();
     this.history = [];
@@ -645,4 +725,8 @@ export class ChatManager {
     });
     return lines.join('\n').slice(-24_000);
   }
+}
+
+function formatTeamValue(value: unknown): string {
+  return JSON.stringify(value, null, 2);
 }

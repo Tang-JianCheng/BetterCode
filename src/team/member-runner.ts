@@ -17,6 +17,7 @@ import type { TeamTaskService } from './task-service.js';
 import { TeamToolPolicy } from './tool-policy.js';
 import type { MemberContextSnapshot, TeamMemberRecord, TeamTaskRecord } from './types.js';
 import type { TeamMemberRuntimeResolver, TeamMemberRuntimeSnapshot } from './member-runtime.js';
+import type { TeamActorContext } from './actor-context.js';
 
 const EMPTY_USAGE: TokenUsage = {
   inputTokens: 0,
@@ -44,6 +45,7 @@ export interface TeamMemberRunnerOptions {
   contexts: MemberContextStore;
   journal(team: string, member: string): OperationJournal;
   worktrees?: WorktreeManager;
+  actorContext?: TeamActorContext;
 }
 
 export class TeamMemberRunner {
@@ -126,7 +128,7 @@ export class TeamMemberRunner {
           },
         },
       );
-      const outcome = await loop.execute({
+      const execute = () => loop.execute({
         history: context?.messages.map(message => structuredClone(message)) ?? [],
         userMessage: buildMemberTaskPrompt(environment),
         mode: 'act',
@@ -134,6 +136,9 @@ export class TeamMemberRunner {
         signal: input.signal,
         systemPrompt,
       }, emit);
+      const outcome = this.options.actorContext
+        ? await this.options.actorContext.run(resolved.actor, execute)
+        : await execute();
       if (unread.length > 0 && context?.mailboxCursor === unread.at(-1)?.id) {
         await this.options.mailbox.markRead(resolved.actor, unread.map(message => message.id), input.signal);
       }

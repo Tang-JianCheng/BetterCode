@@ -40,4 +40,8 @@ export class TeamBackendManager {
       { diagnostics: JSON.stringify(diagnostics) },
     );
   }
+
+  get(kind: TeamMemberBackend['kind'], name?: string): TeamMemberBackend | undefined {
+    return this.backends.find(backend => backend.kind === kind && (kind !== 'custom' || !name || backend.name === name));
+  }
 }

@@ -20,6 +20,7 @@ function fakeUi(messages: string[]): CommandUIController {
     showOrSetPermission() {},
     showStatus() {},
     showSubAgentTasks() {},
+    async manageTeam() {},
     rewindConversation() {},
     exit() {},
   };

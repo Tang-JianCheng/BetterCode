@@ -108,6 +108,14 @@ export interface BetterCodeStatus {
   memory: MemoryStatus;
   activeSkills?: readonly string[];
   subAgentTasks?: { total: number; running: number; background: number };
+  team?: {
+    name: string;
+    coordinator: boolean;
+    members: number;
+    tasks: number;
+    pendingApprovals: number;
+    unreadMessages: number;
+  };
 }
 
 export function formatAgentMode(mode: AgentMode): '[DEFAULT]' | '[PLAN]' {
@@ -128,6 +136,11 @@ export function formatStatus(status: BetterCodeStatus): string {
     `已激活 Skill: ${status.activeSkills?.length ? status.activeSkills.join(', ') : '无'}`,
     `子 Agent 任务: ${status.subAgentTasks?.total ?? 0} 个（运行中 ${status.subAgentTasks?.running ?? 0} / ` +
       `后台 ${status.subAgentTasks?.background ?? 0}）`,
+    ...(status.team ? [
+      `团队: ${status.team.name}${status.team.coordinator ? ' [COORDINATOR]' : ''}`,
+      `团队状态: 成员 ${status.team.members} / 任务 ${status.team.tasks} / ` +
+        `待审批 ${status.team.pendingApprovals} / 未读 ${status.team.unreadMessages}`,
+    ] : ['团队: 未激活']),
   ].join('\n');
 }
 
@@ -276,6 +289,11 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
   useEffect(() => chatManager.subscribeSubAgent(event => {
     const message = formatSubAgentEvent(event);
     if (message) appendAssistant(message);
+    setStatusVersion(version => version + 1);
+  }), [appendAssistant, chatManager]);
+
+  useEffect(() => chatManager.subscribeTeam(event => {
+    appendAssistant(`[团队] ${event.summary}`);
     setStatusVersion(version => version + 1);
   }), [appendAssistant, chatManager]);
 
@@ -527,6 +545,9 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
 
   const showStatus = useCallback(() => {
     const tasks = chatManager.listSubAgentTasks();
+    const teamStatus = chatManager.getTeamStatus();
+    const teamRecord = teamStatus.team as { name?: string } | undefined;
+    const coordinator = teamStatus.coordinator as { active?: boolean } | undefined;
     appendAssistant(formatStatus({
       provider,
       agentMode: agentModeRef.current,
@@ -541,6 +562,16 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
         background: tasks.filter(task => task.executionMode === 'background' &&
           (task.state === 'waiting' || task.state === 'running')).length,
       },
+      ...(teamStatus.active === true && teamRecord?.name ? {
+        team: {
+          name: teamRecord.name,
+          coordinator: coordinator?.active === true,
+          members: Array.isArray(teamStatus.members) ? teamStatus.members.length : 0,
+          tasks: Array.isArray(teamStatus.tasks) ? teamStatus.tasks.length : 0,
+          pendingApprovals: Number(teamStatus.pendingApprovals ?? 0),
+          unreadMessages: Number(teamStatus.unreadMessages ?? 0),
+        },
+      } : {}),
     }));
   }, [appendAssistant, chatManager, provider, skillManager, usage]);
 
@@ -560,6 +591,11 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
       : formatTaskList(chatManager.listSubAgentTasks()));
   }, [appendAssistant, chatManager]);
 
+  const manageTeam = useCallback(async (args: string) => {
+    appendAssistant(await chatManager.manageTeam(args));
+    setStatusVersion(version => version + 1);
+  }, [appendAssistant, chatManager]);
+
   const commandUi = useMemo<CommandUIController>(() => ({
     showMessage: appendAssistant,
     sendUserMessage: sendAgentMessage,
@@ -575,6 +611,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     showOrSetPermission,
     showStatus,
     showSubAgentTasks,
+    manageTeam,
     rewindConversation,
     exit,
   }), [
@@ -591,6 +628,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     showOrSetPermission,
     showStatus,
     showSubAgentTasks,
+    manageTeam,
     usage,
   ]);
 
@@ -614,6 +652,18 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
         </Text>
         <Text color="grey"> · 权限 </Text>
         <Text color="yellow">{permissionMode}</Text>
+        {(() => {
+          const status = chatManager.getTeamStatus();
+          const team = status.team as { name?: string } | undefined;
+          const coordinator = status.coordinator as { active?: boolean } | undefined;
+          return status.active === true && team?.name ? (
+            <>
+              <Text color="grey"> · </Text>
+              <Text color="cyan" bold>{`[TEAM:${team.name}]`}</Text>
+              {coordinator?.active ? <Text color="yellow" bold> [COORDINATOR]</Text> : undefined}
+            </>
+          ) : undefined;
+        })()}
       </Box>
 
       <Box marginBottom={1}>
