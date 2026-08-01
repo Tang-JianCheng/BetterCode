@@ -98,3 +98,29 @@ test('Worktree Manager 保护未推送提交并在推送后允许删除', async 
   assert.equal(deleted.status, 'deleted');
   assert.equal(existsSync(lease.cwd), false);
 });
+
+test('Worktree Manager 只清理已被目标分支包含的干净成果', async t => {
+  const { root, manager } = await fixture(t);
+  const lease = await manager.acquire('team/alpha/alice');
+  writeFileSync(path.join(lease.cwd, 'integrated.txt'), '成果');
+  git(lease.cwd, 'add', 'integrated.txt');
+  git(lease.cwd, 'commit', '-m', '团队成果');
+  await manager.exit(lease.leaseId);
+  const retained = await manager.removeIntegrated(lease.name, 'HEAD');
+  assert.equal(retained.status, 'retained');
+  assert.match(retained.status === 'retained' ? retained.reasons.join(' ') : '', /尚未/);
+  git(root, 'merge', '--ff-only', lease.branch);
+  const deleted = await manager.removeIntegrated(lease.name, 'HEAD');
+  assert.equal(deleted.status, 'deleted');
+});
+
+test('Worktree Manager 已集成清理仍保护脏目录和活动租约', async t => {
+  const { root, manager } = await fixture(t);
+  const lease = await manager.acquire('team/alpha/bob');
+  await assert.rejects(() => manager.removeIntegrated(lease.name, 'HEAD'), /活动租约/);
+  await manager.exit(lease.leaseId);
+  writeFileSync(path.join(lease.cwd, 'dirty.txt'), '未提交');
+  const retained = await manager.removeIntegrated(lease.name, git(root, 'rev-parse', 'HEAD'));
+  assert.equal(retained.status, 'retained');
+  assert.match(retained.status === 'retained' ? retained.reasons.join(' ') : '', /未提交/);
+});

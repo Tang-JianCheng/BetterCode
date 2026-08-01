@@ -89,6 +89,29 @@ export class WorktreeManager {
     return this.serial(name, async () => this.removeLocked(name, options.force === true));
   }
 
+  async removeIntegrated(name: string, targetRef: string): Promise<WorktreeRemovalResult> {
+    return this.serial(name, async () => {
+      this.assertReady();
+      const metadata = this.metadata.read(name);
+      if (!metadata) return { status: 'missing', name };
+      if (this.activeLeaseCount(name) > 0) throw new WorktreeError('ACTIVE_LEASE', `Worktree 仍有活动租约: ${name}`);
+      try {
+        await this.git.assertRegistered(metadata);
+        const protection = await this.git.inspectProtection(metadata);
+        if (protection.dirty) return this.retain(metadata, ['存在未提交修改']);
+        const targetHead = await this.git.resolveRef(metadata.mainRoot, targetRef);
+        if (!await this.git.isHeadContained(metadata, targetHead)) {
+          return this.retain(metadata, [`Worktree HEAD 尚未被 ${targetRef} 包含`]);
+        }
+        const confirmedHead = await this.git.resolveRef(metadata.mainRoot, targetRef);
+        if (confirmedHead !== targetHead) return this.retain(metadata, [`目标引用 ${targetRef} 在检查期间发生变化`]);
+        return this.removeLocked(name, true);
+      } catch (error) {
+        return this.retain(metadata, [error instanceof Error ? error.message : String(error)]);
+      }
+    });
+  }
+
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

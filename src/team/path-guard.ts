@@ -102,6 +102,14 @@ export class TeamPathGuard {
     return this.assertPath(path.join(paths.runtimeDir, `${name}.${suffix}.json`));
   }
 
+  integrationFile(team: string, integrationId: string): string {
+    const paths = this.team(team);
+    if (!/^[a-f0-9-]{8,64}$/u.test(integrationId)) {
+      throw new TeamError('TEAM_INVALID_NAME', '集成 ID 格式无效');
+    }
+    return this.assertPath(path.join(paths.integrationsDir, `${integrationId}.json`));
+  }
+
   assertPath(target: string): string {
     const absolute = path.resolve(target);
     const root = this.realOrNearest(this.rootDir);

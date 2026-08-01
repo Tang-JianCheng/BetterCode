@@ -205,6 +205,19 @@ export class TeamTaskService {
     });
   }
 
+  markIntegrated(actor: LeadActor, taskId: string, integrationId: string): TeamTaskRecord {
+    this.assertLead(actor);
+    return this.updateCollection(actor.team, collection => {
+      const task = this.requireTask(collection, taskId);
+      if (task.state !== 'completed' || !task.commit || !task.branch) {
+        throw new TeamError('TEAM_STATE_ERROR', '只有带分支和提交的已完成任务可以标记为已集成');
+      }
+      const next = { ...task, integrationId, updatedAt: new Date().toISOString() };
+      collection.tasks[task.id] = next;
+      return next;
+    });
+  }
+
   get(team: string, taskId: string): TeamTaskRecord | undefined {
     return this.collection(team).tasks[taskId] ? structuredClone(this.collection(team).tasks[taskId]) : undefined;
   }

@@ -20,11 +20,13 @@ interface GitResult {
 export interface GitWorktreeClientContract {
   inspectRepository(rootDir: string): Promise<GitRepositoryIdentity>;
   resolveHead(rootDir: string): Promise<string>;
+  resolveRef(rootDir: string, ref: string): Promise<string>;
   create(input: { mainRoot: string; rootDir: string; branch: string; baseCommit: string }): Promise<string>;
   configureHooks(mainRoot: string, rootDir: string): Promise<void>;
   isIgnored(mainRoot: string, paths: readonly string[]): Promise<ReadonlySet<string>>;
   inspectProtection(metadata: WorktreeMetadata): Promise<GitProtectionStatus>;
   assertRegistered(metadata: WorktreeMetadata): Promise<void>;
+  isHeadContained(metadata: WorktreeMetadata, targetRef: string): Promise<boolean>;
   removeWorktree(metadata: WorktreeMetadata, force: boolean): Promise<void>;
   deleteBranch(metadata: WorktreeMetadata, force: boolean): Promise<void>;
 }
@@ -45,7 +47,12 @@ export class GitWorktreeClient implements GitWorktreeClientContract {
   }
 
   async resolveHead(rootDir: string): Promise<string> {
-    const value = (await this.run(rootDir, ['rev-parse', '--verify', 'HEAD'])).stdout.trim();
+    return this.resolveRef(rootDir, 'HEAD');
+  }
+
+  async resolveRef(rootDir: string, ref: string): Promise<string> {
+    if (!validRef(ref)) throw new WorktreeError('GIT_STATE_UNKNOWN', `Git 引用无效: ${ref}`);
+    const value = (await this.run(rootDir, ['rev-parse', '--verify', ref])).stdout.trim();
     if (!/^[0-9a-f]{40,64}$/u.test(value)) throw new WorktreeError('GIT_STATE_UNKNOWN', '无法解析当前 HEAD');
     return value;
   }
@@ -118,6 +125,14 @@ export class GitWorktreeClient implements GitWorktreeClientContract {
     }
   }
 
+  async isHeadContained(metadata: WorktreeMetadata, targetRef: string): Promise<boolean> {
+    if (!validRef(targetRef)) throw new WorktreeError('GIT_STATE_UNKNOWN', `Git 引用无效: ${targetRef}`);
+    const result = await this.tryRun(metadata.worktreeRoot, ['merge-base', '--is-ancestor', 'HEAD', targetRef]);
+    if (result.code === 0) return true;
+    if (result.code === 1) return false;
+    throw new WorktreeError('GIT_STATE_UNKNOWN', result.stderr.trim() || '无法判断 Worktree 是否已集成');
+  }
+
   async removeWorktree(metadata: WorktreeMetadata, force: boolean): Promise<void> {
     await this.run(metadata.mainRoot, ['worktree', 'remove', ...(force ? ['--force'] : []), metadata.worktreeRoot]);
   }
@@ -176,4 +191,9 @@ export class GitWorktreeClient implements GitWorktreeClientContract {
       child.stdin.end(stdin);
     });
   }
+}
+
+function validRef(ref: string): boolean {
+  return ref.length > 0 && ref.length <= 256 && !ref.startsWith('-') &&
+    !/[\s\0~^:?*[\\]/u.test(ref) && !ref.includes('..') && !ref.includes('@{');
 }
