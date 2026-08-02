@@ -1,12 +1,14 @@
 import type { AgentMode } from '../agent/types.js';
 import type { PermissionMode } from '../permission/types.js';
 import type { TokenUsage } from '../provider/types.js';
+import type { PresentationItem } from '../presentation/types.js';
 import type { CommandRegistry } from './registry.js';
 
 export type CommandType = 'local' | 'ui' | 'prompt';
 
 export interface CommandUIController {
   showMessage(content: string): void;
+  showPresentation(item: PresentationItem): void;
   sendUserMessage(content: string, displayText?: string): Promise<void>;
   runSkill(name: string, args: string, displayText: string): Promise<void>;
   setAgentMode(mode: AgentMode): void;

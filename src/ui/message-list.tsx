@@ -1,12 +1,10 @@
 import React from 'react';
-import { Box, Text } from 'ink';
+import { Box } from 'ink';
+import type { IdentifiedPresentation } from '../presentation/types.js';
+import type { TerminalCapabilities } from './capabilities.js';
+import { PresentationView } from './presentation-view.js';
 
-/** 展示用的消息条目 */
-export interface DisplayMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  thinking?: string;
-}
+export type DisplayMessage = IdentifiedPresentation;
 
 interface Props {
   messages: DisplayMessage[];
@@ -16,43 +14,35 @@ interface Props {
   currentThinking: string;
   /** 是否正在展示 thinking */
   isThinking: boolean;
+  capabilities: TerminalCapabilities;
 }
 
 /**
  * 消息列表组件——渲染对话历史和当前流式输出。
  */
-export function MessageList({ messages, currentStreaming, currentThinking, isThinking }: Props) {
+export function MessageList({
+  messages,
+  currentStreaming,
+  currentThinking,
+  isThinking,
+  capabilities,
+}: Props) {
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {/* 历史消息 */}
-      {messages.map((msg, i) => (
-        <Box key={i} flexDirection="column" marginBottom={1}>
-          {msg.thinking ? (
-            <Text color="grey" dimColor>
-              🤔 {msg.thinking}
-            </Text>
-          ) : undefined}
-          <Text color={msg.role === 'user' ? 'cyan' : undefined}>
-            {msg.role === 'user' ? '> ' : ''}
-            {msg.content}
-          </Text>
-        </Box>
+      {messages.map(message => (
+        <PresentationView key={message.id} item={message.item} capabilities={capabilities} />
       ))}
-
-      {/* 当前正在流式输出的 thinking */}
       {isThinking && currentThinking ? (
-        <Box marginBottom={1}>
-          <Text color="grey" dimColor>
-            🤔 {currentThinking}
-          </Text>
-        </Box>
+        <PresentationView
+          item={{ kind: 'conversation', role: 'assistant', content: '', thinking: currentThinking }}
+          capabilities={capabilities}
+        />
       ) : undefined}
-
-      {/* 当前正在流式输出的文本 */}
       {currentStreaming ? (
-        <Box marginBottom={1}>
-          <Text>{currentStreaming}</Text>
-        </Box>
+        <PresentationView
+          item={{ kind: 'conversation', role: 'assistant', content: currentStreaming }}
+          capabilities={capabilities}
+        />
       ) : undefined}
     </Box>
   );

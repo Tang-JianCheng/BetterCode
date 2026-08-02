@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { AgentEvent, AgentMode, AgentStopReason } from '../agent/types.js';
 import {
   createDefaultCommandRegistry,
@@ -8,6 +8,13 @@ import {
 import { CommandDispatcher } from '../command/dispatcher.js';
 import { createSkillCommandDefinitions } from '../command/skills.js';
 import type { CommandUIController } from '../command/types.js';
+import {
+  buildMemoryPresentation,
+  buildPermissionPresentation,
+  buildSessionPresentation,
+  buildStatusPresentation,
+  buildTextCommandPresentation,
+} from '../command/presenters.js';
 import type { ContextEvent } from '../context/types.js';
 import type {
   PermissionChoice,
@@ -27,13 +34,31 @@ import type { SkillManager } from '../skill/manager.js';
 import type { SkillDiagnostic } from '../skill/types.js';
 import type { AgentDefinitionDiagnostic, SubAgentEvent } from '../subagent/types.js';
 import { formatTaskDetail, formatTaskList } from '../subagent/format.js';
+import { createConversation, createNotice } from '../presentation/builders.js';
+import type { PresentationItem, PresentationTone } from '../presentation/types.js';
 import { InputBox } from './input-box.js';
 import { MessageList, type DisplayMessage } from './message-list.js';
 import { PermissionPrompt } from './permission-prompt.js';
 import { RewindDialog, type RewindAction } from './rewind-dialog.js';
+import { detectTerminalCapabilities, terminalEnvironmentFromProcess } from './capabilities.js';
+import { StartupBrand } from './mascot.js';
+import { StatusBar, type StatusBarState } from './status-bar.js';
+import {
+  ActivityIndicator,
+  type ActivityStage,
+  type ActivityState,
+} from './activity-indicator.js';
+import { BETTERCODE_THEME } from './theme.js';
 
 export const COMMAND_REGISTRY = createDefaultCommandRegistry();
 export const HELP_TEXT = formatCommandHelp(COMMAND_REGISTRY);
+
+let presentationSequence = 0;
+
+function identifyPresentation(item: PresentationItem): DisplayMessage {
+  presentationSequence += 1;
+  return { id: `presentation-${presentationSequence}`, item };
+}
 
 const PROGRESS_LABELS = {
   requesting_model: '正在请求模型',
@@ -213,27 +238,40 @@ export function formatSubAgentEvent(event: SubAgentEvent): string | undefined {
 
 export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagnostics = [] }: Props) {
   const { exit } = useApp();
+  const { stdout } = useStdout();
+  const capabilities = detectTerminalCapabilities({
+    ...terminalEnvironmentFromProcess(),
+    columns: Math.max(20, (stdout.columns ?? 80) - 2),
+  });
   const initialPermissionStatus = chatManager.getPermissionStatus();
   const [messages, setMessages] = useState<DisplayMessage[]>(() => {
     const initial: DisplayMessage[] = [];
     const windowNotice = formatContextWindowNotice(provider);
-    if (windowNotice) initial.push({ role: 'assistant', content: windowNotice });
+    if (windowNotice) initial.push(identifyPresentation(createNotice({
+      tone: 'info', title: '上下文窗口', message: windowNotice, source: 'system',
+    })));
     if (initialPermissionStatus.diagnostics.length > 0) {
-      initial.push({ role: 'assistant', content: formatPermissionStatus(initialPermissionStatus) });
+      initial.push(identifyPresentation(buildPermissionPresentation(initialPermissionStatus)));
     }
     const mcpMessage = mcpStatus ? formatMcpStartupStatus(mcpStatus) : undefined;
-    if (mcpMessage) initial.push({ role: 'assistant', content: mcpMessage });
+    if (mcpMessage) initial.push(identifyPresentation(createNotice({
+      tone: 'warning', title: 'MCP 启动诊断', message: mcpMessage, source: 'system',
+    })));
     const skillMessage = formatSkillStartupStatus(skillManager.getSnapshot().diagnostics);
-    if (skillMessage) initial.push({ role: 'assistant', content: skillMessage });
+    if (skillMessage) initial.push(identifyPresentation(createNotice({
+      tone: 'warning', title: 'Skill 启动诊断', message: skillMessage, source: 'system',
+    })));
     const agentMessage = formatAgentStartupStatus(agentDiagnostics);
-    if (agentMessage) initial.push({ role: 'assistant', content: agentMessage });
+    if (agentMessage) initial.push(identifyPresentation(createNotice({
+      tone: 'warning', title: '子 Agent 启动诊断', message: agentMessage, source: 'system',
+    })));
     return initial;
   });
   const [currentStreaming, setCurrentStreaming] = useState('');
   const [currentThinking, setCurrentThinking] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [progress, setProgress] = useState('');
+  const [activity, setActivity] = useState<ActivityState | undefined>();
   const [usage, setUsage] = useState<TokenUsage | undefined>();
   const [permissionMode, setPermissionMode] = useState(initialPermissionStatus.mode);
   const [agentMode, setAgentModeState] = useState<AgentMode>('act');
@@ -241,7 +279,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
   const [promptHistory, setPromptHistory] = useState(() => chatManager.getPromptHistory());
   const [rewindSnapshots, setRewindSnapshots] = useState(() => chatManager.getSnapshots());
   const [rewindDialogActive, setRewindDialogActive] = useState(false);
-  const [, setStatusVersion] = useState(0);
+  const [statusVersion, setStatusVersion] = useState(0);
   const [skillRevision, setSkillRevision] = useState(() => skillManager.getSnapshot().revision);
 
   const commandRegistry = useMemo(() => {
@@ -273,9 +311,21 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     }
   });
 
-  const appendAssistant = useCallback((content: string) => {
-    setMessages(previous => [...previous, { role: 'assistant', content }]);
+  const appendPresentation = useCallback((item: PresentationItem) => {
+    setMessages(previous => [...previous, identifyPresentation(item)]);
   }, []);
+
+  const appendAssistant = useCallback((content: string) => {
+    appendPresentation(createConversation({ role: 'assistant', content }));
+  }, [appendPresentation]);
+
+  const appendNotice = useCallback((
+    title: string,
+    message: string,
+    tone: PresentationTone = 'info',
+  ) => {
+    appendPresentation(createNotice({ tone, title, message, source: 'system' }));
+  }, [appendPresentation]);
 
   const setAgentMode = useCallback((mode: AgentMode) => {
     agentModeRef.current = mode;
@@ -283,27 +333,41 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
   }, []);
 
   useEffect(() => chatManager.subscribeMemorySaved(names => {
-    appendAssistant(`长期记忆已保存: ${names.join(', ')}`);
-  }), [appendAssistant, chatManager]);
+    appendNotice('长期记忆已保存', names.join(', '), 'success');
+  }), [appendNotice, chatManager]);
 
   useEffect(() => chatManager.subscribeSubAgent(event => {
     const message = formatSubAgentEvent(event);
-    if (message) appendAssistant(message);
+    if (message) appendNotice('子 Agent', message, event.type === 'task_finished' ? 'success' : 'info');
     setStatusVersion(version => version + 1);
-  }), [appendAssistant, chatManager]);
+  }), [appendNotice, chatManager]);
 
   useEffect(() => chatManager.subscribeTeam(event => {
-    appendAssistant(`[团队] ${event.summary}`);
+    appendNotice('团队动态', event.summary, 'info');
     setStatusVersion(version => version + 1);
-  }), [appendAssistant, chatManager]);
+  }), [appendNotice, chatManager]);
 
   useEffect(() => skillManager.subscribe(snapshot => {
     setSkillRevision(snapshot.revision);
   }), [skillManager]);
 
   const updateProgress = useCallback((event: Extract<AgentEvent, { type: 'progress' }>) => {
-    const tool = event.toolName ? `: ${event.toolName}` : '';
-    setProgress(`第 ${event.iteration}/${event.maxIterations} 轮 - ${PROGRESS_LABELS[event.stage]}${tool}`);
+    const stageByProgress: Record<typeof event.stage, ActivityStage> = {
+      requesting_model: 'requesting_model',
+      model_complete: 'thinking',
+      checking_permissions: 'checking_permissions',
+      waiting_permission: 'waiting_permission',
+      executing_tools: 'executing_tool',
+      tools_complete: 'executing_tool',
+    };
+    setActivity({
+      stage: stageByProgress[event.stage],
+      label: PROGRESS_LABELS[event.stage],
+      iteration: event.iteration,
+      maxIterations: event.maxIterations,
+      ...(event.toolName ? { toolName: event.toolName } : {}),
+      startedAt: Date.now(),
+    });
   }, []);
 
   const permissionDecider = useCallback<PermissionDecider>((request, signal) => (
@@ -338,7 +402,10 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
       if (action.mode !== 'code_only') {
         const restored = result.history.flatMap(message => {
           if (message.role !== 'user' && message.role !== 'assistant') return [];
-          return [{ role: message.role, content: message.content } satisfies DisplayMessage];
+          return [identifyPresentation(createConversation({
+            role: message.role,
+            content: message.content,
+          }))];
         });
         setMessages(restored);
       }
@@ -367,9 +434,11 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     setCurrentStreaming('');
     setCurrentThinking('');
     setIsThinking(false);
-    setProgress('准备运行 Agent');
+    setActivity({ stage: 'preparing', label: '准备运行 Agent', startedAt: Date.now() });
     setUsage(undefined);
-    setMessages(previous => [...previous, { role: 'user', content: displayText }]);
+    setMessages(previous => [...previous, identifyPresentation(createConversation({
+      role: 'user', content: displayText,
+    }))]);
 
     let terminal: Extract<AgentEvent, { type: 'stopped' }> | undefined;
     let lastError = '';
@@ -387,20 +456,37 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
             hasThinkingRef.current = true;
             setIsThinking(true);
             setCurrentThinking(previous => previous + event.content);
+            setActivity({
+              stage: 'thinking', label: '正在整理思路', iteration: event.iteration,
+              startedAt: Date.now(),
+            });
             break;
           case 'tool_call':
-            setProgress(`第 ${event.iteration} 轮 - 模型调用工具: ${event.call.name}`);
+            setActivity({
+              stage: 'executing_tool', label: '准备调用工具', iteration: event.iteration,
+              toolName: event.call.name, startedAt: Date.now(),
+            });
             break;
           case 'tool_result':
-            setProgress(`第 ${event.iteration} 轮 - 工具返回: ${event.call.name}`);
+            setActivity({
+              stage: 'executing_tool', label: '工具已返回', iteration: event.iteration,
+              toolName: event.call.name, startedAt: Date.now(),
+            });
             break;
           case 'permission_request':
-            setProgress(`第 ${event.iteration} 轮 - 等待权限确认: ${event.request.toolName}`);
+            setActivity({
+              stage: 'waiting_permission', label: '等待权限确认', iteration: event.iteration,
+              toolName: event.request.toolName, startedAt: Date.now(),
+            });
             break;
           case 'permission_decision':
-            setProgress(
-              `第 ${event.iteration} 轮 - 权限${event.allowed ? '允许' : '拒绝'}: ${event.toolName}`,
-            );
+            setActivity({
+              stage: 'checking_permissions',
+              label: event.allowed ? '权限已允许' : '权限已拒绝',
+              iteration: event.iteration,
+              toolName: event.toolName,
+              startedAt: Date.now(),
+            });
             break;
           case 'usage':
             setUsage(event.cumulative);
@@ -408,7 +494,12 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
           case 'context_progress':
           case 'context_offloaded':
           case 'context_compacted':
-            setProgress(formatContextEvent(event));
+            setActivity({
+              stage: 'compacting_context',
+              label: formatContextEvent(event),
+              iteration: event.iteration,
+              startedAt: Date.now(),
+            });
             break;
           case 'context_failed':
             lastError = formatContextEvent(event);
@@ -431,15 +522,20 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
       const finalThinking = thinkingRef.current;
       const completedMessages: DisplayMessage[] = [];
       if (finalText) {
-        completedMessages.push({
+        completedMessages.push(identifyPresentation(createConversation({
           role: 'assistant',
           content: finalText,
           ...(finalThinking ? { thinking: finalThinking } : {}),
-        });
+        })));
       }
       const stopMessage = terminal ? STOP_MESSAGES[terminal.reason] : undefined;
       const errorMessage = lastError || stopMessage;
-      if (errorMessage) completedMessages.push({ role: 'assistant', content: errorMessage });
+      if (errorMessage) completedMessages.push(identifyPresentation(createNotice({
+        tone: lastError ? 'danger' : 'warning',
+        title: lastError ? 'Agent 执行失败' : 'Agent 已停止',
+        message: errorMessage,
+        source: 'agent',
+      })));
       if (completedMessages.length > 0) {
         setMessages(previous => [...previous, ...completedMessages]);
       }
@@ -454,7 +550,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
       setCurrentThinking('');
       setIsThinking(false);
       setIsStreaming(false);
-      setProgress('');
+      setActivity(undefined);
     }
   }, [updateProgress]);
 
@@ -484,6 +580,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     await chatManager.clear();
     setMessages([]);
     setUsage(undefined);
+    setActivity(undefined);
     setRewindSnapshots([]);
     setAgentMode('act');
   }, [chatManager, setAgentMode]);
@@ -492,63 +589,80 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     const controller = new AbortController();
     abortRef.current = controller;
     setIsStreaming(true);
-    setProgress('准备压缩上下文');
+    setActivity({ stage: 'compacting_context', label: '准备压缩上下文', startedAt: Date.now() });
     try {
       for await (const event of chatManager.compact(provider, controller.signal)) {
         if (event.type === 'context_progress' || event.type === 'context_offloaded') {
-          setProgress(formatContextEvent(event));
+          setActivity({
+            stage: 'compacting_context',
+            label: formatContextEvent(event),
+            iteration: event.iteration,
+            startedAt: Date.now(),
+          });
         } else if (event.type === 'context_compacted' || event.type === 'context_failed') {
-          appendAssistant(formatContextEvent(event));
+          appendNotice(
+            event.type === 'context_compacted' ? '上下文已压缩' : '上下文管理失败',
+            formatContextEvent(event),
+            event.type === 'context_compacted' ? 'success' : 'danger',
+          );
         } else if (event.type === 'error') {
-          appendAssistant(event.message);
+          appendNotice('上下文管理失败', event.message, 'danger');
         }
       }
     } finally {
       abortRef.current = undefined;
       setIsStreaming(false);
-      setProgress('');
+      setActivity(undefined);
     }
-  }, [appendAssistant, chatManager, provider]);
+  }, [appendNotice, chatManager, provider]);
 
   const showOrResumeSession = useCallback(async (sessionId?: string) => {
     if (!sessionId) {
-      appendAssistant([
-        `当前会话: ${chatManager.getSessionId()}`,
-        formatSessionList(chatManager.listSessions()),
-      ].join('\n\n'));
+      appendPresentation(buildSessionPresentation(
+        chatManager.getSessionId(),
+        chatManager.listSessions(),
+      ));
       return;
     }
     const restored = await chatManager.resumeSession(sessionId);
     const visible = restored.filter((message): message is Extract<typeof message, { role: 'user' | 'assistant' }> =>
       message.role === 'user' || message.role === 'assistant');
     setMessages([
-      ...visible.map(message => ({ ...message })),
-      { role: 'assistant', content: `已恢复会话 ${sessionId}（${restored.length} 条消息）。` },
+      ...visible.map(message => identifyPresentation(createConversation({
+        role: message.role,
+        content: message.content,
+      }))),
+      identifyPresentation(createNotice({
+        tone: 'success',
+        title: '会话已恢复',
+        message: `${sessionId}（${restored.length} 条消息）`,
+        source: 'command',
+      })),
     ]);
     setUsage(undefined);
     setRewindSnapshots(chatManager.getSnapshots());
-  }, [appendAssistant, chatManager]);
+  }, [appendPresentation, chatManager]);
 
   const showMemoryStatus = useCallback(() => {
-    appendAssistant(formatMemoryStatus(chatManager.getMemoryStatus()));
-  }, [appendAssistant, chatManager]);
+    appendPresentation(buildMemoryPresentation(chatManager.getMemoryStatus()));
+  }, [appendPresentation, chatManager]);
 
   const showOrSetPermission = useCallback((mode?: PermissionMode) => {
     if (!mode) {
-      appendAssistant(formatPermissionStatus(chatManager.getPermissionStatus()));
+      appendPresentation(buildPermissionPresentation(chatManager.getPermissionStatus()));
       return;
     }
     chatManager.setPermissionMode(mode);
     setPermissionMode(mode);
-    appendAssistant(`权限模式已切换为: ${mode}`);
-  }, [appendAssistant, chatManager]);
+    appendNotice('权限模式已切换', mode, 'success');
+  }, [appendNotice, appendPresentation, chatManager]);
 
   const showStatus = useCallback(() => {
     const tasks = chatManager.listSubAgentTasks();
     const teamStatus = chatManager.getTeamStatus();
     const teamRecord = teamStatus.team as { name?: string } | undefined;
     const coordinator = teamStatus.coordinator as { active?: boolean } | undefined;
-    appendAssistant(formatStatus({
+    appendPresentation(buildStatusPresentation({
       provider,
       agentMode: agentModeRef.current,
       permissionMode: chatManager.getPermissionStatus().mode,
@@ -573,31 +687,38 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
         },
       } : {}),
     }));
-  }, [appendAssistant, chatManager, provider, skillManager, usage]);
+  }, [appendPresentation, chatManager, provider, skillManager, usage]);
 
   const rewindConversation = useCallback(() => {
     const snapshots = chatManager.getSnapshots();
     if (snapshots.length === 0) {
-      appendAssistant('当前会话没有可回滚的检查点。');
+      appendNotice('无法回滚', '当前会话没有可回滚的检查点。', 'warning');
       return;
     }
     setRewindSnapshots(snapshots);
     setRewindDialogActive(true);
-  }, [appendAssistant, chatManager]);
+  }, [appendNotice, chatManager]);
 
   const showSubAgentTasks = useCallback((taskId?: string) => {
-    appendAssistant(taskId
-      ? formatTaskDetail(chatManager.getSubAgentTask(taskId), taskId)
-      : formatTaskList(chatManager.listSubAgentTasks()));
-  }, [appendAssistant, chatManager]);
+    appendPresentation(buildTextCommandPresentation(
+      taskId ? `子 Agent 任务 ${taskId}` : '子 Agent 任务',
+      taskId
+        ? formatTaskDetail(chatManager.getSubAgentTask(taskId), taskId)
+        : formatTaskList(chatManager.listSubAgentTasks()),
+      'TASKS',
+    ));
+  }, [appendPresentation, chatManager]);
 
   const manageTeam = useCallback(async (args: string) => {
-    appendAssistant(await chatManager.manageTeam(args));
+    appendPresentation(buildTextCommandPresentation(
+      '团队管理', await chatManager.manageTeam(args), 'TEAM',
+    ));
     setStatusVersion(version => version + 1);
-  }, [appendAssistant, chatManager]);
+  }, [appendPresentation, chatManager]);
 
   const commandUi = useMemo<CommandUIController>(() => ({
     showMessage: appendAssistant,
+    showPresentation: appendPresentation,
     sendUserMessage: sendAgentMessage,
     runSkill,
     setAgentMode,
@@ -616,6 +737,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     exit,
   }), [
     appendAssistant,
+    appendPresentation,
     clearConversation,
     compactConversation,
     exit,
@@ -639,42 +761,42 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     if (result.status === 'not_command') await sendAgentMessage(input);
   }, [chatManager, commandDispatcher, commandUi, sendAgentMessage]);
 
-  return (
-    <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
-        <Text color="magenta" bold>BetterCode</Text>
-        <Text color="grey"> - </Text>
-        <Text color="yellow">{provider.name}</Text>
-        <Text color="grey"> ({provider.model})</Text>
-        <Text color="grey"> · 模式 </Text>
-        <Text color={agentMode === 'plan' ? 'cyan' : 'green'} bold>
-          {formatAgentMode(agentMode)}
-        </Text>
-        <Text color="grey"> · 权限 </Text>
-        <Text color="yellow">{permissionMode}</Text>
-        {(() => {
-          const status = chatManager.getTeamStatus();
-          const team = status.team as { name?: string } | undefined;
-          const coordinator = status.coordinator as { active?: boolean } | undefined;
-          return status.active === true && team?.name ? (
-            <>
-              <Text color="grey"> · </Text>
-              <Text color="cyan" bold>{`[TEAM:${team.name}]`}</Text>
-              {coordinator?.active ? <Text color="yellow" bold> [COORDINATOR]</Text> : undefined}
-            </>
-          ) : undefined;
-        })()}
-      </Box>
+  void statusVersion;
+  const statusTasks = chatManager.listSubAgentTasks();
+  const currentTeamStatus = chatManager.getTeamStatus();
+  const currentTeam = currentTeamStatus.team as { name?: string } | undefined;
+  const currentCoordinator = currentTeamStatus.coordinator as { active?: boolean } | undefined;
+  const statusBarState: StatusBarState = {
+    providerName: provider.name,
+    model: provider.model,
+    agentMode,
+    permissionMode,
+    usage,
+    contextWindow: provider.contextWindow,
+    sessionId: chatManager.getSessionId(),
+    activeSkills: skillManager.getActiveNames(),
+    backgroundTasks: statusTasks.filter(task => task.executionMode === 'background' &&
+      (task.state === 'waiting' || task.state === 'running')).length,
+    ...(currentTeamStatus.active === true && currentTeam?.name ? {
+      team: {
+        name: currentTeam.name,
+        coordinator: currentCoordinator?.active === true,
+        pendingApprovals: Number(currentTeamStatus.pendingApprovals ?? 0),
+        unreadMessages: Number(currentTeamStatus.unreadMessages ?? 0),
+      },
+    } : {}),
+  };
 
-      <Box marginBottom={1}>
-        <Text color="grey">{'-'.repeat(process.stdout.columns || 80)}</Text>
-      </Box>
+  return (
+    <Box flexDirection="column" paddingX={1} paddingTop={1}>
+      <StartupBrand capabilities={capabilities} version="0.1.0" />
 
       <MessageList
         messages={messages}
         currentStreaming={currentStreaming}
         currentThinking={currentThinking}
         isThinking={isThinking}
+        capabilities={capabilities}
       />
 
       {rewindDialogActive ? (
@@ -682,6 +804,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
           snapshots={rewindSnapshots}
           onSelect={handleRewind}
           onCancel={() => setRewindDialogActive(false)}
+          capabilities={capabilities}
         />
       ) : isStreaming ? (
         <Box flexDirection="column">
@@ -690,12 +813,17 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
               key={permissionRequest.id}
               request={permissionRequest}
               onSelect={submitPermission}
+              capabilities={capabilities}
             />
           ) : undefined}
-          <Text color="grey">{progress || 'Agent 正在运行'}</Text>
-          <Text color="grey">Ctrl+C 取消当前任务</Text>
+          {activity ? (
+            <ActivityIndicator activity={activity} capabilities={capabilities} />
+          ) : <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>Agent 正在运行</Text>}
+          <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>Ctrl+C 取消当前任务</Text>
           {chatManager.hasForegroundSubAgent() ? (
-            <Text color="grey">Ctrl+B 将当前子 Agent 转到后台</Text>
+            <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
+              Ctrl+B 将当前子 Agent 转到后台
+            </Text>
           ) : undefined}
         </Box>
       ) : (
@@ -704,16 +832,11 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
           disabled={false}
           history={promptHistory}
           complete={input => commandRegistry.complete(input)}
+          capabilities={capabilities}
+          focused={!rewindDialogActive && !permissionRequest}
         />
       )}
-
-      {usage ? (
-        <Text color="grey">
-          Token: 输入 {usage.inputTokens} / 输出 {usage.outputTokens} / 缓存创建{' '}
-          {usage.cacheCreationInputTokens} / 缓存命中 {usage.cacheReadInputTokens} / 总计{' '}
-          {usage.totalTokens}
-        </Text>
-      ) : undefined}
+      <StatusBar state={statusBarState} capabilities={capabilities} />
     </Box>
   );
 }

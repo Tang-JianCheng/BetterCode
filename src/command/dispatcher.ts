@@ -1,5 +1,6 @@
 import { parseCommandInput } from './parser.js';
 import { CommandRegistry } from './registry.js';
+import { buildCommandErrorPresentation } from './presenters.js';
 import type {
   CommandUIController,
   DispatchResult,
@@ -14,7 +15,10 @@ export class CommandDispatcher {
     const definition = this.registry.get(parsed.command.name);
     if (!definition) {
       const shown = parsed.command.name ? `/${parsed.command.name}` : '/';
-      ui.showMessage(`未知命令: ${shown}。使用 /help 查看可用命令。`);
+      ui.showPresentation(buildCommandErrorPresentation(
+        shown,
+        `未知命令: ${shown}。使用 /help 查看可用命令。`,
+      ));
       return { status: 'unknown', command: parsed.command.name };
     }
     try {
@@ -25,9 +29,10 @@ export class CommandDispatcher {
         ui,
       });
     } catch (error) {
-      ui.showMessage(
-        `命令 /${definition.name} 执行失败: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      ui.showPresentation(buildCommandErrorPresentation(
+        `/${definition.name}`,
+        `执行失败: ${error instanceof Error ? error.message : String(error)}`,
+      ));
     }
     return { status: 'handled', command: definition.name };
   }

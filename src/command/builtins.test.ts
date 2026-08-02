@@ -15,6 +15,7 @@ function controller(events: string[]): CommandUIController {
   let mode: AgentMode = 'act';
   return {
     showMessage: content => events.push(`message:${content}`),
+    showPresentation: item => events.push(`presentation:${item.kind}:${'title' in item ? item.title : item.role}`),
     async sendUserMessage(content, displayText) { events.push(`send:${displayText}:${content}`); },
     async runSkill(name, args, displayText) { events.push(`skill:${name}:${args}:${displayText}`); },
     setAgentMode(value) { mode = value; events.push(`mode:${value}`); },

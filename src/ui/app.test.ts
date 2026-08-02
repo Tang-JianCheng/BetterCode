@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import React from 'react';
+import { render } from 'ink-testing-library';
+import type { ChatManager } from '../chat/manager.js';
+import type { LLMProvider } from '../provider/types.js';
+import type { SkillManager } from '../skill/manager.js';
 import {
+  App,
   formatContextEvent,
   formatContextWindowNotice,
   formatAgentMode,
@@ -13,6 +19,65 @@ import {
   formatStatus,
   HELP_TEXT,
 } from './app.js';
+
+function createAppDependencies() {
+  let clearCount = 0;
+  let promptHistory: string[] = [];
+  const unsubscribe = () => undefined;
+  const chatManager = {
+    getPermissionStatus: () => ({
+      mode: 'default',
+      ruleCounts: { user: 0, project: 0, local: 0, session: 0 },
+      diagnostics: [],
+    }),
+    getPromptHistory: () => [...promptHistory],
+    getSnapshots: () => [],
+    subscribeMemorySaved: () => unsubscribe,
+    subscribeSubAgent: () => unsubscribe,
+    subscribeTeam: () => unsubscribe,
+    listSubAgentTasks: () => [],
+    getTeamStatus: () => ({ active: false }),
+    getSessionId: () => 'session-12345678',
+    getMemoryStatus: () => ({
+      userDirectory: '/home/.bettercode/memory',
+      projectDirectory: '/repo/.bettercode/memory',
+      userCount: 0,
+      projectCount: 0,
+    }),
+    recordPrompt: (input: string) => {
+      promptHistory = [...promptHistory, input];
+    },
+    clear: async () => {
+      clearCount += 1;
+      promptHistory = [];
+    },
+    hasForegroundSubAgent: () => false,
+  } as unknown as ChatManager;
+  const skillManager = {
+    getSnapshot: () => ({
+      revision: 0,
+      skills: new Map(),
+      disabledNames: new Set(),
+      diagnostics: [],
+      dedicatedToolNames: new Set(),
+    }),
+    list: () => [],
+    subscribe: () => unsubscribe,
+    getActiveNames: () => [],
+  } as unknown as SkillManager;
+  const provider: LLMProvider = {
+    name: 'deepseek',
+    model: 'deepseek-chat',
+    contextWindow: 128_000,
+    contextWindowIsDefault: false,
+    async chat() {},
+  };
+  return { chatManager, skillManager, provider, getClearCount: () => clearCount };
+}
+
+async function flushAppInput(): Promise<void> {
+  await new Promise(resolve => setImmediate(resolve));
+}
 
 test('MCP 启动状态成功或未配置时不增加聊天消息', () => {
   assert.equal(formatMcpStartupStatus({
@@ -172,4 +237,35 @@ test('MCP 启动状态只展示脱敏诊断字段和准确安全边界', () => {
   assert.match(message ?? '', /已连接 1\/2 个 Server，注册 3 个工具/);
   assert.match(message ?? '', /broken: 连接失败: \[REDACTED\]/);
   assert.match(message ?? '', /外部 MCP Server 不受 BetterCode 文件沙箱或危险命令黑名单强制保护/);
+});
+
+test('主布局保持单一品牌和核心底栏，命令使用结构化展示', async () => {
+  const dependencies = createAppDependencies();
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+
+  const startupFrame = view.lastFrame() ?? '';
+  assert.equal(startupFrame.match(/BetterCode v0\.1\.0/gu)?.length, 1);
+  assert.match(startupFrame, /M deepseek\/deepseek-chat/u);
+  assert.match(startupFrame, /MD DEFAULT/u);
+  assert.match(startupFrame, /PM DEFAULT/u);
+
+  view.stdin.write('/help');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /\[HELP\] 命令目录/u);
+
+  view.stdin.write('/clear');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  const clearedFrame = view.lastFrame() ?? '';
+  assert.equal(dependencies.getClearCount(), 1);
+  assert.doesNotMatch(clearedFrame, /\[HELP\] 命令目录/u);
+  assert.equal(clearedFrame.match(/BetterCode v0\.1\.0/gu)?.length, 1);
+  assert.match(clearedFrame, /M deepseek\/deepseek-chat/u);
+  assert.match(clearedFrame, /MD DEFAULT/u);
+  assert.match(clearedFrame, /PM DEFAULT/u);
+  view.unmount();
 });

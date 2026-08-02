@@ -1,32 +1,27 @@
 import type { PermissionMode } from '../permission/types.js';
 import { CommandRegistry } from './registry.js';
 import type { CommandDefinition, CommandInvocation } from './types.js';
+import {
+  buildCommandErrorPresentation,
+  buildCommandNotice,
+  buildHelpPresentation,
+  presentationToPlainText,
+} from './presenters.js';
 
 const PERMISSION_MODES = new Set<PermissionMode>(['strict', 'default', 'allow']);
 
 function noArguments(invocation: CommandInvocation): boolean {
   if (!invocation.args) return true;
-  invocation.ui.showMessage(`用法: ${invocation.definition.usage}`);
+  invocation.ui.showPresentation(buildCommandErrorPresentation(
+    `/${invocation.definition.name}`,
+    `用法: ${invocation.definition.usage}`,
+  ));
   return false;
 }
 
 export function formatCommandHelp(registry: CommandRegistry, name = ''): string {
-  if (name.trim()) {
-    const definition = registry.get(name.replace(/^\//u, ''));
-    if (!definition || definition.hidden) return `未找到命令: ${name}。使用 /help 查看可用命令。`;
-    const aliases = definition.aliases.length > 0
-      ? `\n别名: ${definition.aliases.map(alias => `/${alias}`).join(', ')}`
-      : '';
-    return `${definition.usage}\n${definition.description}${aliases}`;
-  }
-  const definitions = registry.list();
-  if (definitions.length === 0) return '没有可用命令。';
-  const width = Math.max(...definitions.map(definition => definition.usage.length));
-  return [
-    '可用命令:',
-    ...definitions.map(definition =>
-      `  ${definition.usage.padEnd(width)}  ${definition.description}`),
-  ].join('\n');
+  if (!name.trim() && registry.list().length === 0) return '没有可用命令。';
+  return presentationToPlainText(buildHelpPresentation(registry, name));
 }
 
 function definitions(): CommandDefinition[] {
@@ -34,7 +29,7 @@ function definitions(): CommandDefinition[] {
     {
       name: 'help', aliases: ['h', '?'], description: '显示命令帮助', usage: '/help [命令]',
       argumentHint: '[命令]', type: 'local',
-      handler: ({ args, registry, ui }) => ui.showMessage(formatCommandHelp(registry, args)),
+      handler: ({ args, registry, ui }) => ui.showPresentation(buildHelpPresentation(registry, args)),
     },
     {
       name: 'compact', aliases: [], description: '手动压缩较早对话上下文', usage: '/compact',
@@ -55,7 +50,9 @@ function definitions(): CommandDefinition[] {
       type: 'ui', handler: invocation => {
         if (!noArguments(invocation)) return;
         invocation.ui.setAgentMode('plan');
-        invocation.ui.showMessage('已进入计划模式，后续任务只使用读取与搜索工具。');
+        invocation.ui.showPresentation(buildCommandNotice(
+          '计划模式', '后续任务只使用读取与搜索工具。', 'info',
+        ));
         invocation.ui.refreshStatus();
       },
     },
@@ -64,7 +61,9 @@ function definitions(): CommandDefinition[] {
       type: 'ui', handler: invocation => {
         if (!noArguments(invocation)) return;
         invocation.ui.setAgentMode('act');
-        invocation.ui.showMessage('已返回默认执行模式。');
+        invocation.ui.showPresentation(buildCommandNotice(
+          '默认模式', '已恢复完整工具集。', 'success',
+        ));
         invocation.ui.refreshStatus();
       },
     },
@@ -90,7 +89,9 @@ function definitions(): CommandDefinition[] {
         } else if (PERMISSION_MODES.has(mode as PermissionMode)) {
           invocation.ui.showOrSetPermission(mode as PermissionMode);
         } else {
-          invocation.ui.showMessage(`用法: ${invocation.definition.usage}`);
+          invocation.ui.showPresentation(buildCommandErrorPresentation(
+            '/permission', `用法: ${invocation.definition.usage}`,
+          ));
         }
       },
     },

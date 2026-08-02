@@ -7,6 +7,9 @@ import type { CommandUIController } from './types.js';
 function fakeUi(messages: string[]): CommandUIController {
   return {
     showMessage: content => messages.push(content),
+    showPresentation: item => messages.push(item.kind === 'notice'
+      ? `${item.title}\n${item.message ?? ''}`
+      : item.kind === 'document' ? item.title : item.content),
     async sendUserMessage() {},
     async runSkill() {},
     setAgentMode() {},

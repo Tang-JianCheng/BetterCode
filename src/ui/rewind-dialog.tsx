@@ -1,7 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { useInput } from 'ink';
 import type { Snapshot } from '../filehistory/filehistory.js';
 import type { RewindMode } from '../chat/manager.js';
+import type { TerminalCapabilities } from './capabilities.js';
+import { detectTerminalCapabilities } from './capabilities.js';
+import { InteractionPanel } from './interaction-panel.js';
 
 export interface RewindAction {
   snapshotIndex: number;
@@ -12,6 +15,7 @@ interface Props {
   snapshots: readonly Snapshot[];
   onSelect: (action: RewindAction) => void;
   onCancel: () => void;
+  capabilities?: TerminalCapabilities;
 }
 
 const ACTIONS: Array<{ mode: RewindMode; label: string }> = [
@@ -20,7 +24,12 @@ const ACTIONS: Array<{ mode: RewindMode; label: string }> = [
   { mode: 'code_only', label: '仅恢复代码' },
 ];
 
-export function RewindDialog({ snapshots, onSelect, onCancel }: Props) {
+export function RewindDialog({
+  snapshots,
+  onSelect,
+  onCancel,
+  capabilities = detectTerminalCapabilities(),
+}: Props) {
   const [phase, setPhase] = useState<'snapshot' | 'action'>('snapshot');
   const [snapshotIndex, setSnapshotIndex] = useState(Math.max(0, snapshots.length - 1));
   const [actionIndex, setActionIndex] = useState(0);
@@ -62,23 +71,26 @@ export function RewindDialog({ snapshots, onSelect, onCancel }: Props) {
   });
 
   return (
-    <Box flexDirection="column">
-      <Text bold>{phase === 'snapshot' ? '选择回滚检查点' : '选择恢复范围'}</Text>
-      {phase === 'snapshot' ? visible.map(({ snapshot, index }) => (
-        <Text key={`${snapshot.timestamp}-${index}`} color={index === snapshotIndex ? 'cyan' : undefined}>
-          {index === snapshotIndex ? '> ' : '  '}
-          {new Date(snapshot.timestamp).toLocaleString()} - {snapshot.userText}
-        </Text>
-      )) : (
-        <>
-          {[...ACTIONS.map(action => action.label), '取消'].map((label, index) => (
-            <Text key={label} color={index === actionIndex ? 'cyan' : undefined}>
-              {index === actionIndex ? '> ' : '  '}{label}
-            </Text>
-          ))}
-        </>
-      )}
-      <Text color="grey">上下键选择，Enter 确认，Esc 返回</Text>
-    </Box>
+    <InteractionPanel
+      title={phase === 'snapshot' ? '选择回滚检查点' : '选择恢复范围'}
+      tone="warning"
+      capabilities={capabilities}
+      selectedIndex={phase === 'snapshot'
+        ? Math.max(0, visible.findIndex(item => item.index === snapshotIndex))
+        : actionIndex}
+      details={phase === 'action' ? [
+        `检查点: ${new Date(snapshots[snapshotIndex].timestamp).toLocaleString()}`,
+        snapshots[snapshotIndex].userText,
+      ] : []}
+      options={phase === 'snapshot'
+        ? visible.map(({ snapshot, index }) => ({
+          value: String(index),
+          label: `${new Date(snapshot.timestamp).toLocaleString()} · ${snapshot.userText}`,
+        }))
+        : [...ACTIONS.map(action => ({ value: action.mode, label: action.label })), {
+          value: 'cancel', label: '取消',
+        }]}
+      footer="上下键选择 · Enter 确认 · Esc 返回"
+    />
   );
 }
