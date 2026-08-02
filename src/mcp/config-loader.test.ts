@@ -25,6 +25,12 @@ function writeConfig(base: string, content: string): string {
   return file;
 }
 
+function writeCompatibilityConfig(root: string, config: unknown): string {
+  const file = path.join(root, '.mcp.json');
+  writeFileSync(file, JSON.stringify(config), 'utf8');
+  return file;
+}
+
 test('MCP config merges layers and fully overrides servers by name', t => {
   const { root, home } = makeFixture(t);
   writeConfig(home, `servers:
@@ -56,6 +62,100 @@ test('MCP config merges layers and fully overrides servers by name', t => {
     assert.deepEqual(shared.args, []);
   }
   assert.deepEqual(loaded.diagnostics, []);
+});
+
+test('MCP config bridges project .mcp.json stdio and HTTP servers', t => {
+  const { root, home } = makeFixture(t);
+  writeCompatibilityConfig(root, {
+    mcpServers: {
+      local: {
+        command: 'node',
+        args: ['server.js'],
+        env: { TOKEN: '${TOKEN}' },
+      },
+      remote: {
+        type: 'http',
+        url: 'https://example.test/mcp',
+        headers: { Authorization: 'Bearer ${TOKEN}' },
+      },
+    },
+  });
+
+  const loaded = new McpConfigLoader(root, {
+    userHome: home,
+    env: { TOKEN: 'demo' },
+  }).load();
+
+  assert.deepEqual(loaded.servers.map(server => server.name), ['local', 'remote']);
+  const local = loaded.servers.find(server => server.name === 'local');
+  assert.equal(local?.transport, 'stdio');
+  if (local?.transport === 'stdio') {
+    assert.deepEqual(local.args, ['server.js']);
+    assert.equal(local.env.TOKEN, 'demo');
+  }
+  const remote = loaded.servers.find(server => server.name === 'remote');
+  assert.equal(remote?.transport, 'http');
+  if (remote?.transport === 'http') {
+    assert.equal(remote.url, 'https://example.test/mcp');
+    assert.equal(remote.headers.Authorization, 'Bearer demo');
+  }
+  assert.deepEqual(loaded.diagnostics, []);
+});
+
+test('native project YAML overrides compatibility JSON and user config', t => {
+  const { root, home } = makeFixture(t);
+  writeConfig(home, `servers:
+  shared:
+    transport: stdio
+    command: user-command
+`);
+  writeCompatibilityConfig(root, {
+    mcpServers: {
+      shared: { command: 'compat-command' },
+      compatOnly: { command: 'compat-only' },
+    },
+  });
+  writeConfig(root, `servers:
+  shared:
+    transport: stdio
+    command: native-command
+`);
+
+  const loaded = new McpConfigLoader(root, { userHome: home }).load();
+
+  assert.deepEqual(loaded.servers.map(server => server.name), ['compatOnly', 'shared']);
+  const shared = loaded.servers.find(server => server.name === 'shared');
+  assert.equal(shared?.transport, 'stdio');
+  if (shared?.transport === 'stdio') assert.equal(shared.command, 'native-command');
+  assert.deepEqual(loaded.diagnostics, []);
+});
+
+test('compatibility JSON isolates malformed files and invalid sibling servers', t => {
+  const { root, home } = makeFixture(t);
+  writeConfig(home, `servers:
+  user:
+    transport: stdio
+    command: user-command
+`);
+  writeFileSync(path.join(root, '.mcp.json'), '{broken', 'utf8');
+
+  const malformed = new McpConfigLoader(root, { userHome: home }).load();
+  assert.deepEqual(malformed.servers.map(server => server.name), ['user']);
+  assert.equal(malformed.diagnostics.length, 1);
+  assert.equal(malformed.diagnostics[0].message, 'JSON 解析失败');
+
+  writeCompatibilityConfig(root, {
+    mcpServers: {
+      valid: { transport: 'stdio', command: 'node' },
+      missing: { type: 'http', url: 'https://example.test', headers: { Token: '${MISSING}' } },
+      invalid: { type: 'sse', url: 'https://example.test' },
+    },
+  });
+  const isolated = new McpConfigLoader(root, { userHome: home }).load();
+  assert.deepEqual(isolated.servers.map(server => server.name), ['user', 'valid']);
+  assert.equal(isolated.diagnostics.length, 2);
+  assert.equal(isolated.diagnostics.some(item => item.code === 'ENV_MISSING'), true);
+  assert.equal(isolated.diagnostics.some(item => item.serverName === 'invalid'), true);
 });
 
 test('invalid project override disables server without restoring user definition', t => {
@@ -152,5 +252,24 @@ test('MCP project config rejects symlink escape and keeps user layer', t => {
   const loaded = new McpConfigLoader(root, { userHome: home }).load();
   assert.deepEqual(loaded.servers.map(server => server.name), ['user']);
   assert.equal(loaded.diagnostics.some(item => item.layer === 'project'), true);
+  assert.equal(JSON.stringify(loaded.diagnostics).includes('outside-secret'), false);
+});
+
+test('MCP compatibility config rejects symlink escape and keeps user layer', t => {
+  const { root, home, outside } = makeFixture(t);
+  writeConfig(home, `servers:
+  user:
+    transport: stdio
+    command: node
+`);
+  const outsideFile = path.join(outside, '.mcp.json');
+  writeFileSync(outsideFile, JSON.stringify({
+    mcpServers: { escaped: { command: 'outside-secret' } },
+  }), 'utf8');
+  symlinkSync(outsideFile, path.join(root, '.mcp.json'));
+
+  const loaded = new McpConfigLoader(root, { userHome: home }).load();
+  assert.deepEqual(loaded.servers.map(server => server.name), ['user']);
+  assert.equal(loaded.diagnostics.some(item => item.file?.endsWith('.mcp.json')), true);
   assert.equal(JSON.stringify(loaded.diagnostics).includes('outside-secret'), false);
 });

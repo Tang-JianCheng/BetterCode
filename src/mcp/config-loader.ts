@@ -82,35 +82,32 @@ export class McpConfigLoader {
 
   load(): LoadedMcpConfig {
     const userFile = path.join(this.userHome, '.bettercode', 'mcp.yaml');
+    const compatibilityRelative = '.mcp.json';
     const projectRelative = path.join('.bettercode', 'mcp.yaml');
     const user = this.loadLayer('user', userFile);
+    let compatibility: LayerResult;
     let project: LayerResult;
+    try {
+      const compatibilityFile = this.pathGuard.resolveForWrite(compatibilityRelative).absolute;
+      compatibility = this.loadCompatibilityLayer(compatibilityFile);
+    } catch (error) {
+      compatibility = this.projectPathError(compatibilityRelative, error);
+    }
     try {
       const projectFile = this.pathGuard.resolveForWrite(projectRelative).absolute;
       project = this.loadLayer('project', projectFile);
     } catch (error) {
-      project = {
-        entries: new Map(),
-        diagnostics: [{
-          code: 'CONFIG_ERROR',
-          message: redactMcpMessage(
-            `项目 MCP 配置路径无效: ${error instanceof Error ? error.message : String(error)}`,
-            [],
-          ),
-          layer: 'project',
-          file: path.join(this.pathGuard.rootDir, projectRelative),
-        }],
-        secretValues: [],
-      };
+      project = this.projectPathError(projectRelative, error);
     }
 
     const merged = new Map(user.entries);
+    for (const [name, config] of compatibility.entries) merged.set(name, config);
     for (const [name, config] of project.entries) merged.set(name, config);
     const servers = [...merged.entries()]
       .filter((entry): entry is [string, McpServerConfig] => entry[1] !== undefined)
       .sort(([left], [right]) => compareText(left, right))
       .map(([, config]) => config);
-    const diagnostics = [...user.diagnostics, ...project.diagnostics]
+    const diagnostics = [...user.diagnostics, ...compatibility.diagnostics, ...project.diagnostics]
       .sort((left, right) => compareText(
         `${left.layer ?? ''}\0${left.serverName ?? ''}\0${left.message}`,
         `${right.layer ?? ''}\0${right.serverName ?? ''}\0${right.message}`,
@@ -118,7 +115,27 @@ export class McpConfigLoader {
     return {
       servers,
       diagnostics,
-      secretValues: [...new Set([...user.secretValues, ...project.secretValues])],
+      secretValues: [...new Set([
+        ...user.secretValues,
+        ...compatibility.secretValues,
+        ...project.secretValues,
+      ])],
+    };
+  }
+
+  private projectPathError(relative: string, error: unknown): LayerResult {
+    return {
+      entries: new Map(),
+      diagnostics: [{
+        code: 'CONFIG_ERROR',
+        message: redactMcpMessage(
+          `项目 MCP 配置路径无效: ${error instanceof Error ? error.message : String(error)}`,
+          [],
+        ),
+        layer: 'project',
+        file: path.join(this.pathGuard.rootDir, relative),
+      }],
+      secretValues: [],
     };
   }
 
@@ -175,6 +192,103 @@ export class McpConfigLoader {
       }
     }
     return result;
+  }
+
+  private loadCompatibilityLayer(file: string): LayerResult {
+    const result: LayerResult = {
+      entries: new Map(),
+      diagnostics: [],
+      secretValues: [],
+    };
+    if (!existsSync(file)) return result;
+
+    let servers: Record<string, unknown>;
+    try {
+      const raw: unknown = JSON.parse(readFileSync(file, 'utf8'));
+      if (!isRecord(raw)) throw new McpConfigError('配置根节点必须是对象');
+      if (!isRecord(raw.mcpServers)) throw new McpConfigError('mcpServers 必须是 map');
+      servers = raw.mcpServers;
+    } catch (error) {
+      result.diagnostics.push({
+        code: 'CONFIG_ERROR',
+        message: redactMcpMessage(
+          error instanceof SyntaxError
+            ? 'JSON 解析失败'
+            : error instanceof Error ? error.message : String(error),
+          [],
+        ),
+        layer: 'project',
+        file,
+      });
+      return result;
+    }
+
+    for (const [serverName, serverValue] of Object.entries(servers)) {
+      result.entries.set(serverName, undefined);
+      try {
+        if (!serverName.trim()) throw new McpConfigError('Server 名称不能为空');
+        const normalized = this.normalizeCompatibilityServer(serverValue);
+        const parsed = this.parseServer(
+          serverName,
+          normalized,
+          'project',
+          file,
+          result.secretValues,
+        );
+        result.entries.set(serverName, parsed);
+      } catch (error) {
+        const missing = error instanceof MissingEnvironmentError ? error.variables : undefined;
+        result.diagnostics.push({
+          code: missing ? 'ENV_MISSING' : 'CONFIG_ERROR',
+          message: missing
+            ? `缺少环境变量: ${missing.join(', ')}`
+            : redactMcpMessage(
+              error instanceof Error ? error.message : String(error),
+              result.secretValues,
+            ),
+          layer: 'project',
+          file,
+          serverName,
+        });
+      }
+    }
+    return result;
+  }
+
+  private normalizeCompatibilityServer(value: unknown): Record<string, unknown> {
+    if (!isRecord(value)) throw new McpConfigError('Server 配置必须是对象');
+    assertOnlyKeys(
+      value,
+      ['type', 'transport', 'command', 'args', 'env', 'url', 'headers'],
+      '兼容 Server ',
+    );
+    if (
+      value.type !== undefined
+      && value.transport !== undefined
+      && value.type !== value.transport
+    ) {
+      throw new McpConfigError('type 与 transport 不能冲突');
+    }
+    const declared = value.transport ?? value.type;
+    const transport = declared ?? (
+      value.url !== undefined ? 'http' : value.command !== undefined ? 'stdio' : undefined
+    );
+    if (transport === 'stdio') {
+      return {
+        transport,
+        command: value.command,
+        args: value.args,
+        env: value.env,
+      };
+    }
+    if (transport === 'http' || transport === 'streamable-http') {
+      return {
+        transport: 'http',
+        url: value.url,
+        headers: value.headers,
+      };
+    }
+    throw new McpConfigError('type 或 transport 必须是 stdio、http 或 streamable-http');
   }
 
   private parseServer(

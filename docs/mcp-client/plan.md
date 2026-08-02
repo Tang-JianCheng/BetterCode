@@ -696,3 +696,57 @@ Bettercode Agent/
 - HTTP 静态 headers 适合 API Token，但不支持 OAuth 过期刷新；返回 401 后 Server 保持不可用，直到用户重启 BetterCode。
 - 参数对象作为权限规则目标可能较长，仍受权限配置和界面显示能力约束；实现中保持完整匹配值，但界面可做仅显示层截断，不改变规则语义。
 - 工具列表只在启动时读取。Server 运行期间改变工具列表不会反映到当前 BetterCode 会话。
+
+## 增量设计：项目根 `.mcp.json` 配置桥接
+
+### 架构调整
+
+配置发现阶段增加一个兼容输入源，转换后仍进入原有 `McpServerConfig -> McpManager -> McpToolAdapter -> ToolRegistry` 链路：
+
+```text
+~/.bettercode/mcp.yaml ──────────┐
+<project>/.mcp.json ── 兼容转换 ─┼─> McpServerConfig[] ─> McpManager ─> ToolRegistry
+<project>/.bettercode/mcp.yaml ──┘
+```
+
+兼容层只承担配置格式归一化，不负责连接、发现或调用。这样从 `.mcp.json` 发现的工具与原生 YAML 工具共享相同的命名、权限、Plan Mode、超时、错误转换和生命周期行为。
+
+### 加载与转换
+
+`McpConfigLoader` 在解析用户 YAML 后，通过 `PathGuard` 解析项目根 `.mcp.json`，最后解析项目原生 YAML。三个结果按顺序覆盖：
+
+```text
+用户 YAML < 项目兼容 JSON < 项目原生 YAML
+```
+
+兼容 JSON 根节点必须包含对象类型的 `mcpServers`。每个 Server 独立归一化：
+
+- `command` 推断为 stdio，也接受显式 `type/transport: stdio`。
+- `url` 推断为 HTTP，也接受 `type/transport: http` 或 `streamable-http`。
+- stdio 只向现有解析器传递 `command`、`args`、`env`。
+- HTTP 只向现有解析器传递 `url`、`headers`。
+- `type` 与 `transport` 同时声明且冲突时，该 Server 失败关闭。
+
+归一化后调用原有 Server 校验和环境变量展开逻辑，避免两套规则逐渐漂移。
+
+### 错误与安全
+
+- JSON 语法错误只输出固定的“JSON 解析失败”，不回显原文附近内容。
+- 单个 Server 失败保留覆盖占位，避免意外回退到低优先级同名服务。
+- `.mcp.json` 指向项目外的符号链接时整层拒绝，诊断只含受控路径错误。
+- 兼容配置产生的 env、headers 和展开值继续汇入 `secretValues`，供后续连接、发现和关闭错误统一脱敏。
+
+### 测试调整
+
+- `config-loader.test.ts` 覆盖 stdio/HTTP 推断、环境变量展开、三层覆盖、非法 JSON、无效兄弟 Server、缺失变量和符号链接逃逸。
+- `integration.test.ts` 的真实 HTTP 场景改由 `.mcp.json` 启动，验证兼容配置可穿过 Manager 和 Adapter 完成工具调用。
+- 全量 `pnpm check` 继续验证未配置 `.mcp.json` 时的原有路径。
+
+### 增量技术决策
+
+| 决策点 | 选择 | 理由 |
+|---|---|---|
+| 兼容位置 | 放在 `McpConfigLoader` 输入边界 | 转换一次即可复用全部现有 MCP 基础设施 |
+| 原生配置优先级 | 项目 YAML 高于 `.mcp.json` | BetterCode 专属配置表达最明确，兼容层不覆盖用户主动设置 |
+| 传输推断 | 根据 `command` 或 `url` 推断 | 兼容常见客户端省略 `type` 的写法 |
+| JSON 错误正文 | 固定诊断，不输出解析片段 | 防止配置中的认证内容通过错误信息泄露 |

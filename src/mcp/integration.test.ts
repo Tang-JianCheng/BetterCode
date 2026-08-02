@@ -30,6 +30,10 @@ function writeProjectConfig(root: string, content: string): void {
   writeFileSync(path.join(directory, 'mcp.yaml'), content, 'utf8');
 }
 
+function writeCompatibilityConfig(root: string, config: unknown): void {
+  writeFileSync(path.join(root, '.mcp.json'), JSON.stringify(config), 'utf8');
+}
+
 function registryCall(name: string, arguments_: Record<string, unknown>) {
   return { id: randomUUID(), name, arguments: arguments_ };
 }
@@ -209,13 +213,15 @@ test('HTTP: 真实 Streamable HTTP 保持 header、session、并发配对且断�
   t.after(async () => {
     if (!fixtureClosed) await fixture.close();
   });
-  writeProjectConfig(root, `servers:
-  remote:
-    transport: http
-    url: ${fixture.url}
-    headers:
-      Authorization: \"Bearer \${HTTP_TOKEN}\"
-`);
+  writeCompatibilityConfig(root, {
+    mcpServers: {
+      remote: {
+        type: 'http',
+        url: fixture.url,
+        headers: { Authorization: 'Bearer ${HTTP_TOKEN}' },
+      },
+    },
+  });
   const registry = createCoreToolRegistry(root);
   const manager = createMcpManager(root, {
     userHome: home,

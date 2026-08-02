@@ -591,3 +591,53 @@ T27 + T28 + T31 -> T32
 ```
 
 可并行组：T4/T9/T10；T5/T6；T12/T15；T14/T18/T20；T26 与 T21-T25。凡共享同一文件的任务仍按编号串行执行，避免覆盖同文件中的前序改动。
+
+## 增量任务：项目根 `.mcp.json` 配置桥接
+
+### T33：接入兼容配置来源
+
+**文件：** `src/mcp/config-loader.ts`
+
+**步骤：**
+
+1. 在项目路径保护下发现根目录 `.mcp.json`。
+2. 解析 `mcpServers`，逐 Server 归一化 stdio 与 Streamable HTTP 字段。
+3. 复用现有 Server 校验、环境变量展开和秘密收集逻辑。
+4. 按用户 YAML、兼容 JSON、项目 YAML 的顺序完整覆盖。
+5. 隔离 JSON 语法错误、单 Server 错误和符号链接逃逸。
+
+**验证：** 运行 `pnpm exec tsx --test src/mcp/config-loader.test.ts`，期望兼容格式、覆盖和安全场景全部通过。
+
+### T34：验证统一工具链闭环
+
+**文件：** `src/mcp/config-loader.test.ts`、`src/mcp/integration.test.ts`
+
+**步骤：**
+
+1. 增加无显式类型的 stdio 配置和显式 HTTP 配置转换测试。
+2. 增加三层同名覆盖与不同名合并测试。
+3. 增加非法 JSON、缺失环境变量、无效兄弟 Server 和符号链接逃逸测试。
+4. 让真实本地 HTTP MCP 集成测试从 `.mcp.json` 启动。
+5. 断言远端工具仍进入统一 Registry，完成发现、调用、错误处理和关闭。
+
+**验证：** 运行 `pnpm exec tsx --test src/mcp/config-loader.test.ts src/mcp/integration.test.ts`。
+
+### T35：补充文档并执行回归
+
+**文件：** `docs/mcp-client/spec.md`、`docs/mcp-client/plan.md`、`docs/mcp-client/task.md`、`docs/mcp-client/checklist.md`
+
+**步骤：**
+
+1. 以增量章节记录问题根因、兼容边界和覆盖优先级。
+2. 明确兼容层复用现有 MCP 适配和 Agent 调用链。
+3. 运行 MCP 聚焦测试、TypeScript 类型检查和全量项目检查。
+4. 扫描敏感信息、旧产品名、空白错误和未跟踪用户文件。
+5. 创建中文 Git 阶段检查点，只提交本次源码、测试和文档。
+
+**验证：** 运行 `pnpm check`、`git diff --check` 和针对 `src/mcp`、`docs/mcp-client` 的静态扫描。
+
+### 增量执行顺序
+
+```text
+T33 -> T34 -> T35
+```
