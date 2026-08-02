@@ -1,0 +1,467 @@
+# BetterCode 终端视觉与交互系统 Tasks
+
+## 文件清单
+
+| 操作 | 文件 | 职责 |
+|---|---|---|
+| 新建 | `src/presentation/types.ts` | 中立结构化展示类型 |
+| 新建 | `src/presentation/builders.ts` | 展示模型构造与校验 |
+| 新建 | `src/presentation/builders.test.ts` | 展示契约测试 |
+| 新建 | `src/command/presenters.ts` | 本地命令结构化展示转换 |
+| 新建 | `src/command/presenters.test.ts` | 命令面板模型测试 |
+| 修改 | `src/command/types.ts` | 增加结构化展示入口 |
+| 修改 | `src/command/builtins.ts` | 内置命令改用 presenter |
+| 修改 | `src/command/*.test.ts` | 更新假控制器和命令行为断言 |
+| 新建 | `src/ui/theme.ts` | BetterCode 官方主题与语义标记 |
+| 新建 | `src/ui/capabilities.ts` | 终端能力、宽度和降级策略 |
+| 新建 | `src/ui/capabilities.test.ts` | 能力与显示宽度测试 |
+| 新建 | `src/ui/mascot.tsx` | 完整“小码”形象和简化标记 |
+| 新建 | `src/ui/mascot.test.ts` | 品牌区稳定帧测试 |
+| 新建 | `src/ui/status-bar.tsx` | 自适应双层状态栏 |
+| 新建 | `src/ui/status-bar.test.ts` | 状态段优先级和宽度矩阵测试 |
+| 新建 | `src/ui/presentation-view.tsx` | 对话、文档、通知和块渲染 |
+| 新建 | `src/ui/presentation-view.test.ts` | 结构化内容渲染测试 |
+| 新建 | `src/ui/activity-indicator.tsx` | 局部动态活动反馈 |
+| 新建 | `src/ui/activity-indicator.test.ts` | 动画与计时器生命周期测试 |
+| 新建 | `src/ui/interaction-panel.tsx` | 统一交互请求面板 |
+| 新建 | `src/ui/interaction-panel.test.ts` | 焦点、选中和帮助行测试 |
+| 修改 | `src/ui/permission-prompt.tsx` | 接入统一面板与方向键选择 |
+| 修改 | `src/ui/rewind-dialog.tsx` | 接入统一面板与焦点语义 |
+| 修改 | `src/ui/input-box.tsx` | 精致输入区与稳定补全区域 |
+| 修改 | `src/ui/message-list.tsx` | 渲染结构化历史和流式内容 |
+| 修改 | `src/ui/app.tsx` | 新展示状态、活动状态、焦点和整体布局 |
+| 修改 | `src/ui/*.test.ts` | UI 行为和回归测试 |
+| 修改 | `package.json`、`pnpm-lock.yaml` | 增加显示宽度和 Ink 测试依赖 |
+| 修改 | `README.md` | 更新界面、降级环境变量和快捷键说明 |
+
+## T1：安装终端显示与测试依赖
+
+**文件：** `package.json`、`pnpm-lock.yaml`
+
+**依赖：** 无
+
+**步骤：**
+
+1. 增加 `string-width` 直接运行时依赖。
+2. 增加与当前 Ink 版本兼容的 `ink-testing-library` 开发依赖。
+3. 不升级无关依赖，不改现有 npm scripts 的测试匹配规则。
+4. 检查锁文件只包含新增依赖所需变化。
+
+**验证：** 运行 `pnpm install --frozen-lockfile` 和 `pnpm typecheck`，期望依赖可解析且既有源码继续编译。
+
+## T2：定义中立展示类型
+
+**文件：** `src/presentation/types.ts`
+
+**依赖：** 无
+
+**步骤：**
+
+1. 定义 tone、entry、column、block、document、conversation、notice 和联合类型。
+2. 所有集合字段使用只读类型，避免渲染器修改业务数据。
+3. 限定 source、role 和 block kind，禁止任意字符串扩散。
+4. 不导入 React、Ink 或颜色实现。
+
+**验证：** 运行 `pnpm typecheck`，并执行 `rg -n "from 'ink|from 'react" src/presentation/types.ts`，期望扫描无输出。
+
+## T3：实现展示模型构造与校验
+
+**文件：** `src/presentation/builders.ts`、`src/presentation/builders.test.ts`
+
+**依赖：** T2
+
+**步骤：**
+
+1. 实现 document、notice 和 conversation 构造器。
+2. 校验非空标题、表格列数、键值项和详情数量上限。
+3. conversation 保留用户和模型原文，不修剪正文内部空白。
+4. 失败返回明确中文错误，不产生部分文档。
+5. 覆盖合法文档、空标题、错列表格和超限详情测试。
+
+**验证：** 运行 `pnpm exec tsx --test src/presentation/builders.test.ts`，期望全部通过。
+
+## T4：建立官方主题和终端能力模型
+
+**文件：** `src/ui/theme.ts`、`src/ui/capabilities.ts`、`src/ui/capabilities.test.ts`
+
+**依赖：** T1
+
+**步骤：**
+
+1. 定义唯一 `BETTERCODE_THEME` 和语义标记映射。
+2. 从可注入环境计算 full、compact、narrow 三档密度。
+3. 支持 `NO_COLOR`、`TERM=dumb`、`BETTERCODE_ASCII`、`BETTERCODE_REDUCE_MOTION` 和 CI 降级。
+4. 使用 `string-width` 实现显示宽度测量。
+5. 实现按 grapheme 截断并追加省略标记，结果不得超过目标列数。
+6. 覆盖 100/99/64/63 列边界、中文、组合字符、无颜色和低动态测试。
+
+**验证：** 运行 `pnpm exec tsx --test src/ui/capabilities.test.ts`，期望全部通过。
+
+## T5：实现原创“小码”虚拟形象
+
+**文件：** `src/ui/mascot.tsx`、`src/ui/mascot.test.ts`
+
+**依赖：** T4
+
+**步骤：**
+
+1. 设计 6 至 8 行 Unicode 原创蜡笔风少年形象。
+2. 设计更窄的 ASCII 降级形象。
+3. 实现启动品牌区，展示 BetterCode、版本和简短欢迎语。
+4. 实现 info、active、warning、danger 四类简化标记。
+5. 扫描源码，确认没有第三方角色名称、台词或可识别复制描述。
+6. 对完整、紧凑和 ASCII 形象做稳定帧测试。
+
+**验证：** 运行 `pnpm exec tsx --test src/ui/mascot.test.ts`，并运行版权名称静态扫描，期望测试通过且无第三方角色命中。
+
+## T6：构建状态段与自适应布局算法
+
+**文件：** `src/ui/status-bar.tsx`、`src/ui/status-bar.test.ts`
+
+**依赖：** T4
+
+**步骤：**
+
+1. 定义 `StatusBarState`、`StatusSegment` 和核心段顺序。
+2. 将 Provider、模型、模式、权限、usage、上下文、会话、Skill、后台任务和团队状态转换为段。
+3. 实现缩短标签、截断值和移除非必要段的确定性流程。
+4. 保证模型、模式和权限永不被移除。
+5. usage 缺失时使用简洁空状态，不渲染全零明细。
+6. 覆盖 full、compact、narrow 和超长模型名矩阵。
+
+**验证：** 运行 `pnpm exec tsx --test src/ui/status-bar.test.ts`，逐行显示宽度均不得超过注入列数。
+
+## T7：完成双层状态栏视觉组件
+
+**文件：** `src/ui/status-bar.tsx`、`src/ui/status-bar.test.ts`
+
+**依赖：** T6
+
+**步骤：**
+
+1. 使用细边界连接输入区与状态区。
+2. full 模式渲染完整双层，compact 模式渲染缩写双层，narrow 模式渲染核心状态与最小补充行。
+3. 使用主题语义色表达 plan、权限风险、提醒和缓存命中。
+4. 无颜色模式使用文本标签和 ASCII 分隔符。
+5. 覆盖团队激活、待审批、未读和后台任务状态。
+
+**验证：** 运行状态栏组件帧测试，期望所有核心段存在且无越界。
+
+## T8：实现命令展示 presenter
+
+**文件：** `src/command/presenters.ts`、`src/command/presenters.test.ts`
+
+**依赖：** T2、T3
+
+**步骤：**
+
+1. 实现 help 单命令和命令目录文档。
+2. 实现 status、memory、permission 和 session 文档。
+3. 实现 tasks、team 和命令错误通知。
+4. 命令目录按命令类型或用户任务分组，保留注册顺序。
+5. presenter 不读取 stdout 宽度，不拼 ANSI，不依赖 Ink。
+6. 覆盖空列表、单项、多项、诊断和未知命令测试。
+
+**验证：** 运行 `pnpm exec tsx --test src/command/presenters.test.ts`，并扫描运行时 UI 依赖，期望全部通过。
+
+## T9：扩展命令 UI 控制契约
+
+**文件：** `src/command/types.ts`、`src/command/*.test.ts`
+
+**依赖：** T2、T8
+
+**步骤：**
+
+1. 给 `CommandUIController` 增加 `showPresentation`。
+2. 保留短文本兼容入口，明确仅用于非结构化简短通知。
+3. 更新所有测试假控制器，分别记录文本和结构化项。
+4. 保持 command 包不依赖 React 或 Ink。
+
+**验证：** 运行 `pnpm exec tsx --test src/command/*.test.ts` 和依赖扫描，期望全部通过。
+
+## T10：迁移内置命令到结构化输出
+
+**文件：** `src/command/builtins.ts`、`src/command/builtins.test.ts`
+
+**依赖：** T8、T9
+
+**步骤：**
+
+1. `/help` 改用 help document。
+2. `/status`、`/memory`、`/permission`、`/session`、`/tasks` 和 `/team` 使用对应 presenter。
+3. 未知命令、非法参数和 handler 异常使用 command error notice。
+4. `/plan`、`/do`、`/compact`、`/clear` 等简短终态使用 notice。
+5. 不改变命令名称、别名、参数、权限和 Agent 分流行为。
+6. 更新 builtins 与 dispatcher 断言，确认 Provider 调用次数不变。
+
+**验证：** 运行 `pnpm exec tsx --test src/command/*.test.ts`，期望命令行为与结构断言全部通过。
+
+## T11：实现结构化内容渲染器
+
+**文件：** `src/ui/presentation-view.tsx`、`src/ui/presentation-view.test.ts`
+
+**依赖：** T3、T4
+
+**步骤：**
+
+1. 实现 conversation、document 和 notice 分发。
+2. 实现 text、key-value、table、list 和 divider 块。
+3. full 模式表格按列显示，compact 模式收缩，narrow 模式转逐项布局。
+4. 用户、助手、通知和命令文档使用不同但克制的视觉层级。
+5. 普通助手正文不添加厚重外框。
+6. 渲染异常时回退标题加纯文本摘要。
+
+**验证：** 运行 `pnpm exec tsx --test src/ui/presentation-view.test.ts`，覆盖三档宽度和无颜色输出。
+
+## T12：迁移消息列表展示模型
+
+**文件：** `src/ui/message-list.tsx`、相关测试
+
+**依赖：** T11
+
+**步骤：**
+
+1. 将历史输入改为 `PresentationItem[]`。
+2. 使用稳定 ID 或生成时序 ID 作为 key，不再使用数组下标。
+3. 历史、current thinking 和 current streaming 分区渲染。
+4. 保留模型原始文本，不把正文解析成命令面板。
+5. 验证插入通知、恢复会话和清空历史时没有组件错配。
+
+**验证：** 运行消息列表测试与 `pnpm typecheck`，期望全部通过。
+
+## T13：实现局部动态活动反馈
+
+**文件：** `src/ui/activity-indicator.tsx`、`src/ui/activity-indicator.test.ts`
+
+**依赖：** T4、T5
+
+**步骤：**
+
+1. 定义 Agent 和上下文事件到 `ActivityStage` 的映射。
+2. 实现 Unicode 与 ASCII 动画帧。
+3. 低动态和 CI 环境输出静态标记。
+4. 动态组件只维护一个局部计时器。
+5. 完成、取消、失败和 unmount 时清理计时器。
+6. 工具名和阶段文案按宽度安全截断。
+
+**验证：** 使用假计时器运行活动组件测试，期望帧会变化且终态后不再变化。
+
+## T14：建立统一交互面板
+
+**文件：** `src/ui/interaction-panel.tsx`、`src/ui/interaction-panel.test.ts`
+
+**依赖：** T4
+
+**步骤：**
+
+1. 实现标题、tone、详情、选项和帮助行布局。
+2. 选中项同时使用前缀、强调和可选颜色表达。
+3. 支持 full、compact、narrow 与 ASCII 边框。
+4. 定义 Enter、Esc 和方向键的公共状态转换辅助函数。
+5. 覆盖长目标、窄屏、无颜色和空详情测试。
+
+**验证：** 运行交互面板测试，期望选中项明确且每行不越界。
+
+## T15：升级权限请求交互
+
+**文件：** `src/ui/permission-prompt.tsx`、相关测试
+
+**依赖：** T14
+
+**步骤：**
+
+1. 将风险、工具、目标、建议规则和命令警告映射到统一面板。
+2. 保留 `d/o/s/p` 快捷键。
+3. 增加方向键移动和 Enter 提交。
+4. Esc 按拒绝处理或调用明确取消路径，行为在测试中固定。
+5. 保留提交锁，快捷键与 Enter 混用也只回调一次。
+6. 等待权限时底栏继续显示模型、模式和权限。
+
+**验证：** 运行权限交互测试，覆盖四种单键、方向键、Enter、Esc、重复按键和取消。
+
+## T16：升级回滚与补全焦点交互
+
+**文件：** `src/ui/rewind-dialog.tsx`、`src/ui/input-box.tsx`、相关测试
+
+**依赖：** T14
+
+**步骤：**
+
+1. 回滚选择和动作选择复用交互面板样式。
+2. 修正动作索引边界，确保取消项可选且不会越界。
+3. 输入补全菜单复用统一选中样式和帮助语义。
+4. 限制可见候选数量，保持稳定区域高度。
+5. 明确交互面板开启时输入框 `useInput` 失活。
+
+**验证：** 运行 input、rewind 和 interaction 测试，覆盖完整键盘路径。
+
+## T17：升级输入工作区
+
+**文件：** `src/ui/input-box.tsx`、`src/ui/input-box.test.ts`
+
+**依赖：** T4、T16
+
+**步骤：**
+
+1. 接入主题、终端能力和焦点状态。
+2. 增加稳定顶部边界和 BetterCode 提示符。
+3. disabled 状态不显示可编辑光标，只显示活动或等待提示。
+4. 窄屏时缩短帮助，不让补全和提示覆盖状态栏。
+5. 保留历史草稿恢复、Tab、Enter、Esc 和编辑行为。
+
+**验证：** 运行 `pnpm exec tsx --test src/ui/input-box.test.ts` 和输入区帧测试。
+
+## T18：重构 App 展示状态
+
+**文件：** `src/ui/app.tsx`、`src/ui/app.test.ts`
+
+**依赖：** T9、T12、T13
+
+**步骤：**
+
+1. 将 `DisplayMessage[]` 迁移为带稳定 ID 的 `PresentationItem[]`。
+2. 将字符串 progress 迁移为 `ActivityState`。
+3. 把启动诊断、记忆保存、子 Agent 和团队事件转换为 notice。
+4. 把用户与助手最终文本转换为 conversation。
+5. `showPresentation` 直接追加结构化项，禁止转回格式化字符串。
+6. clear 不重复启动品牌，resume 正确恢复对话项。
+
+**验证：** 运行 App 格式与状态转换测试，期望所有事件得到正确 item kind。
+
+## T19：接入统一交互焦点
+
+**文件：** `src/ui/app.tsx`、权限/回滚/输入测试
+
+**依赖：** T15、T16、T18
+
+**步骤：**
+
+1. 建立顶层 `InteractionState`。
+2. 权限、回滚和补全只有一个可处于活动状态。
+3. 根据活动交互切换 InputBox、PermissionPrompt 和 RewindDialog 的输入激活状态。
+4. 取消、完成和异常路径清理 interaction 与 resolver。
+5. 保留 Ctrl+C 取消和 Ctrl+B 转后台的全局行为。
+
+**验证：** 运行焦点竞争测试，确认一次按键只被一个组件消费。
+
+## T20：组装启动品牌、活动区、输入区和底栏
+
+**文件：** `src/ui/app.tsx`、`src/ui/app.test.ts`
+
+**依赖：** T5、T7、T13、T17、T19
+
+**步骤：**
+
+1. 将 StartupBrand 放在初始界面顶部并保证生命周期只创建一次。
+2. 按“历史、流式、活动/交互、输入、状态栏”顺序组装。
+3. 流式、权限、补全和回滚分支之后都渲染同一个 StatusBar。
+4. 统一状态收集，模式、权限、usage、Skill、任务和团队变更立即刷新。
+5. 删除当前全宽 `'-'.repeat(columns)` 和独立 Token 文本行。
+6. 保持根组件在窄终端中不产生不可控横向溢出。
+
+**验证：** 运行 App 渲染矩阵，所有状态下模型、模式和权限均可见。
+
+## T21：建立受控终端渲染测试工具
+
+**文件：** `src/ui/render-harness.test.ts`
+
+**依赖：** T1、T4
+
+**步骤：**
+
+1. 用 `ink-testing-library` 创建可控制列数、环境和输入的测试工具。
+2. 提供获取最后稳定帧、去 ANSI、计算每行显示宽度的辅助函数。
+3. 测试结束自动 unmount 并恢复计时器。
+4. 避免读取用户真实配置、Provider API Key 或终端环境。
+
+**验证：** 运行 harness 自测，分别渲染静态文本和输入组件并正常退出。
+
+## T22：覆盖宽度、颜色与动画矩阵
+
+**文件：** `src/ui/*test.ts`
+
+**依赖：** T11、T13、T14、T20、T21
+
+**步骤：**
+
+1. 对 120、80、55 列渲染启动、help、status、permission、input 和 status bar。
+2. 对 `NO_COLOR=1`、`TERM=dumb`、ASCII 和低动态环境重复关键场景。
+3. 检查每行显示宽度不超过列数。
+4. 检查模型、模式、权限、风险和选中项文本始终存在。
+5. 检查动画终态后帧稳定且测试进程无残留句柄。
+
+**验证：** 运行 `pnpm exec tsx --test src/ui/*.test.ts`，期望矩阵全部通过。
+
+## T23：执行业务与快捷键回归
+
+**文件：** `src/command/*.test.ts`、`src/ui/*.test.ts`、既有 Agent/Chat/Permission 测试
+
+**依赖：** T10、T19、T20
+
+**步骤：**
+
+1. 验证 `/help`、`/status` 等命令仍绕过 Provider。
+2. 验证 `/plan`、`/do` 和 `/permission` 更新底栏且行为不变。
+3. 验证 Ctrl+C、Ctrl+B、输入历史、补全、回滚和会话恢复。
+4. 验证权限只提交一次并继续回灌 Agent Loop。
+5. 验证无 MCP、Skill、团队或 usage 时都有无噪声空状态。
+
+**验证：** 运行 `pnpm exec tsx --test src/command/*.test.ts src/ui/*.test.ts src/agent/*.test.ts src/chat/*.test.ts src/permission/*.test.ts`。
+
+## T24：更新使用说明
+
+**文件：** `README.md`
+
+**依赖：** T20、T22
+
+**步骤：**
+
+1. 更新启动界面、底栏状态和结构化命令说明。
+2. 说明 `NO_COLOR`、`BETTERCODE_ASCII` 和 `BETTERCODE_REDUCE_MOTION`。
+3. 保留现有命令、快捷键和模式说明。
+4. 不加入未实现的主题自定义或图片终端承诺。
+
+**验证：** 扫描 README 与实现中的环境变量名称，期望完全一致。
+
+## T25：全量验收与中文阶段提交
+
+**文件：** 本 Plan 涉及的全部文件
+
+**依赖：** T1-T24
+
+**步骤：**
+
+1. 运行 TypeScript 类型检查和全部测试。
+2. 运行 UI 宽度、无颜色、ASCII、低动态和焦点矩阵。
+3. 启动 BetterCode，手工走完品牌区、help、对话、工具、权限和退出流程。
+4. 扫描旧产品名、第三方角色名、硬编码散落颜色、占位符和敏感信息。
+5. 运行 `git diff --check` 并确认不提交 `.bettercode/`。
+6. 按 `checklist.md` 记录证据并标记结果。
+7. 使用中文 Git 提交信息创建本大型 Plan 的阶段检查点。
+
+**验证：** `pnpm check`、UI 专项矩阵、静态扫描和 `git diff --check` 均以退出码 0 完成，手工场景无终端残留状态。
+
+## 执行顺序
+
+```text
+T1 -> T4 -> T5
+ |     |    \
+ |     |     -> T13
+ |     -> T6 -> T7
+ -> T2 -> T3 -> T8 -> T9 -> T10
+                
+T3 + T4 -> T11 -> T12
+T4 -> T14 -> T15
+          \-> T16 -> T17
+
+T9 + T12 + T13 -> T18
+T15 + T16 + T18 -> T19
+T5 + T7 + T13 + T17 + T19 -> T20
+T1 + T4 -> T21
+T11 + T13 + T14 + T20 + T21 -> T22
+T10 + T19 + T20 -> T23
+T20 + T22 -> T24
+T22 + T23 + T24 -> T25
+```
+
+T5、T6 和 T8 在各自依赖满足后可并行；T15 与 T17 共享交互和输入文件，应按编号串行；T18-T20 集中修改 `App`，必须串行执行，避免覆盖状态迁移。
