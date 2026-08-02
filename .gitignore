@@ -1,3 +1,4 @@
+.bettercode/memory/
 .bettercode/permissions.local.yaml
 .bettercode/hooks.local.yaml
 .bettercode/logs/
@@ -7,3 +8,4 @@
 .bettercode/file-history/
 .bettercode/worktrees/
 .bettercode/worktree-state/
+node_modules/
