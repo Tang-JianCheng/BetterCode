@@ -17,7 +17,7 @@ test('启动品牌渲染像素文字横幅与 BetterCode 信息', () => {
   assert.equal(bannerLines(modern).every(line => displayWidth(line) <= 120), true);
   assert.equal(bannerLines(modern).every(line => /[█╗╔╚╝═]/u.test(line)), true);
   assert.equal(
-    bannerLines(modern).join('\n').includes('██████╗ ███████╗████████╗████████╗'),
+    bannerLines(modern).join('\n').includes('██████╗███████╗████████╗████████╗'),
     true,
   );
   assert.equal(bannerLines({
