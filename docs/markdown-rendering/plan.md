@@ -244,3 +244,24 @@ README.md                     （增量说明）
 
 - 标题始终输出纯文本，不再拼 `#` 标记，由 segment style 负责强调；无颜色模式仍保留文字内容。
 - 块间统一插入一个空行；`hr` 最多 28 列。
+
+## 增量设计：统一来源渲染（2026-08-03）
+
+### 展示到 Markdown 的桥接
+
+- 新增 `src/presentation/markdown.ts`：
+  - `presentationBlocksToMarkdown(blocks)`：把 text/heading、key_value、table、list、divider 转换为 `MarkdownBlock[]`。
+  - `presentationDocumentMarkdown(input)`：文档标题生成二级标题，badge 并入标题，footer 成段落。
+  - `presentationNoticeMarkdown(input)`：message 成段落、details 成无序列表；无内容返回 `undefined`。
+- `src/markdown/parser.ts` 新增 `parseInlineMarkdown(source)`，把短文本解析为行内节点，供桥接层复用。
+
+### 展示契约增量
+
+- `PresentationBlock.text` 增加可选 `heading?: boolean`，命令分组标题转成 Markdown 标题。
+- `PresentationDocument` 与 `NoticePresentation` 增加可选 `markdown?: MarkdownAst`，构造时一次解析、重绘复用。
+
+### 展示路由统一
+
+- `DocumentView` 优先使用 `item.markdown`，否则调用 `presentationDocumentMarkdown(item)`，统一交给 `MarkdownView`。
+- `NoticeView` 保留首行 `MascotMark + 语气标签 · 标题`，正文用 `item.markdown ?? presentationNoticeMarkdown(item)`。
+- 删除旧 `dividerLine`、`formatKeyValues`、`formatTable` 和所有面板边框样式；`/help` 分组标题改用 heading 块。

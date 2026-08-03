@@ -76,7 +76,7 @@ export function buildHelpPresentation(
   for (const group of groups) {
     const commands = definitions.filter(definition => definition.type === group.type);
     if (commands.length === 0) continue;
-    blocks.push({ type: 'text', content: group.title });
+    blocks.push({ type: 'text', content: group.title, heading: true });
     blocks.push({
       type: 'table',
       columns: [

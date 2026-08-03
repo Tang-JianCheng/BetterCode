@@ -15,7 +15,7 @@ export interface PresentationColumn {
 }
 
 export type PresentationBlock =
-  | { type: 'text'; content: string; muted?: boolean }
+  | { type: 'text'; content: string; muted?: boolean; heading?: boolean }
   | { type: 'key_value'; entries: readonly PresentationEntry[]; columns?: 1 | 2 }
   | {
       type: 'table';
@@ -33,6 +33,8 @@ export interface PresentationDocument {
   badge?: string;
   blocks: readonly PresentationBlock[];
   footer?: string;
+  /** 展示前解析好的 Markdown AST，供 MarkdownView 统一渲染 */
+  markdown?: MarkdownAst;
 }
 
 export interface ConversationPresentation {
@@ -51,6 +53,8 @@ export interface NoticePresentation {
   message?: string;
   details?: readonly string[];
   source?: string;
+  /** 展示前解析好的 Markdown AST，供 MarkdownView 统一渲染 */
+  markdown?: MarkdownAst;
 }
 
 export type PresentationItem =

@@ -157,6 +157,19 @@ export interface MarkdownParseResult {
   recovered: boolean;
 }
 
+/** 把一小段文本解析为行内节点，用于展示层把结构化文本统一转成 Markdown。 */
+export function parseInlineMarkdown(source: string): readonly MarkdownInline[] {
+  try {
+    const paragraph = lexer(source, { gfm: true, breaks: false })
+      .find((block): block is Tokens.Paragraph => block.type === 'paragraph');
+    return paragraph
+      ? paragraph.tokens.flatMap(parseInlineToken)
+      : [{ type: 'text', content: sanitizeText(source) }];
+  } catch {
+    return [{ type: 'text', content: sanitizeText(source) }];
+  }
+}
+
 function fallbackContent(source: string): string {
   try {
     return sanitizeText(source);

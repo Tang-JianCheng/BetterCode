@@ -4,7 +4,7 @@ import React from 'react';
 import { render } from 'ink-testing-library';
 import { parseMarkdown } from '../markdown/parser.js';
 import { createConversation, createDocument, createNotice } from '../presentation/builders.js';
-import { PresentationView, formatBlockLines } from './presentation-view.js';
+import { PresentationView } from './presentation-view.js';
 import { displayWidth, type TerminalCapabilities } from './capabilities.js';
 
 function capabilities(columns: number, unicode = true): TerminalCapabilities {
@@ -17,7 +17,17 @@ function capabilities(columns: number, unicode = true): TerminalCapabilities {
   };
 }
 
-test('普通对话保持轻量，通知和命令文档保持明确层级', () => {
+function renderItem(
+  item: Parameters<typeof PresentationView>[0]['item'],
+  caps: TerminalCapabilities,
+): string {
+  const view = render(React.createElement(PresentationView, { item, capabilities: caps }));
+  const frame = view.lastFrame() ?? '';
+  view.unmount();
+  return frame;
+}
+
+test('普通对话保持轻量，通知和命令文档统一走 Markdown 展示', () => {
   const assistant = render(React.createElement(PresentationView, {
     item: createConversation({ role: 'assistant', content: '正文 /help 不应变成面板' }),
     capabilities: capabilities(100),
@@ -39,76 +49,67 @@ test('普通对话保持轻量，通知和命令文档保持明确层级', () =>
     }),
     capabilities: capabilities(100),
   }));
-  assert.match(document.lastFrame() ?? '', /\[HELP\] 命令目录.*模式: PLAN/su);
+  const documentFrame = document.lastFrame() ?? '';
+  assert.match(documentFrame, /\[HELP\] 命令目录/u);
+  assert.match(documentFrame, /• 模式: PLAN/u);
+  assert.doesNotMatch(documentFrame, /[╭╰]/u);
   document.unmount();
 });
 
 test('助手消息携带 markdown 时渲染 Markdown，用户消息保持纯文本', () => {
   const content = '# 标题\n\n[链接](https://example.com)';
-  const assistant = render(React.createElement(PresentationView, {
-    item: createConversation({
-      role: 'assistant',
-      content,
-      markdown: parseMarkdown(content),
-    }),
-    capabilities: capabilities(100),
-  }));
-  assert.match(assistant.lastFrame() ?? '', /标题/u);
-  assert.doesNotMatch(assistant.lastFrame() ?? '', /# 标题/u);
-  assert.match(assistant.lastFrame() ?? '', /链接 \(https:\/\/example\.com\)/u);
-  assistant.unmount();
+  const assistant = renderItem(createConversation({
+    role: 'assistant',
+    content,
+    markdown: parseMarkdown(content),
+  }), capabilities(100));
+  assert.match(assistant, /标题/u);
+  assert.doesNotMatch(assistant, /# 标题/u);
+  assert.match(assistant, /链接 \(https:\/\/example\.com\)/u);
 
-  const user = render(React.createElement(PresentationView, {
-    item: createConversation({ role: 'user', content }),
-    capabilities: capabilities(100),
-  }));
-  const userFrame = user.lastFrame() ?? '';
-  assert.match(userFrame, /❯ # 标题/u);
-  assert.match(userFrame, /\[链接\]\(https:\/\/example\.com\)/u);
-  assert.doesNotMatch(userFrame, /链接 \(https:\/\/example\.com\)/u);
-  user.unmount();
+  const user = renderItem(createConversation({ role: 'user', content }), capabilities(100));
+  assert.match(user, /❯ # 标题/u);
+  assert.match(user, /\[链接\]\(https:\/\/example\.com\)/u);
+  assert.doesNotMatch(user, /链接 \(https:\/\/example\.com\)/u);
 });
 
-test('表格在三档宽度内保持有界并在窄屏转逐项布局', () => {
-  const block = {
-    type: 'table' as const,
-    columns: [{ key: 'command', label: '命令' }, { key: 'description', label: '说明' }],
-    rows: [['/permission strict', '切换到非常严格的权限模式并保留说明']],
-  };
+test('命令文档在三档宽度内保持有界并在窄屏降级为键值行', () => {
+  const item = createDocument({
+    source: 'command', title: '命令目录', tone: 'info', badge: 'HELP',
+    blocks: [{
+      type: 'table',
+      columns: [{ key: 'command', label: '命令' }, { key: 'description', label: '说明' }],
+      rows: [['/permission strict', '切换到非常严格的权限模式并保留说明']],
+    }],
+  });
   for (const columns of [120, 80, 55]) {
-    const lines = formatBlockLines(block, capabilities(columns), columns - 4);
-    assert.equal(lines.every(line => displayWidth(line) <= columns - 4), true);
+    const frame = renderItem(item, capabilities(columns));
+    for (const line of frame.split('\n')) {
+      assert.equal(displayWidth(line) <= columns, true, `行超过 ${columns} 列: ${line}`);
+    }
   }
-  const aligned = formatBlockLines(block, capabilities(80), 76)
-    .filter(line => line.includes(' │ '));
-  assert.equal(aligned.length, 2);
-  assert.equal(
-    displayWidth(aligned[0].slice(0, aligned[0].indexOf(' │ '))),
-    displayWidth(aligned[1].slice(0, aligned[1].indexOf(' │ '))),
-  );
-  assert.match(formatBlockLines(block, capabilities(55), 51).join('\n'), /命令: \/permission/u);
+  assert.match(renderItem(item, capabilities(55)), /命令: \/permission/u);
 });
 
-test('ASCII 模式使用 ASCII 边界与列表标记', () => {
-  const view = render(React.createElement(PresentationView, {
-    item: createDocument({
-      source: 'command', title: '列表', tone: 'info', blocks: [{ type: 'list', items: ['一', '二'] }],
-    }),
-    capabilities: capabilities(55, false),
-  }));
-  const frame = view.lastFrame() ?? '';
-  assert.match(frame, /^\+- /u);
+test('ASCII 模式不使用 Unicode 装饰并保留列表标记', () => {
+  const frame = renderItem(createDocument({
+    source: 'command', title: '列表', tone: 'info', blocks: [{ type: 'list', items: ['一', '二'] }],
+  }), capabilities(55, false));
   assert.match(frame, /- 一/u);
-  assert.doesNotMatch(frame, /[╭╰•─]/u);
-  view.unmount();
+  assert.doesNotMatch(frame, /[╭╰•─│]/u);
 });
 
 test('命令表格在超宽终端限制为 88 列', () => {
-  const block = {
-    type: 'table' as const,
-    columns: [{ key: 'command', label: '命令' }, { key: 'description', label: '说明' }],
-    rows: [['/help', '显示命令帮助']],
-  };
-  const lines = formatBlockLines(block, capabilities(120), 116);
-  assert.equal(lines.every(line => displayWidth(line) <= 88), true);
+  const item = createDocument({
+    source: 'command', title: '命令目录', tone: 'info', badge: 'HELP',
+    blocks: [{
+      type: 'table',
+      columns: [{ key: 'command', label: '命令' }, { key: 'description', label: '说明' }],
+      rows: [['/help', '显示命令帮助']],
+    }],
+  });
+  const frame = renderItem(item, capabilities(120));
+  for (const line of frame.split('\n')) {
+    assert.equal(displayWidth(line) <= 88, true, `行超过 88 列: ${line}`);
+  }
 });

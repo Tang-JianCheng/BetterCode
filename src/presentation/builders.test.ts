@@ -16,6 +16,7 @@ test('展示构造器保留合法结构与对话原文', () => {
   });
   assert.equal(document.title, '命令帮助');
   assert.equal(document.kind, 'document');
+  assert.ok(document.markdown);
 
   const content = '  第一行\n第二行  ';
   assert.equal(createConversation({ role: 'assistant', content }).content, content);

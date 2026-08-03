@@ -3,6 +3,10 @@ import type {
   NoticePresentation,
   PresentationDocument,
 } from './types.js';
+import {
+  presentationDocumentMarkdown,
+  presentationNoticeMarkdown,
+} from './markdown.js';
 
 const MAX_NOTICE_DETAILS = 20;
 
@@ -23,7 +27,12 @@ export function createDocument(
       throw new Error('表格行列数量不一致');
     }
   }
-  return { ...input, title, kind: 'document' };
+  return {
+    ...input,
+    title,
+    kind: 'document',
+    markdown: presentationDocumentMarkdown(input),
+  };
 }
 
 export function createNotice(input: Omit<NoticePresentation, 'kind'>): NoticePresentation {
@@ -31,11 +40,13 @@ export function createNotice(input: Omit<NoticePresentation, 'kind'>): NoticePre
   if ((input.details?.length ?? 0) > MAX_NOTICE_DETAILS) {
     throw new Error(`通知详情不能超过 ${MAX_NOTICE_DETAILS} 条`);
   }
+  const markdown = presentationNoticeMarkdown(input);
   return {
     ...input,
     title,
     ...(input.message?.trim() ? { message: input.message } : { message: undefined }),
     ...(input.details?.length ? { details: [...input.details] } : { details: undefined }),
+    ...(markdown ? { markdown } : {}),
     kind: 'notice',
   };
 }

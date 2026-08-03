@@ -226,3 +226,47 @@ T1 与 T5 无代码依赖但 T5 依赖 T2 的类型定义；T6 依赖 T4 和 T5�
 2. `pnpm test`（464 项）。
 3. `git diff --check`。
 4. 更新四份文档并创建中文提交。
+
+## 增量任务：统一来源渲染（2026-08-03）
+
+### T15：展示块转 Markdown 桥接
+
+**文件：** `src/presentation/markdown.ts`、`src/markdown/parser.ts`、`src/presentation/markdown.test.ts`
+
+**步骤：**
+
+1. 新增 `parseInlineMarkdown`，把短文本解析为行内节点。
+2. 实现 `presentationBlocksToMarkdown`、`presentationDocumentMarkdown`、`presentationNoticeMarkdown`。
+3. 补充文档/通知转换单测。
+
+**验证：** `src/presentation/markdown.test.ts` 通过。
+
+### T16：展示契约与构造器增量
+
+**文件：** `src/presentation/types.ts`、`src/presentation/builders.ts`、`src/presentation/builders.test.ts`
+
+**步骤：**
+
+1. `PresentationBlock.text` 增加 `heading`，文档/通知增加 `markdown`。
+2. `createDocument`、`createNotice` 构造时生成 Markdown AST。
+
+**验证：** builders 专项测试通过。
+
+### T17：展示路由统一
+
+**文件：** `src/ui/presentation-view.tsx`、`src/command/presenters.ts`、`src/ui/presentation-view.test.ts`
+
+**步骤：**
+
+1. `DocumentView`、`NoticeView` 统一走 `MarkdownView`。
+2. `/help` 分组标题改 heading 块，删除旧边框渲染。
+3. 重写展示测试：断言 `[HELP] 命令目录`、`• 模式: PLAN`、无 `╭╰`、三档宽度和 88 列约束。
+
+**验证：** `src/ui/presentation-view.test.ts` 通过。
+
+### T18：全量验收与中文提交
+
+1. `pnpm typecheck`。
+2. `pnpm test` 全量。
+3. `git diff --check`。
+4. 更新四份文档并创建中文提交，如 `功能：命令面板统一走 Markdown 渲染`。

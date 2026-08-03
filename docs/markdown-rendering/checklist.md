@@ -115,3 +115,25 @@
 
 - Markdown/UI 专项：23 项通过。
 - 全量：464 项通过。为修复既有 macOS 临时目录清理 ENOTEMPTY 抖动，测试清理调用增加 `maxRetries`/`retryDelay`。
+
+## 增量验收（统一来源渲染）
+
+- [x] **E1：展示块可转换为 Markdown AST**
+  text/heading、key_value、table、list、divider 均能转换为对应 Markdown 块。（验证：`src/presentation/markdown.test.ts`；覆盖 F14-F16）
+
+- [x] **E2：文档与通知统一渲染**
+  `DocumentView`、`NoticeView` 统一交给 `MarkdownView`，构造时一次解析、重绘复用。（验证：builders、presentation-view 测试；覆盖 F14、F17）
+
+- [x] **E3：/help 不再输出面板边框**
+  120/80/55 列下均无 `╭`、`╰` 或旧式 `│` 边框，分组标题为 Markdown 标题。（验证：`src/ui/presentation-view.test.ts`；覆盖 AC12）
+
+- [x] **E4：降级约束保持**
+  ASCII 模式不输出 `•`/`╭╰`，窄屏表格降级为键值行，超宽表格限制 88 列。（验证：presentation-view/markdown-view 测试；覆盖 AC13）
+
+- [x] **E5：全量回归与提交**
+  `pnpm typecheck` 通过，`pnpm test` 466/466 通过，`git diff --check` 通过，创建中文提交。（验证：本次验收记录；覆盖 AC14）
+
+**验收记录：**
+
+- Markdown/UI 专项：27 项通过。
+- 全量：`pnpm check` 退出码 0，共 466 项测试通过，无失败、跳过或挂起句柄。
