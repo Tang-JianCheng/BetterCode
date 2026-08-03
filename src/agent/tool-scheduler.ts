@@ -31,7 +31,7 @@ export interface ToolScheduleOptions {
   mode: AgentMode;
   initialUnknownToolStreak: number;
   unknownToolLimit: number;
-  maxIterations: number;
+  maxIterations?: number;
   signal: AbortSignal;
   permissionDecider?: PermissionDecider;
   onProgress: (event: AgentEvent) => void;

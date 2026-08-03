@@ -24,7 +24,6 @@ import type {
 } from './types.js';
 
 const DEFAULT_OPTIONS: AgentLoopOptions = {
-  maxIterations: 10,
   unknownToolLimit: 3,
 };
 
@@ -83,7 +82,7 @@ export class AgentLoop {
     private readonly runtime: AgentLoopRuntime = {},
   ) {
     this.options = {
-      maxIterations: Math.max(1, options.maxIterations ?? DEFAULT_OPTIONS.maxIterations),
+      ...(options.maxIterations === undefined ? {} : { maxIterations: Math.max(1, options.maxIterations) }),
       unknownToolLimit: Math.max(1, options.unknownToolLimit ?? DEFAULT_OPTIONS.unknownToolLimit),
     };
     this.scheduler = new ToolScheduler(
@@ -118,7 +117,11 @@ export class AgentLoop {
     };
 
     try {
-      for (let iteration = 1; iteration <= this.options.maxIterations; iteration += 1) {
+      for (
+        let iteration = 1;
+        this.options.maxIterations === undefined || iteration <= this.options.maxIterations;
+        iteration += 1
+      ) {
         if (request.signal.aborted) return finish('cancelled', completedIterations);
         startedIterations = iteration;
 
@@ -324,7 +327,9 @@ export class AgentLoop {
 
         if (batch.cancelled || request.signal.aborted) return finish('cancelled', iteration);
         if (batch.unknownToolLimitReached) return finish('unknown_tool_limit', iteration);
-        if (iteration === this.options.maxIterations) return finish('max_iterations', iteration);
+        if (this.options.maxIterations !== undefined && iteration === this.options.maxIterations) {
+          return finish('max_iterations', iteration);
+        }
       }
     } catch (error) {
       emit({

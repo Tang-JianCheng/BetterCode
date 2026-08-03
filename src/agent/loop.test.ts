@@ -240,11 +240,38 @@ test('agent loop executes the final tool batch and stops at the iteration limit'
     toolCall(`read-${index}`, 'read_file', { path: 'note.txt' }),
     done(),
   ]));
-  const { outcome } = await run(root, provider);
+  const { outcome } = await run(root, provider, { maxIterations: 10 });
 
   assert.equal(outcome.reason, 'max_iterations');
   assert.equal(provider.calls.length, 10);
   assert.equal(outcome.history.filter(message => message.role === 'tool').length, 10);
+});
+
+test('agent loop 不设上限时持续执行直到模型自然完成', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFileSync(path.join(root, 'note.txt'), 'hello');
+  const toolRounds = 12;
+  const responses: StreamEvent[][] = Array.from({ length: toolRounds }, (_, index) => [
+    toolCall(`read-${index}`, 'read_file', { path: 'note.txt' }),
+    done(),
+  ]);
+  responses.push([
+    { type: 'text_delta', content: '完成' },
+    done(),
+  ]);
+  const provider = new FakeProvider(responses);
+  const { events, outcome } = await run(root, provider);
+
+  assert.equal(outcome.reason, 'completed');
+  assert.equal(provider.calls.length, toolRounds + 1);
+  assert.equal(outcome.history.filter(message => message.role === 'tool').length, toolRounds);
+  assert.equal(
+    events
+      .filter(event => event.type === 'progress')
+      .every(event => event.maxIterations === undefined),
+    true,
+  );
 });
 
 test('agent loop stops after three consecutive unknown tools and preserves results', async t => {

@@ -503,3 +503,18 @@ T6 -----------------------------------------------------------------------------
 - 依赖链无环；Provider 双协议工作可以并行，UI 在核心接口稳定后才开始。
 - 类型名、方法签名、默认 10 轮和连续未知 3 次与 plan.md 一致。
 - 未包含权限、上下文压缩、交互式确认、持久化或新增工具任务。
+
+## 增量任务：解除默认 10 轮迭代上限（2026-08-03）
+
+### T28：移除默认迭代上限
+
+**文件：** `src/agent/types.ts`、`src/agent/loop.ts`、`src/agent/tool-scheduler.ts`、`src/agent/loop.test.ts`
+
+**步骤：**
+
+1. `AgentLoopOptions.maxIterations` 与 progress 事件改为可选。
+2. 删除 `DEFAULT_OPTIONS.maxIterations = 10`，循环条件支持无上限。
+3. 显式上限仍生效并保留 `max_iterations` 停止原因。
+4. 更新上限测试显式传 `maxIterations: 10`，新增默认无上限跨 10 轮完成测试。
+
+**验证：** loop 专项测试与 `pnpm check` 通过。

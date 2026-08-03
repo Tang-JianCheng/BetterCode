@@ -655,3 +655,11 @@ project/
 - 每种停止原因都有唯一入口和终止事件；普通工具失败与 Agent 失败明确分离。
 - Plan Mode 的工具暴露和执行拦截形成双重只读边界。
 - 本设计不包含权限审批、上下文压缩、交互式确认、持久化或新增工具。
+
+## 增量设计：解除默认 10 轮迭代上限（2026-08-03）
+
+- `AgentLoopOptions.maxIterations` 改为可选：`undefined` 表示不设上限。
+- `DEFAULT_OPTIONS` 不再包含 `maxIterations`；构造时仅在显式传入时归一化为至少 1。
+- 循环条件改为“未设置上限或当前轮小于等于上限”；达到显式上限时仍以 `max_iterations` 停止。
+- `AgentEvent.progress.maxIterations` 与 `ToolScheduleOptions.maxIterations` 改为可选；未设上限时 UI 活动指示只显示轮次，不显示 `/N`。
+- 子 Agent 定义中的显式 `max_iterations`、配置 `fork_max_iterations` 等既有显式限制不受影响。

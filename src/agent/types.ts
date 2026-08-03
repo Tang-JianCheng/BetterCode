@@ -57,7 +57,7 @@ export type AgentEvent = ContextEvent
   | {
       type: 'progress';
       iteration: number;
-      maxIterations: number;
+      maxIterations?: number;
       stage: AgentProgressStage;
       toolName?: string;
       toolCallId?: string;
@@ -71,7 +71,8 @@ export type AgentEvent = ContextEvent
     };
 
 export interface AgentLoopOptions {
-  maxIterations: number;
+  /** 未设置时表示不设迭代上限，由模型自然完成或其他停止条件结束 */
+  maxIterations?: number;
   unknownToolLimit: number;
 }
 
