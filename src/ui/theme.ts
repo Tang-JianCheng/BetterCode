@@ -11,11 +11,15 @@ export type ThemeColor =
   | 'white'
   | 'gray'
   | '#FFA500'
-  | '#B45309';
+  | '#B45309'
+  | '#FFB547'
+  | '#713F12';
 
 export interface BetterCodeTheme {
   brand: ThemeColor;
+  brandHighlight: ThemeColor;
   brandShadow: ThemeColor;
+  brandGhost: ThemeColor;
   accent: ThemeColor;
   text: ThemeColor;
   muted: ThemeColor;
@@ -29,7 +33,9 @@ export interface BetterCodeTheme {
 
 export const BETTERCODE_THEME: BetterCodeTheme = {
   brand: '#FFA500',
+  brandHighlight: '#FFB547',
   brandShadow: '#B45309',
+  brandGhost: '#713F12',
   accent: 'cyan',
   text: 'white',
   // 黑底终端下正文统一用白/灰白，弱化文字由 dimColor 叠加成灰白

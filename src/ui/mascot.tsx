@@ -1,29 +1,49 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import type { PresentationTone } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, toneColor } from './theme.js';
-import { Wordmark, wordmarkLines } from './wordmark.js';
+import { LogoRenderer, PixelLogo } from './startup-banner.js';
 
 export interface StartupBrandProps {
   capabilities: TerminalCapabilities;
   version: string;
 }
 
-export const bannerLines = wordmarkLines;
+export function bannerLines(capabilities: TerminalCapabilities): readonly string[] {
+  const availableWidth = Math.max(20, capabilities.columns - 2);
+  return new LogoRenderer({
+    width: availableWidth,
+    center: true,
+    animation: false,
+    unicode: capabilities.unicode,
+    scaleX: capabilities.unicode && availableWidth >= 100 ? 2 : 1,
+  }).render('BETTERCODE');
+}
 
 export function StartupBrand({ capabilities, version }: StartupBrandProps) {
+  const [revealed, setRevealed] = useState(!capabilities.motion);
+  useEffect(() => setRevealed(!capabilities.motion), [capabilities.motion]);
+  const revealDetails = useCallback(() => setRevealed(true), []);
+  const symbol = (unicode: string, ascii: string) => capabilities.unicode ? unicode : ascii;
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Wordmark capabilities={capabilities} />
-      <Box>
-        <Text bold color={capabilities.color ? BETTERCODE_THEME.brand : undefined}>BetterCode</Text>
-        <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}> v{version}</Text>
-        <Text color={capabilities.color ? BETTERCODE_THEME.accent : undefined}> · 小码准备好了</Text>
+    <Box flexDirection="column" marginBottom={1} width={Math.max(20, capabilities.columns - 2)}>
+      <PixelLogo capabilities={capabilities} onAnimationComplete={revealDetails} />
+      <Box flexDirection="column" alignItems="center" height={4} marginTop={1}>
+        <Text bold color={capabilities.color ? BETTERCODE_THEME.brandHighlight : undefined}>
+          {revealed ? `${symbol('✦', '*')} BetterCode Agent` : ' '}
+          {revealed ? <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}> v{version}</Text> : undefined}
+        </Text>
+        <Text color={capabilities.color ? BETTERCODE_THEME.accent : undefined}>
+          {revealed ? `${symbol('⚡', '>')} AI Coding Assistant` : ' '}
+        </Text>
+        <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
+          {revealed ? `${symbol('◉', 'o')} Model: DeepSeek` : ' '}
+        </Text>
+        <Text color={capabilities.color ? BETTERCODE_THEME.success : undefined}>
+          {revealed ? `${symbol('◉', 'o')} Ready` : ' '}
+        </Text>
       </Box>
-      <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-        把目标交给我，剩下的我们一起拆开做。
-      </Text>
     </Box>
   );
 }

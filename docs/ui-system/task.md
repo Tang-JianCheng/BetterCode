@@ -595,3 +595,21 @@ T22 + T23 + T24 -> T25
 ```
 
 T5、T6 和 T8 在各自依赖满足后可并行；T15 与 T17 共享交互和输入文件，应按编号串行；T18-T20 集中修改 `App`，必须串行执行，避免覆盖状态迁移。
+
+## T35：原创单体像素 Logo 与启动动画
+
+**文件：** `src/ui/startup-banner.tsx`、`src/ui/mascot.tsx`、`src/ui/theme.ts`、`src/ui/mascot.test.ts`、`package.json`、`pnpm-lock.yaml`
+
+**依赖：** T34
+
+**步骤：**
+
+1. 删除 `wordmark.tsx`，移除 `figlet` 与 `@types/figlet`，新增不依赖字体引擎的 `LogoRenderer`。
+2. 定义圆角 5×7 字模，以 4 列步长重叠相邻字符，并按九个错开高度计算真实连接路径。
+3. 按像素暴露方向渲染 `█▓▒░` 浮雕层次，共享列渲染明暗接缝，整个 Logo 外轮廓只使用四个圆角收边。
+4. 实现居中、动画开关、动画时长、Unicode/ASCII、横向缩放、逐行帧和 ANSI 差量帧 API。
+5. `StartupBrand` 在动画完成后显示 BetterCode Agent、AI Coding Assistant、DeepSeek 与 Ready 四行状态。
+6. 修复完成回调在状态更新函数中触发导致的 React 跨组件更新警告，并保证每轮动画只通知一次。
+7. 更新结构、动画、受控终端和降级测试，运行全量验证与真实 120 列启动检查。
+
+**验证：** mascot 专项测试、`pnpm check`、`git diff --check`、依赖残留扫描和真实 TUI 启动。

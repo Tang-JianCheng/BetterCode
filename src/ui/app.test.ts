@@ -285,7 +285,7 @@ test('主布局保持单一品牌和干净输入区，命令使用结构化展�
   await flushAppInput();
 
   const startupFrame = view.lastFrame() ?? '';
-  assert.equal(startupFrame.match(/BetterCode v0\.1\.0/gu)?.length, 1);
+  assert.equal(startupFrame.match(/BetterCode Agent v0\.1\.0/gu)?.length, 1);
   assert.doesNotMatch(startupFrame, /M deepseek\/deepseek-chat/u);
   assert.doesNotMatch(startupFrame, /MD DEFAULT/u);
   assert.doesNotMatch(startupFrame, /PM DEFAULT/u);
@@ -304,7 +304,7 @@ test('主布局保持单一品牌和干净输入区，命令使用结构化展�
   const clearedFrame = view.lastFrame() ?? '';
   assert.equal(dependencies.getClearCount(), 1);
   assert.doesNotMatch(clearedFrame, /\[HELP\] 命令目录/u);
-  assert.equal(clearedFrame.match(/BetterCode v0\.1\.0/gu)?.length, 1);
+  assert.equal(clearedFrame.match(/BetterCode Agent v0\.1\.0/gu)?.length, 1);
   assert.doesNotMatch(clearedFrame, /M deepseek\/deepseek-chat/u);
   assert.doesNotMatch(clearedFrame, /MD DEFAULT/u);
   assert.doesNotMatch(clearedFrame, /PM DEFAULT/u);
