@@ -21,6 +21,7 @@ const snapshots: Snapshot[] = [
 
 async function flushInput(): Promise<void> {
   await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
 }
 
 test('回滚支持检查点、恢复范围和方向键确认', async () => {

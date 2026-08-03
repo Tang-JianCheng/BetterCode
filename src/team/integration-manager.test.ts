@@ -25,8 +25,8 @@ function git(root: string, ...args: string[]): string {
 async function fixture(t: test.TestContext, validator?: IntegrationValidationRunner) {
   const root = mkdtempSync(path.join(tmpdir(), 'bettercode-integration-manager-'));
   const home = mkdtempSync(path.join(tmpdir(), 'bettercode-integration-home-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   git(root, 'init');
   git(root, 'config', 'user.name', 'BetterCode Test');
   git(root, 'config', 'user.email', 'bettercode@example.test');

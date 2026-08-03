@@ -116,6 +116,7 @@ function createAppDependencies() {
 
 async function flushAppInput(): Promise<void> {
   await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
 }
 
 test('MCP 启动状态成功或未配置时不增加聊天消息', () => {
