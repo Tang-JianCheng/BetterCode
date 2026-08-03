@@ -4,23 +4,23 @@ import type { TerminalCapabilities } from './capabilities.js';
 import { displayWidth } from './capabilities.js';
 import { BETTERCODE_THEME, type ThemeColor } from './theme.js';
 
-const GLYPH_WIDTH = 4;
-const GLYPH_STEP = 5;
+const GLYPH_WIDTH = 5;
+const GLYPH_STEP = 4;
 const GLYPH_HEIGHT = 7;
 const BETTERCODE = 'BETTERCODE';
 
 const PIXEL_GLYPHS: Record<string, readonly string[]> = {
-  B: ['1110', '1001', '1001', '1110', '1001', '1001', '1110'],
-  E: ['1111', '1000', '1000', '1110', '1000', '1000', '1111'],
-  T: ['1111', '0110', '0110', '0110', '0110', '0110', '0110'],
-  R: ['1110', '1001', '1001', '1110', '1010', '1001', '1001'],
-  C: ['0111', '1000', '1000', '1000', '1000', '1000', '0111'],
-  O: ['0110', '1001', '1001', '1001', '1001', '1001', '0110'],
-  D: ['1110', '1001', '1001', '1001', '1001', '1001', '1110'],
+  B: ['11110', '10001', '10001', '11110', '10001', '10001', '11110'],
+  E: ['11110', '10000', '10000', '11110', '10000', '10000', '11110'],
+  T: ['01110', '00100', '00100', '00100', '00100', '00100', '00100'],
+  R: ['11110', '10001', '10001', '11110', '10100', '10010', '10001'],
+  C: ['01110', '11000', '10000', '10000', '10000', '11000', '01110'],
+  O: ['01110', '11011', '10001', '10001', '10001', '11011', '01110'],
+  D: ['11110', '10001', '10001', '10001', '10001', '10001', '11110'],
 };
 
-// 暗色连接只穿过字间负空间，不改写高亮主笔画。
-const BETTERCODE_JOIN_ROWS = [1, 0, 0, 0, 6, 1, 6, 3, 5] as const;
+// 连接高度刻意错开，避免任何一行变成贯穿整词的辅助横梁。
+const BETTERCODE_JOIN_ROWS = [1, 6, 4, 2, 3, 1, 3, 2, 4] as const;
 
 export interface LogoRendererOptions {
   width?: number;
@@ -112,31 +112,12 @@ export class LogoRenderer {
         });
       });
     });
-    const bevelCells = new Set<string>();
-
-    // 圆角字模在相邻行错开一格时仅会对角接触，补一个暗色倒角让轮廓真正连通。
-    for (let row = 1; row < GLYPH_HEIGHT; row += 1) {
-      const upper = [...pixels[row - 1]];
-      const lower = [...pixels[row]];
-      for (let column = 0; column < rawWidth - 1; column += 1) {
-        if (upper[column] && lower[column + 1] && !lower[column] && !upper[column + 1]) {
-          pixels[row - 1][column + 1] = true;
-          bevelCells.add(`${row - 1}:${column + 1}`);
-        }
-        if (upper[column + 1] && lower[column] && !lower[column + 1] && !upper[column]) {
-          pixels[row - 1][column] = true;
-          bevelCells.add(`${row - 1}:${column}`);
-        }
-      }
-    }
-    const connectorCells = new Set<string>();
-
     const joins = characters.slice(0, -1).map((_, index) => {
       const row = normalized === BETTERCODE
         ? BETTERCODE_JOIN_ROWS[index]
         : (index * 2 + 3) % GLYPH_HEIGHT;
-      const leftColumn = (index * GLYPH_STEP + GLYPH_WIDTH) * this.options.scaleX;
-      const rightColumn = (index + 1) * GLYPH_STEP * this.options.scaleX - 1;
+      const leftColumn = (index + 1) * GLYPH_STEP * this.options.scaleX;
+      const rightColumn = leftColumn + this.options.scaleX - 1;
       const leftPixel = PIXEL_GLYPHS[characters[index]][row].lastIndexOf('1');
       const rightPixel = PIXEL_GLYPHS[characters[index + 1]][row].indexOf('1');
       if (leftPixel < 0 || rightPixel < 0) {
@@ -144,36 +125,30 @@ export class LogoRenderer {
       }
       const leftStroke = (index * GLYPH_STEP + leftPixel + 1) * this.options.scaleX - 1;
       const rightStroke = ((index + 1) * GLYPH_STEP + rightPixel) * this.options.scaleX;
-      const leftGlyphEdge = leftColumn - 1;
-      const rightGlyphEdge = rightColumn + 1;
-      for (let column = leftStroke; column <= leftGlyphEdge; column += 1) {
-        if (!pixels[row][column]) bevelCells.add(`${row}:${column}`);
-        pixels[row][column] = true;
-      }
-      for (let column = rightGlyphEdge; column <= rightStroke; column += 1) {
-        if (!pixels[row][column]) bevelCells.add(`${row}:${column}`);
-        pixels[row][column] = true;
-      }
-      for (let column = leftColumn; column <= rightColumn; column += 1) {
-        connectorCells.add(`${row}:${column}`);
-        pixels[row][column] = true;
-      }
+      const bridgeStart = Math.min(leftStroke, rightStroke);
+      const bridgeEnd = Math.max(leftStroke, rightStroke);
+      for (let column = bridgeStart; column <= bridgeEnd; column += 1) pixels[row][column] = true;
       return { row, leftColumn, rightColumn };
     });
 
     const isFilled = (row: number, column: number): boolean => pixels[row]?.[column] ?? false;
+    const sharedColumns = new Map<number, string>();
+    joins.forEach(({ leftColumn, rightColumn }) => {
+      sharedColumns.set(leftColumn, this.options.unicode ? '▒' : '#');
+      sharedColumns.set(rightColumn, this.options.unicode ? '░' : '#');
+    });
 
     const rawLines = pixels.map((row, rowIndex) => row.map((filled, columnIndex) => {
       if (!filled) return ' ';
       if (!this.options.unicode) return '#';
-      if (connectorCells.has(`${rowIndex}:${columnIndex}`)) return '░';
-      if (bevelCells.has(`${rowIndex}:${columnIndex}`)) return '▒';
+      const sharedEdge = sharedColumns.get(columnIndex);
+      if (sharedEdge) return sharedEdge;
       const topExposed = !isFilled(rowIndex - 1, columnIndex);
       const bottomExposed = !isFilled(rowIndex + 1, columnIndex);
       const rightExposed = !isFilled(rowIndex, columnIndex + 1);
       if (topExposed) return '▓';
       if (bottomExposed) return '▒';
-      if (rightExposed) return '▒';
+      if (rightExposed) return '░';
       return '█';
     }).join('').trimEnd()).map((line, rowIndex) => {
       if (!this.options.unicode || (rowIndex !== 0 && rowIndex !== GLYPH_HEIGHT - 1)) return line;
