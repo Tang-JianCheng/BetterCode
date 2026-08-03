@@ -205,10 +205,13 @@ export function InputBox({
     maxLabelWidth,
     Math.max(8, Math.floor((contentWidth - markerWidth) * 0.45)),
   );
-  const descriptionWidth = Math.max(
+  const commandGap = 4;
+  const descriptionColumnWidth = Math.max(
     8,
-    contentWidth - markerWidth - labelColumnWidth - 2,
+    contentWidth - markerWidth - labelColumnWidth - commandGap,
   );
+  const cursorChar = capabilities.unicode ? '█' : '_';
+  const showCursor = !disabled && focused;
   return (
     <Box flexDirection="column">
       <Text color={capabilities.color ? BETTERCODE_THEME.border : undefined}>
@@ -219,17 +222,26 @@ export function InputBox({
           {capabilities.unicode ? '❯' : '>'}{' '}
         </Text>
         <Text dimColor={disabled}>{disabled ? '等待当前操作完成…' : input}</Text>
+        {showCursor ? (
+          <Text bold color={capabilities.color ? BETTERCODE_THEME.accent : undefined}>
+            {cursorChar}
+          </Text>
+        ) : undefined}
       </Box>
       <Text color={capabilities.color ? BETTERCODE_THEME.border : undefined}>
         {border.repeat(contentWidth)}
       </Text>
       {visibleCompletionItems.map((item, index) => {
         const selected = index === completionIndex;
+        const truncatedDescription = truncateDisplay(item.description, descriptionColumnWidth, ellipsis);
+        const paddedDescription = `${' '.repeat(
+          Math.max(0, descriptionColumnWidth - displayWidth(truncatedDescription)),
+        )}${truncatedDescription}`;
         const rowText = [
           selected ? marker : '  ',
           padDisplay(item.label, labelColumnWidth, ellipsis),
-          '  ',
-          truncateDisplay(item.description, descriptionWidth, ellipsis),
+          ' '.repeat(commandGap),
+          paddedDescription,
         ].join('');
         return (
           <Box key={item.name} flexDirection="column" width={contentWidth}>
@@ -244,7 +256,7 @@ export function InputBox({
               {rowText}
             </Text>
             {selected ? (
-              <Box paddingLeft={markerWidth + labelColumnWidth + 2} width={contentWidth}>
+              <Box paddingLeft={markerWidth + labelColumnWidth + commandGap} width={contentWidth}>
                 <Text dimColor wrap="wrap" color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
                   {item.description}
                 </Text>

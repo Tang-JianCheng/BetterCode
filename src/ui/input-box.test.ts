@@ -120,7 +120,8 @@ test('候选面板位于输入框下方，左命令右描述', async () => {
   const permissionLine = lines.slice(borderIndexes[1] + 1)
     .find(line => line.includes('/permission'));
   assert.ok(permissionLine, '候选应出现在输入框下方');
-  assert.match(permissionLine ?? '', /查看或切换权限模式/u);
+  const descriptionIndex = permissionLine?.indexOf('查看或切换权限模式') ?? -1;
+  assert.ok(descriptionIndex >= 44, '描述应右对齐到面板右半区');
   assert.equal(displayWidth(permissionLine ?? '') <= 90, true);
   view.unmount();
 });
@@ -213,5 +214,42 @@ test('ASCII 模式不输出 Unicode 装饰', async () => {
   for (const line of frame.split('\n')) {
     assert.equal(displayWidth(line) <= 80, true, `行超过 80 列: ${line}`);
   }
+  view.unmount();
+});
+
+test('输入框聚焦时显示光标，禁用时隐藏', async () => {
+  const view = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    focused: true,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  assert.match(view.lastFrame() ?? '', /❯ █/u);
+  view.unmount();
+
+  const disabledView = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: true,
+    focused: true,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  assert.doesNotMatch(disabledView.lastFrame() ?? '', /█/u);
+  assert.match(disabledView.lastFrame() ?? '', /等待当前操作完成/u);
+  disabledView.unmount();
+});
+
+test('ASCII 模式光标使用下划线', async () => {
+  const view = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    focused: true,
+    capabilities: capabilities(80, false),
+  }));
+  await flushInput();
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /> _/u);
+  assert.doesNotMatch(frame, /█/u);
   view.unmount();
 });

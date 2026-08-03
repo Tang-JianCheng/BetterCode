@@ -483,6 +483,19 @@
 
 **验证：** `pnpm check` 退出码 0，`git diff --check` 通过。
 
+## T29：输入光标指示
+
+**文件：** `src/ui/input-box.tsx`、`src/ui/input-box.test.ts`
+
+**依赖：** T26
+
+**步骤：**
+
+1. 聚焦且可用时在输入文本末尾渲染 `█`（Unicode）或 `_`（ASCII）。
+2. 禁用或失焦时不渲染光标。
+
+**验证：** InputBox 专项测试。
+
 ## 执行顺序
 
 ```text
