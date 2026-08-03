@@ -540,6 +540,21 @@
 
 **验证：** mascot 专项测试、render-harness 55 列测试与全量 `pnpm check`。
 
+## T33：一体式像素字标
+
+**文件：** `src/ui/mascot.tsx`、`src/ui/mascot.test.ts`
+
+**依赖：** T32
+
+**步骤：**
+
+1. 以固定 69 列 × 7 行的 `CONNECTED_BANNER` 替换 ANSI Shadow 横幅，重新绘制可辨识的 BETTERCODE 字形。
+2. 使用共享顶部横梁和底部基线连接全部字母，避免直接删除字间空格导致字形错位。
+3. 将 Unicode 横幅阈值调整为 70 列，保留 ASCII 与窄屏降级路径。
+4. 增加像素四向连通性、固定基线、宽度和降级测试。
+
+**验证：** mascot 专项测试、全量 `pnpm check` 与 `git diff --check`。
+
 ## 执行顺序
 
 ```text

@@ -4,15 +4,16 @@ import type { PresentationTone } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, toneColor } from './theme.js';
 
-// 立体横幅：ANSI Shadow 风格的 BETTERCODE 字表，Unicode 完整宽度下固定 6 行。
-const BEVELED_BANNER = [
-  '██████╗ ███████╗████████╗████████╗███████╗██████╗  ██████╗ ██████╗ ██████╗ ███████╗',
-  '██╔══██╗██╔════╝╚══██╔══╝╚══██╔══╝██╔════╝██╔══██╗██╔════╝██╔═══██╗██╔══██╗██╔════╝',
-  '██████╔╝█████╗     ██║      ██║   █████╗  ██████╔╝██║     ██║   ██║██║  ██║█████╗  ',
-  '██╔══██╗██╔══╝     ██║      ██║   ██╔══╝  ██╔══██╗██║     ██║   ██║██║  ██║██╔══╝  ',
-  '██████╔╝███████╗   ██║      ██║   ███████╗██║  ██║╚██████╗╚██████╔╝██████╔╝███████╗',
-  '╚═════╝ ╚══════╝   ╚═╝      ╚═╝   ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝',
-] as const;
+// 一体式字标：共享顶部横梁和底部基线，所有非空像素组成一个连通图。
+const CONNECTED_BANNER = [
+  '██████▄██████▄██████▄██████▄██████▄██████▄██████▄██████▄██████▄██████',
+  '██  ██ ██       ██     ██   ██     ██  ██ ██     ██  ██ ██  ██ ██',
+  '█████  █████    ██     ██   █████  █████  ██     ██  ██ ██  ██ █████',
+  '██  ██ ██       ██     ██   ██     ██ ██  ██     ██  ██ ██  ██ ██',
+  '██  ██ ██       ██     ██   ██     ██  ██ ██     ██  ██ ██  ██ ██',
+  '██████ ██████   ██     ██   ██████ ██  ██ ██████ ██████ ██████ ██████',
+  '▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀',
+].map(line => line.padEnd(69, ' '));
 
 // 5 列宽 × 7 行高的像素字体，`#` 作为占位块，渲染时替换成 █ 或 ASCII 块。
 const PIXEL_FONT: Record<string, readonly string[]> = {
@@ -42,8 +43,8 @@ export interface StartupBrandProps {
 }
 
 export function bannerLines(capabilities: TerminalCapabilities): readonly string[] {
-  if (capabilities.unicode && capabilities.density !== 'narrow' && capabilities.columns >= 84) {
-    return BEVELED_BANNER;
+  if (capabilities.unicode && capabilities.density !== 'narrow' && capabilities.columns >= 70) {
+    return CONNECTED_BANNER;
   }
   const narrow = capabilities.density === 'narrow';
   const font = narrow ? PIXEL_FONT_NARROW : PIXEL_FONT;

@@ -534,6 +534,13 @@ src/
 - `bannerLines(capabilities)` 在 `unicode && !narrow && columns >= 84` 时直接返回 `BEVELED_BANNER`；其余环境继续走 `PIXEL_FONT`/`PIXEL_FONT_NARROW` 平面像素字降级。
 - 立体横幅行宽约 83 列，84 列及以上终端均可完整容纳；80 列及以下终端与 55 列 ASCII 环境不受影响。
 
+## 增量：一体式像素字标
+
+- 以 `CONNECTED_BANNER` 替换 `BEVELED_BANNER`，直接维护一张 69 列 × 7 行固定像素画布，避免运行时拼接字母造成空隙或宽度漂移。
+- 顶行用 `█` 与 `▄` 构成连续共享横梁，末行用 `▀` 构成统一基线；字母主体全部连接到横梁或基线，保证整张图只有一个连通区域。
+- `bannerLines` 的 Unicode 启用阈值从 84 列收窄到 70 列；ASCII 和窄屏仍复用 `PIXEL_FONT` / `PIXEL_FONT_NARROW`。
+- 单测除行数、宽度和降级断言外，新增四向 BFS 连通性验证，防止字标被错误裁剪或局部断开。
+
 ## 风险与约束
 
 - Ink 是流式终端渲染器，不是浏览器布局引擎；必须以稳定文本宽度和有限层级设计，不能依赖像素级定位。
