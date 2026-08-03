@@ -12,8 +12,14 @@ const modern = {
 test('启动品牌渲染像素文字横幅与 BetterCode 信息', () => {
   assert.equal(bannerLines(modern).length, 6);
   assert.equal(bannerLines({ ...modern, columns: 55, density: 'narrow' }).length, 5);
-  assert.equal(bannerLines(modern).every(line => displayWidth(line) <= 80), true);
+  assert.equal(bannerLines({ ...modern, columns: 90, density: 'compact' }).length, 6);
+  assert.equal(bannerLines({ ...modern, columns: 80, density: 'compact' }).length, 7);
+  assert.equal(bannerLines(modern).every(line => displayWidth(line) <= 120), true);
   assert.equal(bannerLines(modern).every(line => /[█╗╔╚╝═]/u.test(line)), true);
+  assert.equal(
+    bannerLines(modern).join('\n').includes('██████╗ ███████╗████████╗████████╗'),
+    true,
+  );
   assert.equal(bannerLines({
     ...modern, columns: 55, density: 'narrow', unicode: false,
   }).every(line => !/[█╭╰●▄]/u.test(line)), true);

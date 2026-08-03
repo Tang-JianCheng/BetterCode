@@ -534,9 +534,9 @@
 
 **步骤：**
 
-1. 新增 `BEVELED_BANNER` 六行常量，按用户给定的 `█╗╔╚╝═║` 立体版式渲染 BETTERCODE。
-2. `bannerLines` 在 Unicode 且非窄屏时返回 `BEVELED_BANNER`，其余环境保留平面像素字降级。
-3. 更新测试：立体横幅 6 行、每行不超过 80 列、包含 `█╗╔╚╝═` 字符；ASCII/窄屏断言不变。
+1. 新增 `BEVELED_BANNER` 六行常量，按 ANSI Shadow 字表以 `█╗╔╚╝═║` 立体版式完整渲染 BETTERCODE。
+2. `bannerLines` 在 Unicode 且宽度不小于 84 列时返回 `BEVELED_BANNER`，其余环境保留平面像素字降级。
+3. 更新测试：立体横幅 6 行、每行不超过 120 列、包含 `█╗╔╚╝═` 字符且首行确为 BETTERCODE 字表；ASCII/窄屏断言不变。
 
 **验证：** mascot 专项测试、render-harness 55 列测试与全量 `pnpm check`。
 

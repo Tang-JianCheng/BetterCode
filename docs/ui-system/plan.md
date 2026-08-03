@@ -530,9 +530,9 @@ src/
 
 ## 增量：立体横幅
 
-- 新增 `BEVELED_BANNER` 常量：按用户给定的立体版式固定 6 行，直接渲染「BETTERCODE」。
-- `bannerLines(capabilities)` 在 `unicode && !narrow` 时直接返回 `BEVELED_BANNER`；其余环境继续走 `PIXEL_FONT`/`PIXEL_FONT_NARROW` 平面像素字降级。
-- 立体横幅行宽约 75 列，80/120 列终端均可完整容纳；55 列 ASCII 环境不受影响。
+- 新增 `BEVELED_BANNER` 常量：按 ANSI Shadow 字表固定 6 行，完整渲染「BETTERCODE」。
+- `bannerLines(capabilities)` 在 `unicode && !narrow && columns >= 84` 时直接返回 `BEVELED_BANNER`；其余环境继续走 `PIXEL_FONT`/`PIXEL_FONT_NARROW` 平面像素字降级。
+- 立体横幅行宽约 83 列，84 列及以上终端均可完整容纳；80 列及以下终端与 55 列 ASCII 环境不受影响。
 
 ## 风险与约束
 

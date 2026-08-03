@@ -4,14 +4,14 @@ import type { PresentationTone } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, toneColor } from './theme.js';
 
-// 立体横幅：带棱角的 Unicode 像素字，BETTERCODE 固定 6 行，按用户给定的版式原样呈现。
+// 立体横幅：ANSI Shadow 风格的 BETTERCODE 字表，Unicode 完整宽度下固定 6 行。
 const BEVELED_BANNER = [
-  '███████╗ ██████╗ ██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗',
-  '██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝',
-  '█████╗  ██║   ██║██████╔╝██║  ███╗█████╗  ██║     ██║   ██║██║  ██║█████╗  ',
-  '██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝  ██║     ██║   ██║██║  ██║██╔══╝  ',
-  '██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗╚██████╗╚██████╔╝██████╔╝███████╗',
-  '╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝',
+  '██████╗ ███████╗████████╗████████╗███████╗██████╗  ██████╗ ██████╗ ██████╗ ███████╗',
+  '██╔══██╗██╔════╝╚══██╔══╝╚══██╔══╝██╔════╝██╔══██╗██╔════╝██╔═══██╗██╔══██╗██╔════╝',
+  '██████╔╝█████╗     ██║      ██║   █████╗  ██████╔╝██║     ██║   ██║██║  ██║█████╗  ',
+  '██╔══██╗██╔══╝     ██║      ██║   ██╔══╝  ██╔══██╗██║     ██║   ██║██║  ██║██╔══╝  ',
+  '██████╔╝███████╗   ██║      ██║   ███████╗██║  ██║╚██████╗╚██████╔╝██████╔╝███████╗',
+  '╚═════╝ ╚══════╝   ╚═╝      ╚═╝   ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝',
 ] as const;
 
 // 5 列宽 × 7 行高的像素字体，`#` 作为占位块，渲染时替换成 █ 或 ASCII 块。
@@ -42,7 +42,7 @@ export interface StartupBrandProps {
 }
 
 export function bannerLines(capabilities: TerminalCapabilities): readonly string[] {
-  if (capabilities.unicode && capabilities.density !== 'narrow') {
+  if (capabilities.unicode && capabilities.density !== 'narrow' && capabilities.columns >= 84) {
     return BEVELED_BANNER;
   }
   const narrow = capabilities.density === 'narrow';
