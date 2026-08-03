@@ -38,14 +38,29 @@ test('启动品牌渲染一体式像素文字横幅与 BetterCode 信息', () =>
   assert.equal(bannerLines({ ...modern, columns: 55, density: 'narrow' }).length, 5);
   assert.equal(bannerLines({ ...modern, columns: 90, density: 'compact' }).length, 7);
   assert.equal(bannerLines({ ...modern, columns: 80, density: 'compact' }).length, 7);
-  assert.equal(bannerLines(modern).every(line => displayWidth(line) === 69), true);
-  assert.match(bannerLines(modern)[0], /^██████▄██████▄/u);
-  assert.match(bannerLines(modern)[6], /^▀{69}$/u);
+  assert.equal(bannerLines(modern).every(line => displayWidth(line) === 60), true);
+  assert.equal(bannerLines(modern).every(line => !/[▄▀╗╔╚╝═║]/u.test(line)), true);
+  assert.equal(bannerLines(modern).some(line => !line.includes(' ')), false);
+  assert.match(bannerLines(modern)[0], /^█████ █████  ████/u);
+  assert.match(bannerLines(modern)[3], /^█████ ██████  ██/u);
   const pixels = bannerLines(modern).reduce(
     (total, line) => total + [...line].filter(character => character !== ' ').length,
     0,
   );
   assert.equal(connectedPixelCount(bannerLines(modern)), pixels);
+  for (let letter = 0; letter < 'BETTERCODE'.length; letter += 1) {
+    const glyph = bannerLines(modern).map(line => line.slice(letter * 6, (letter + 1) * 6));
+    const glyphPixels = glyph.reduce(
+      (total, line) => total + [...line].filter(character => character !== ' ').length,
+      0,
+    );
+    assert.equal(connectedPixelCount(glyph), glyphPixels);
+  }
+  for (let boundary = 6; boundary < 60; boundary += 6) {
+    assert.equal(bannerLines(modern).some(
+      line => line[boundary - 1] !== ' ' && line[boundary] !== ' ',
+    ), true);
+  }
   assert.equal(bannerLines({
     ...modern, columns: 55, density: 'narrow', unicode: false,
   }).every(line => !/[█╭╰●▄]/u.test(line)), true);

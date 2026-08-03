@@ -4,16 +4,16 @@ import type { PresentationTone } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, toneColor } from './theme.js';
 
-// 一体式字标：共享顶部横梁和底部基线，所有非空像素组成一个连通图。
+// 一体式字标：只由字形自身的笔画相接，不使用贯穿整词的装饰横线。
 const CONNECTED_BANNER = [
-  '██████▄██████▄██████▄██████▄██████▄██████▄██████▄██████▄██████▄██████',
-  '██  ██ ██       ██     ██   ██     ██  ██ ██     ██  ██ ██  ██ ██',
-  '█████  █████    ██     ██   █████  █████  ██     ██  ██ ██  ██ █████',
-  '██  ██ ██       ██     ██   ██     ██ ██  ██     ██  ██ ██  ██ ██',
-  '██  ██ ██       ██     ██   ██     ██  ██ ██     ██  ██ ██  ██ ██',
-  '██████ ██████   ██     ██   ██████ ██  ██ ██████ ██████ ██████ ██████',
-  '▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀',
-].map(line => line.padEnd(69, ' '));
+  '█████ █████  ████  ████ █████ █████  ██████████ █████ █████',
+  '██  ████      ██    ██  ██    ██  ████    ██  ████  ████',
+  '██  ████      ██    ██  ██    ██  ████    ██  ████  ████',
+  '█████ ██████  ██    ██  ██████████████    ██  ████  ████████',
+  '██  ████      ██    ██  ██    ██ ██ ██    ██  ████  ████',
+  '██  ████      ██    ██  ██    ██  ████    ██  ████  ████',
+  '█████ ██████████████████████████  ██ ██████████ ████████████',
+].map(line => line.padEnd(60, ' '));
 
 // 5 列宽 × 7 行高的像素字体，`#` 作为占位块，渲染时替换成 █ 或 ASCII 块。
 const PIXEL_FONT: Record<string, readonly string[]> = {
@@ -43,7 +43,7 @@ export interface StartupBrandProps {
 }
 
 export function bannerLines(capabilities: TerminalCapabilities): readonly string[] {
-  if (capabilities.unicode && capabilities.density !== 'narrow' && capabilities.columns >= 70) {
+  if (capabilities.unicode && capabilities.density !== 'narrow' && capabilities.columns >= 60) {
     return CONNECTED_BANNER;
   }
   const narrow = capabilities.density === 'narrow';

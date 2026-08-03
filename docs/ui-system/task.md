@@ -555,6 +555,21 @@
 
 **验证：** mascot 专项测试、全量 `pnpm check` 与 `git diff --check`。
 
+## T34：移除横梁并重绘自然共边字标
+
+**文件：** `src/ui/mascot.tsx`、`src/ui/mascot.test.ts`
+
+**依赖：** T33
+
+**步骤：**
+
+1. 删除贯穿全部字母的顶部横梁和底部基线，重绘固定 60 列 × 7 行 BETTERCODE 字模。
+2. 不添加字间分隔列，让相邻字母仅通过自身笔画在不同高度直接共边。
+3. 将 Unicode 横幅阈值调整为 60 列，保持窄屏与 ASCII 降级路径不变。
+4. 更新固定宽度、禁用辅助线字符、四向连通和降级测试。
+
+**验证：** mascot 专项测试、全量 `pnpm check` 与 `git diff --check`。
+
 ## 执行顺序
 
 ```text
