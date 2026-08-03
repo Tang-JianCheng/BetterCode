@@ -8,6 +8,7 @@ import type {
 } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
 import { displayWidth, padDisplay, truncateDisplay } from './capabilities.js';
+import { MarkdownView } from './markdown-view.js';
 import { MascotMark } from './mascot.js';
 import { BETTERCODE_THEME, TONE_LABELS, toneColor } from './theme.js';
 
@@ -80,6 +81,13 @@ function ConversationView({
   item: Extract<PresentationItem, { kind: 'conversation' }>;
   capabilities: TerminalCapabilities;
 }) {
+  if (item.role === 'assistant' && item.markdown) {
+    return (
+      <Box flexDirection="column" marginBottom={1}>
+        <MarkdownView ast={item.markdown} capabilities={capabilities} thinking={item.thinking} />
+      </Box>
+    );
+  }
   return (
     <Box flexDirection="column" marginBottom={1}>
       {item.thinking ? (

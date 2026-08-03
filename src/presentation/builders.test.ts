@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { parseMarkdown } from '../markdown/parser.js';
 import { createConversation, createDocument, createNotice } from './builders.js';
 
 test('展示构造器保留合法结构与对话原文', () => {
@@ -18,6 +19,10 @@ test('展示构造器保留合法结构与对话原文', () => {
 
   const content = '  第一行\n第二行  ';
   assert.equal(createConversation({ role: 'assistant', content }).content, content);
+  const markdown = parseMarkdown('# 标题\n\n正文');
+  const rendered = createConversation({ role: 'assistant', content, markdown });
+  assert.equal(rendered.markdown, markdown);
+  assert.equal(rendered.content, content);
   assert.deepEqual(createNotice({ tone: 'success', title: ' 完成 ', details: [] }), {
     kind: 'notice', tone: 'success', title: '完成', message: undefined, details: undefined,
   });

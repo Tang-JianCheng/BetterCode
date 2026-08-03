@@ -34,6 +34,7 @@ import type { SkillManager } from '../skill/manager.js';
 import type { SkillDiagnostic } from '../skill/types.js';
 import type { AgentDefinitionDiagnostic, SubAgentEvent } from '../subagent/types.js';
 import { formatTaskDetail, formatTaskList } from '../subagent/format.js';
+import { tryParseMarkdown } from '../markdown/parser.js';
 import { createConversation, createNotice } from '../presentation/builders.js';
 import type { PresentationItem, PresentationTone } from '../presentation/types.js';
 import { InputBox } from './input-box.js';
@@ -54,6 +55,14 @@ export const COMMAND_REGISTRY = createDefaultCommandRegistry();
 export const HELP_TEXT = formatCommandHelp(COMMAND_REGISTRY);
 
 let presentationSequence = 0;
+
+function conversationText(value: string): string {
+  try {
+    return String(value);
+  } catch {
+    return '';
+  }
+}
 
 function identifyPresentation(item: PresentationItem): DisplayMessage {
   presentationSequence += 1;
@@ -400,14 +409,36 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     try {
       const result = chatManager.rewind(action.snapshotIndex, action.mode);
       if (action.mode !== 'code_only') {
-        const restored = result.history.flatMap(message => {
+        const restoredEntries = result.history.flatMap(message => {
           if (message.role !== 'user' && message.role !== 'assistant') return [];
-          return [identifyPresentation(createConversation({
-            role: message.role,
-            content: message.content,
-          }))];
+          if (message.role === 'user') {
+            return [{
+              item: identifyPresentation(createConversation({
+                role: 'user',
+                content: message.content,
+              })),
+              recovered: false,
+            }];
+          }
+          const parsed = tryParseMarkdown(message.content);
+          return [{
+            item: identifyPresentation(createConversation({
+              role: 'assistant',
+              content: parsed.recovered ? conversationText(message.content) : message.content,
+              ...(parsed.recovered ? {} : { markdown: parsed.ast }),
+            })),
+            recovered: parsed.recovered,
+          }];
         });
-        setMessages(restored);
+        setMessages(restoredEntries.map(entry => entry.item));
+        const recoveredCount = restoredEntries.filter(entry => entry.recovered).length;
+        if (recoveredCount > 0) {
+          appendNotice(
+            'Markdown 解析失败',
+            `回滚恢复的助手消息中有 ${recoveredCount} 条按纯文本展示原文。`,
+            'warning',
+          );
+        }
       }
       const detail = result.changedFiles.length > 0
         ? `，恢复文件 ${result.changedFiles.length} 个: ${result.changedFiles.join(', ')}`
@@ -419,7 +450,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     } finally {
       setRewindDialogActive(false);
     }
-  }, [appendAssistant, chatManager]);
+  }, [appendAssistant, appendNotice, chatManager]);
 
   const consumeAgentStream = useCallback(async (
     eventStream: AsyncIterable<AgentEvent>,
@@ -522,11 +553,22 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
       const finalThinking = thinkingRef.current;
       const completedMessages: DisplayMessage[] = [];
       if (finalText) {
+        const parsed = tryParseMarkdown(finalText);
+        const content = parsed.recovered ? conversationText(finalText) : finalText;
         completedMessages.push(identifyPresentation(createConversation({
           role: 'assistant',
-          content: finalText,
+          content,
+          ...(parsed.recovered ? {} : { markdown: parsed.ast }),
           ...(finalThinking ? { thinking: finalThinking } : {}),
         })));
+        if (parsed.recovered) {
+          completedMessages.push(identifyPresentation(createNotice({
+            tone: 'warning',
+            title: 'Markdown 解析失败',
+            message: '该条回复已按纯文本展示原文。',
+            source: 'agent',
+          })));
+        }
       }
       const stopMessage = terminal ? STOP_MESSAGES[terminal.reason] : undefined;
       const errorMessage = lastError || stopMessage;
@@ -627,11 +669,32 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     const restored = await chatManager.resumeSession(sessionId);
     const visible = restored.filter((message): message is Extract<typeof message, { role: 'user' | 'assistant' }> =>
       message.role === 'user' || message.role === 'assistant');
+    const restoredEntries = visible.map(message => {
+      if (message.role === 'user') {
+        return {
+          item: identifyPresentation(createConversation({ role: 'user', content: message.content })),
+          recovered: false,
+        };
+      }
+      const parsed = tryParseMarkdown(message.content);
+      return {
+        item: identifyPresentation(createConversation({
+          role: 'assistant',
+          content: parsed.recovered ? conversationText(message.content) : message.content,
+          ...(parsed.recovered ? {} : { markdown: parsed.ast }),
+        })),
+        recovered: parsed.recovered,
+      };
+    });
+    const recoveredCount = restoredEntries.filter(entry => entry.recovered).length;
     setMessages([
-      ...visible.map(message => identifyPresentation(createConversation({
-        role: message.role,
-        content: message.content,
-      }))),
+      ...restoredEntries.map(entry => entry.item),
+      ...(recoveredCount > 0 ? [identifyPresentation(createNotice({
+        tone: 'warning',
+        title: 'Markdown 解析失败',
+        message: `恢复的助手消息中有 ${recoveredCount} 条按纯文本展示原文。`,
+        source: 'system',
+      }))] : []),
       identifyPresentation(createNotice({
         tone: 'success',
         title: '会话已恢复',

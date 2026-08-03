@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 import { render } from 'ink-testing-library';
+import type { AgentEvent } from '../agent/types.js';
 import type { ChatManager } from '../chat/manager.js';
-import type { LLMProvider } from '../provider/types.js';
+import type { Snapshot } from '../filehistory/filehistory.js';
+import type { LLMProvider, Message } from '../provider/types.js';
 import type { SkillManager } from '../skill/manager.js';
 import {
   App,
@@ -18,11 +20,25 @@ import {
   formatSessionList,
   formatStatus,
   HELP_TEXT,
-} from './app.js';
+  } from './app.js';
+
+function emptyAgentStream(): AsyncIterable<AgentEvent> {
+  return (async function* emptyStream() {
+    yield { type: 'stopped', reason: 'completed', iterations: 0, finalText: '' };
+  })();
+}
 
 function createAppDependencies() {
   let clearCount = 0;
   let promptHistory: string[] = [];
+  let agentStream: AsyncIterable<AgentEvent> = emptyAgentStream();
+  let resumedMessages: Message[] = [];
+  let snapshots: Snapshot[] = [];
+  let rewindResult: {
+    snapshot: Snapshot;
+    changedFiles: string[];
+    history: Message[];
+  } | undefined;
   const unsubscribe = () => undefined;
   const chatManager = {
     getPermissionStatus: () => ({
@@ -31,7 +47,7 @@ function createAppDependencies() {
       diagnostics: [],
     }),
     getPromptHistory: () => [...promptHistory],
-    getSnapshots: () => [],
+    getSnapshots: () => snapshots,
     subscribeMemorySaved: () => unsubscribe,
     subscribeSubAgent: () => unsubscribe,
     subscribeTeam: () => unsubscribe,
@@ -50,6 +66,12 @@ function createAppDependencies() {
     clear: async () => {
       clearCount += 1;
       promptHistory = [];
+    },
+    run: () => agentStream,
+    resumeSession: async () => resumedMessages,
+    rewind: () => {
+      if (!rewindResult) throw new Error('未配置回滚结果');
+      return rewindResult;
     },
     hasForegroundSubAgent: () => false,
   } as unknown as ChatManager;
@@ -72,7 +94,24 @@ function createAppDependencies() {
     contextWindowIsDefault: false,
     async chat() {},
   };
-  return { chatManager, skillManager, provider, getClearCount: () => clearCount };
+  return {
+    chatManager,
+    skillManager,
+    provider,
+    getClearCount: () => clearCount,
+    setAgentStream: (stream: AsyncIterable<AgentEvent>) => {
+      agentStream = stream;
+    },
+    setResumedMessages: (messages: Message[]) => {
+      resumedMessages = messages;
+    },
+    setSnapshots: (value: Snapshot[]) => {
+      snapshots = value;
+    },
+    setRewindResult: (value: { snapshot: Snapshot; changedFiles: string[]; history: Message[] }) => {
+      rewindResult = value;
+    },
+  };
 }
 
 async function flushAppInput(): Promise<void> {
@@ -267,5 +306,134 @@ test('主布局保持单一品牌和核心底栏，命令使用结构化展示',
   assert.match(clearedFrame, /M deepseek\/deepseek-chat/u);
   assert.match(clearedFrame, /MD DEFAULT/u);
   assert.match(clearedFrame, /PM DEFAULT/u);
+  view.unmount();
+});
+
+test('流式期间保持纯文本，流结束后最终回复渲染 Markdown', async () => {
+  let releaseStream = () => {};
+  const dependencies = createAppDependencies();
+  dependencies.setAgentStream((async function* controlledStream() {
+    yield { type: 'text_delta', iteration: 0, content: '[链接](https://example.com)' };
+    await new Promise<void>(resolve => {
+      releaseStream = resolve;
+    });
+    yield {
+      type: 'stopped',
+      reason: 'completed',
+      iterations: 0,
+      finalText: '# 标题\n\n[链接](https://example.com)\n\n- 项目',
+    };
+  })());
+
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('你好');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  const streamingFrame = view.lastFrame() ?? '';
+  assert.match(streamingFrame, /\[链接\]\(https:\/\/example\.com\)/u);
+  assert.doesNotMatch(streamingFrame, /链接 \(https:\/\/example\.com\)/u);
+
+  releaseStream();
+  await flushAppInput();
+  await flushAppInput();
+  const finalFrame = view.lastFrame() ?? '';
+  assert.match(finalFrame, /# 标题/u);
+  assert.match(finalFrame, /链接 \(https:\/\/example\.com\)/u);
+  assert.match(finalFrame, /- 项目/u);
+  assert.doesNotMatch(finalFrame, /\[链接\]\(https:\/\/example\.com\)/u);
+  view.unmount();
+});
+
+test('Markdown 解析失败时保留原文并显示受控提示', async () => {
+  let parseCalls = 0;
+  const brokenText = {
+    toString() {
+      parseCalls += 1;
+      if (parseCalls === 1) throw new Error('解析失败');
+      return '# 标题';
+    },
+  } as unknown as string;
+  const dependencies = createAppDependencies();
+  dependencies.setAgentStream((async function* brokenStream() {
+    yield { type: 'stopped', reason: 'completed', iterations: 0, finalText: brokenText };
+  })());
+
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('任务');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /Markdown 解析失败/u);
+  assert.match(frame, /# 标题/u);
+  view.unmount();
+});
+
+test('恢复会话时助手消息渲染 Markdown，用户消息保持纯文本', async () => {
+  const dependencies = createAppDependencies();
+  dependencies.setResumedMessages([
+    { role: 'user', content: '[链接](https://example.com)' },
+    { role: 'assistant', content: '# 标题\n\n[链接](https://example.com)' },
+  ]);
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('/session abc-12345678');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /# 标题/u);
+  assert.match(frame, /链接 \(https:\/\/example\.com\)/u);
+  assert.match(frame, /\[链接\]\(https:\/\/example\.com\)/u);
+  assert.match(frame, /会话已恢复/u);
+  view.unmount();
+});
+
+test('回滚恢复的助手消息渲染 Markdown', async () => {
+  const dependencies = createAppDependencies();
+  const snapshot: Snapshot = {
+    messageIndex: 1,
+    userText: '第一次修改',
+    backups: {},
+    timestamp: '2026-08-02T08:00:00.000Z',
+  };
+  dependencies.setSnapshots([snapshot]);
+  dependencies.setRewindResult({
+    snapshot,
+    changedFiles: [],
+    history: [
+      { role: 'user', content: '任务' },
+      { role: 'assistant', content: '# 标题\n\n[链接](https://example.com)' },
+    ],
+  });
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('/rewind');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /选择回滚检查点/u);
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /选择恢复范围/u);
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /# 标题/u);
+  assert.match(frame, /链接 \(https:\/\/example\.com\)/u);
+  assert.match(frame, /已回滚到/u);
   view.unmount();
 });

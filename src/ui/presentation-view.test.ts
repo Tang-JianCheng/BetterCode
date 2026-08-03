@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React from 'react';
 import { render } from 'ink-testing-library';
+import { parseMarkdown } from '../markdown/parser.js';
 import { createConversation, createDocument, createNotice } from '../presentation/builders.js';
 import { PresentationView, formatBlockLines } from './presentation-view.js';
 import { displayWidth, type TerminalCapabilities } from './capabilities.js';
@@ -40,6 +41,31 @@ test('普通对话保持轻量，通知和命令文档保持明确层级', () =>
   }));
   assert.match(document.lastFrame() ?? '', /\[HELP\] 命令目录.*模式: PLAN/su);
   document.unmount();
+});
+
+test('助手消息携带 markdown 时渲染 Markdown，用户消息保持纯文本', () => {
+  const content = '# 标题\n\n[链接](https://example.com)';
+  const assistant = render(React.createElement(PresentationView, {
+    item: createConversation({
+      role: 'assistant',
+      content,
+      markdown: parseMarkdown(content),
+    }),
+    capabilities: capabilities(100),
+  }));
+  assert.match(assistant.lastFrame() ?? '', /# 标题/u);
+  assert.match(assistant.lastFrame() ?? '', /链接 \(https:\/\/example\.com\)/u);
+  assistant.unmount();
+
+  const user = render(React.createElement(PresentationView, {
+    item: createConversation({ role: 'user', content }),
+    capabilities: capabilities(100),
+  }));
+  const userFrame = user.lastFrame() ?? '';
+  assert.match(userFrame, /❯ # 标题/u);
+  assert.match(userFrame, /\[链接\]\(https:\/\/example\.com\)/u);
+  assert.doesNotMatch(userFrame, /链接 \(https:\/\/example\.com\)/u);
+  user.unmount();
 });
 
 test('表格在三档宽度内保持有界并在窄屏转逐项布局', () => {
