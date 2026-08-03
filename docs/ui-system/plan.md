@@ -504,6 +504,13 @@ src/
 
 所有功能需求均有明确模块归属，不存在未覆盖项。
 
+## 增量：移除底栏与统一文字色
+
+- 删除 `status-bar.tsx` 和 `status-bar.test.ts`；`App` 不再构造 `StatusBarState`，不再渲染 `StatusBar`。
+- 移除仅用于底栏刷新的 `statusVersion`、本地 `agentMode` 与 `permissionMode` 展示状态；`agentModeRef` 和 `ChatManager` 的权限状态仍作为唯一业务事实源。
+- `theme.ts` 将 `muted` 调整为白色，弱化层级由组件叠加 `dimColor` 实现，保证黑底终端下正文为白/灰白。
+- `/status` 展示器继续提供分组运行信息，作为按需查询入口。
+
 ## 风险与约束
 
 - Ink 是流式终端渲染器，不是浏览器布局引擎；必须以稳定文本宽度和有限层级设计，不能依赖像素级定位。

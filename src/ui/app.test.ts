@@ -279,16 +279,17 @@ test('MCP 启动状态只展示脱敏诊断字段和准确安全边界', () => {
   assert.match(message ?? '', /外部 MCP Server 不受 BetterCode 文件沙箱或危险命令黑名单强制保护/);
 });
 
-test('主布局保持单一品牌和核心底栏，命令使用结构化展示', async () => {
+test('主布局保持单一品牌和干净输入区，命令使用结构化展示', async () => {
   const dependencies = createAppDependencies();
   const view = render(React.createElement(App, dependencies));
   await flushAppInput();
 
   const startupFrame = view.lastFrame() ?? '';
   assert.equal(startupFrame.match(/BetterCode v0\.1\.0/gu)?.length, 1);
-  assert.match(startupFrame, /M deepseek\/deepseek-chat/u);
-  assert.match(startupFrame, /MD DEFAULT/u);
-  assert.match(startupFrame, /PM DEFAULT/u);
+  assert.doesNotMatch(startupFrame, /M deepseek\/deepseek-chat/u);
+  assert.doesNotMatch(startupFrame, /MD DEFAULT/u);
+  assert.doesNotMatch(startupFrame, /PM DEFAULT/u);
+  assert.doesNotMatch(startupFrame, /SESSION/u);
 
   view.stdin.write('/help');
   await flushAppInput();
@@ -304,9 +305,10 @@ test('主布局保持单一品牌和核心底栏，命令使用结构化展示',
   assert.equal(dependencies.getClearCount(), 1);
   assert.doesNotMatch(clearedFrame, /\[HELP\] 命令目录/u);
   assert.equal(clearedFrame.match(/BetterCode v0\.1\.0/gu)?.length, 1);
-  assert.match(clearedFrame, /M deepseek\/deepseek-chat/u);
-  assert.match(clearedFrame, /MD DEFAULT/u);
-  assert.match(clearedFrame, /PM DEFAULT/u);
+  assert.doesNotMatch(clearedFrame, /M deepseek\/deepseek-chat/u);
+  assert.doesNotMatch(clearedFrame, /MD DEFAULT/u);
+  assert.doesNotMatch(clearedFrame, /PM DEFAULT/u);
+  assert.doesNotMatch(clearedFrame, /SESSION/u);
   view.unmount();
 });
 

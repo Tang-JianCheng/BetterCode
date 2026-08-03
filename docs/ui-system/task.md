@@ -441,6 +441,48 @@
 
 **验证：** `pnpm check`、UI 专项矩阵、静态扫描和 `git diff --check` 均以退出码 0 完成，手工场景无终端残留状态。
 
+## T26：移除底部状态栏
+
+**文件：** `src/ui/status-bar.tsx`、`src/ui/status-bar.test.ts`、`src/ui/app.tsx`、`src/ui/app.test.ts`、`src/ui/render-harness.test.ts`
+
+**依赖：** T19
+
+**步骤：**
+
+1. 删除 `status-bar.tsx` 与 `status-bar.test.ts`。
+2. 删除 `App` 中的 `StatusBar` 渲染、`StatusBarState` 收集及仅用于底栏刷新的本地状态。
+3. 更新 App 与受控终端测试，断言启动帧不再包含模型/模式/权限/会话状态文本。
+
+**验证：** `pnpm exec tsx --test src/ui/app.test.ts src/ui/render-harness.test.ts`。
+
+## T27：统一黑底文字色
+
+**文件：** `src/ui/theme.ts`
+
+**依赖：** T26
+
+**步骤：**
+
+1. `muted` 改为白色，弱化层级由 `dimColor` 叠加实现。
+2. 保留品牌色、提示符与语义色的少量使用，不用于普通正文。
+
+**验证：** `pnpm typecheck` 与 UI 专项测试。
+
+## T28：增量验收与中文提交
+
+**文件：** 本次增量涉及的全部文件
+
+**依赖：** T26、T27
+
+**步骤：**
+
+1. 运行 `pnpm check`。
+2. 检查启动帧无底栏状态文本，彩色终端普通文字为白/灰白。
+3. 更新 `checklist.md` 增量条目并记录证据。
+4. 使用中文 Git 提交信息创建检查点。
+
+**验证：** `pnpm check` 退出码 0，`git diff --check` 通过。
+
 ## 执行顺序
 
 ```text

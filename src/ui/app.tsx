@@ -43,7 +43,6 @@ import { PermissionPrompt } from './permission-prompt.js';
 import { RewindDialog, type RewindAction } from './rewind-dialog.js';
 import { detectTerminalCapabilities, terminalEnvironmentFromProcess } from './capabilities.js';
 import { StartupBrand } from './mascot.js';
-import { StatusBar, type StatusBarState } from './status-bar.js';
 import {
   ActivityIndicator,
   type ActivityStage,
@@ -282,13 +281,10 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
   const [isStreaming, setIsStreaming] = useState(false);
   const [activity, setActivity] = useState<ActivityState | undefined>();
   const [usage, setUsage] = useState<TokenUsage | undefined>();
-  const [permissionMode, setPermissionMode] = useState(initialPermissionStatus.mode);
-  const [agentMode, setAgentModeState] = useState<AgentMode>('act');
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | undefined>();
   const [promptHistory, setPromptHistory] = useState(() => chatManager.getPromptHistory());
   const [rewindSnapshots, setRewindSnapshots] = useState(() => chatManager.getSnapshots());
   const [rewindDialogActive, setRewindDialogActive] = useState(false);
-  const [statusVersion, setStatusVersion] = useState(0);
   const [skillRevision, setSkillRevision] = useState(() => skillManager.getSnapshot().revision);
 
   const commandRegistry = useMemo(() => {
@@ -311,7 +307,6 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     if (!key.ctrl) return;
     if (input.toLowerCase() === 'b' && isStreaming) {
       chatManager.backgroundCurrentSubAgent();
-      setStatusVersion(version => version + 1);
       return;
     }
     if (input.toLowerCase() === 'c') {
@@ -338,7 +333,6 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
 
   const setAgentMode = useCallback((mode: AgentMode) => {
     agentModeRef.current = mode;
-    setAgentModeState(mode);
   }, []);
 
   useEffect(() => chatManager.subscribeMemorySaved(names => {
@@ -348,12 +342,10 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
   useEffect(() => chatManager.subscribeSubAgent(event => {
     const message = formatSubAgentEvent(event);
     if (message) appendNotice('子 Agent', message, event.type === 'task_finished' ? 'success' : 'info');
-    setStatusVersion(version => version + 1);
   }), [appendNotice, chatManager]);
 
   useEffect(() => chatManager.subscribeTeam(event => {
     appendNotice('团队动态', event.summary, 'info');
-    setStatusVersion(version => version + 1);
   }), [appendNotice, chatManager]);
 
   useEffect(() => skillManager.subscribe(snapshot => {
@@ -716,7 +708,6 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
       return;
     }
     chatManager.setPermissionMode(mode);
-    setPermissionMode(mode);
     appendNotice('权限模式已切换', mode, 'success');
   }, [appendNotice, appendPresentation, chatManager]);
 
@@ -776,7 +767,6 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     appendPresentation(buildTextCommandPresentation(
       '团队管理', await chatManager.manageTeam(args), 'TEAM',
     ));
-    setStatusVersion(version => version + 1);
   }, [appendPresentation, chatManager]);
 
   const commandUi = useMemo<CommandUIController>(() => ({
@@ -787,7 +777,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     setAgentMode,
     getAgentMode: () => agentModeRef.current,
     getTokenUsage: () => usage,
-    refreshStatus: () => setStatusVersion(version => version + 1),
+    refreshStatus: () => undefined,
     clearConversation,
     compactConversation,
     showOrResumeSession,
@@ -823,32 +813,6 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     const result = await commandDispatcher.dispatch(input, commandUi);
     if (result.status === 'not_command') await sendAgentMessage(input);
   }, [chatManager, commandDispatcher, commandUi, sendAgentMessage]);
-
-  void statusVersion;
-  const statusTasks = chatManager.listSubAgentTasks();
-  const currentTeamStatus = chatManager.getTeamStatus();
-  const currentTeam = currentTeamStatus.team as { name?: string } | undefined;
-  const currentCoordinator = currentTeamStatus.coordinator as { active?: boolean } | undefined;
-  const statusBarState: StatusBarState = {
-    providerName: provider.name,
-    model: provider.model,
-    agentMode,
-    permissionMode,
-    usage,
-    contextWindow: provider.contextWindow,
-    sessionId: chatManager.getSessionId(),
-    activeSkills: skillManager.getActiveNames(),
-    backgroundTasks: statusTasks.filter(task => task.executionMode === 'background' &&
-      (task.state === 'waiting' || task.state === 'running')).length,
-    ...(currentTeamStatus.active === true && currentTeam?.name ? {
-      team: {
-        name: currentTeam.name,
-        coordinator: currentCoordinator?.active === true,
-        pendingApprovals: Number(currentTeamStatus.pendingApprovals ?? 0),
-        unreadMessages: Number(currentTeamStatus.unreadMessages ?? 0),
-      },
-    } : {}),
-  };
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1}>
@@ -899,7 +863,6 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
           focused={!rewindDialogActive && !permissionRequest}
         />
       )}
-      <StatusBar state={statusBarState} capabilities={capabilities} />
     </Box>
   );
 }

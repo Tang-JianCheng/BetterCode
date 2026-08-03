@@ -6,7 +6,6 @@ import { render } from 'ink-testing-library';
 import { detectTerminalCapabilities, displayWidth } from './capabilities.js';
 import { InputBox } from './input-box.js';
 import { StartupBrand } from './mascot.js';
-import { StatusBar } from './status-bar.js';
 
 function assertFrameWidth(frame: string, columns: number): void {
   for (const line of frame.split('\n')) {
@@ -29,24 +28,9 @@ test('受控终端帧可注入宽度和降级环境并安全卸载', () => {
       disabled: false,
       onSubmit: () => undefined,
     }),
-    React.createElement(StatusBar, {
-      capabilities,
-      state: {
-        providerName: 'deepseek',
-        model: '中文模型-with-a-long-name',
-        agentMode: 'plan',
-        permissionMode: 'strict',
-        sessionId: 'session-12345678',
-        activeSkills: [],
-        backgroundTasks: 0,
-      },
-    }),
   ));
   const frame = view.lastFrame() ?? '';
   assertFrameWidth(frame, 55);
   assert.doesNotMatch(frame, /[╭╰─❯●◇◆▲]/u);
-  assert.match(frame, /M deepseek/u);
-  assert.match(frame, /MD PLAN/u);
-  assert.match(frame, /PM STRICT/u);
   view.unmount();
 });

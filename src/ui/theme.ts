@@ -28,7 +28,8 @@ export const BETTERCODE_THEME: BetterCodeTheme = {
   brand: 'magenta',
   accent: 'cyan',
   text: 'white',
-  muted: 'gray',
+  // 黑底终端下正文统一用白/灰白，弱化文字由 dimColor 叠加成灰白
+  muted: 'white',
   border: 'gray',
   success: 'green',
   info: 'cyan',
