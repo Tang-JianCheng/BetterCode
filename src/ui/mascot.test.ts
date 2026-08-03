@@ -50,13 +50,19 @@ test('自定义像素模板形成整体连通的 BETTERCODE Logo', () => {
   const connected = renderer.layout('BETTERCODE');
   assert.equal(connected.lines.length, 7);
   assert.deepEqual(connected.lines, BETTERCODE_LOGO_TEMPLATE);
-  assert.equal(connected.contentWidth, 80);
+  assert.equal(connected.contentWidth, 98);
   assert.equal(connected.lines.every(line => /^[ █▓▒░╭╮╰╯]*$/u.test(line)), true);
   assert.equal(connected.joins.length, 9);
   for (const join of connected.joins) {
     const row = [...connected.lines[join.row]];
-    assert.equal(row[join.leftColumn], '▒');
+    assert.equal(row[join.leftColumn], '░');
     assert.equal(row[join.rightColumn], '░');
+    connected.lines.forEach((line, rowIndex) => {
+      if (rowIndex === join.row) return;
+      const boundary = [...line];
+      assert.equal(boundary[join.leftColumn], ' ');
+      assert.equal(boundary[join.rightColumn], ' ');
+    });
   }
   assert.equal(connectedComponentCount(connected.lines), 1);
   assert.equal(connected.lines.some(line => /^[█▓▒░]+$/u.test(line.trim())), false);
@@ -100,7 +106,7 @@ test('LogoRenderer 支持居中、逐行动画和 ANSI 差量帧', () => {
   });
   const lines = renderer.render();
   assert.equal(lines.every(line => displayWidth(line) <= 120), true);
-  assert.equal(lines[0].startsWith(' '.repeat(10)), true);
+  assert.equal(lines[0].match(/^ */u)?.[0].length, 11);
   const frames = renderer.animationFrames();
   assert.equal(frames.length, 15);
   assert.equal(frames[0].every(line => line.trim() === ''), true);

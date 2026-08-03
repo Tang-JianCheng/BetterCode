@@ -613,3 +613,19 @@ T5、T6 和 T8 在各自依赖满足后可并行；T15 与 T17 共享交互和�
 7. 更新结构、动画、受控终端和降级测试，运行全量验证与真实 120 列启动检查。
 
 **验证：** mascot 专项测试、`pnpm check`、`git diff --check`、依赖残留扫描和真实 TUI 启动。
+
+## T36：修正启动 Logo 可读性
+
+**文件：** `src/ui/startup-banner.tsx`、`src/ui/mascot.test.ts`、`docs/ui-system/spec.md`、`docs/ui-system/plan.md`、`docs/ui-system/task.md`、`docs/ui-system/checklist.md`
+
+**依赖：** T35
+
+**步骤：**
+
+1. 将重叠字模改为带独立字间负空间的 4×7 字模，宽屏输出固定为 98 列。
+2. 限制连接器只写入字间空隙，并把连接层降为 `░`，避免覆盖主笔画和字腔。
+3. 对圆角行间错位补低亮 `▒` 倒角，保证字形自身及完整 Logo 都是四向连通图。
+4. 更新结构测试，锁定连接行、非连接行空白、整体宽度、居中位置和单连通分量。
+5. 运行 UI 专项测试、全量检查和 120 列真彩终端手工验收。
+
+**验证：** 19 项 UI 专项测试、`pnpm check`、`git diff --check` 与真实 TUI 启动。
