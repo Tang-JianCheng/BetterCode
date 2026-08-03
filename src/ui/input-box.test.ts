@@ -100,7 +100,32 @@ test('输入 / 自动打开面板并随输入实时过滤', async () => {
   view.unmount();
 });
 
-test('未聚焦行短描述，聚焦行展示完整描述并保持宽度有界', async () => {
+test('候选面板位于输入框下方，左命令右描述', async () => {
+  const view = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    complete,
+    capabilities: capabilities(90),
+  }));
+  await flushInput();
+  view.stdin.write('/');
+  await flushInput();
+  const lines = (view.lastFrame() ?? '').split('\n');
+  const borderIndexes = lines
+    .map((line, index) => (/^[─-]+$/u.test(line) ? index : -1))
+    .filter(index => index >= 0);
+  assert.equal(borderIndexes.length, 2, '输入框应有且仅有上下两条边框');
+  const promptIndex = lines.findIndex(line => line.includes('❯ /'));
+  assert.ok(promptIndex > borderIndexes[0] && promptIndex < borderIndexes[1], '提示行应在输入框内部');
+  const permissionLine = lines.slice(borderIndexes[1] + 1)
+    .find(line => line.includes('/permission'));
+  assert.ok(permissionLine, '候选应出现在输入框下方');
+  assert.match(permissionLine ?? '', /查看或切换权限模式/u);
+  assert.equal(displayWidth(permissionLine ?? '') <= 90, true);
+  view.unmount();
+});
+
+test('未聚焦行短描述，聚焦行命令与描述同行高亮并展示完整内容', async () => {
   const view = render(React.createElement(InputBox, {
     onSubmit: () => undefined,
     disabled: false,
@@ -115,7 +140,9 @@ test('未聚焦行短描述，聚焦行展示完整描述并保持宽度有界',
   view.stdin.write('\u001B[B');
   await flushInput();
   const frame = view.lastFrame() ?? '';
-  assert.match(frame, /mew-spec/u);
+  const mewLine = frame.split('\n').find(line => line.includes('/mew-spec'));
+  assert.ok(mewLine, '聚焦行应包含命令名');
+  assert.match(mewLine ?? '', /启动功能/u, '聚焦行应同时包含描述');
   assert.match(frame, /启动功能、模块或系统性优化时先创建四份规格文档/u);
   for (const line of frame.split('\n')) {
     assert.equal(displayWidth(line) <= 120, true, `行超过 120 列: ${line}`);

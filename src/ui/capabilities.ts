@@ -79,8 +79,8 @@ export function truncateDisplay(
   return `${result}${marker}`;
 }
 
-export function padDisplay(value: string, width: number): string {
-  const content = truncateDisplay(value, Math.max(0, width));
+export function padDisplay(value: string, width: number, ellipsis = '…'): string {
+  const content = truncateDisplay(value, Math.max(0, width), ellipsis);
   return `${content}${' '.repeat(Math.max(0, width - displayWidth(content)))}`;
 }
 

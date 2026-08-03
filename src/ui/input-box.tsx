@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { useInput } from 'ink';
 import type { CommandCompletion } from '../command/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
-import { detectTerminalCapabilities, displayWidth, truncateDisplay } from './capabilities.js';
+import { detectTerminalCapabilities, displayWidth, padDisplay, truncateDisplay } from './capabilities.js';
 import { BETTERCODE_THEME } from './theme.js';
 
 interface Props {
@@ -191,11 +191,28 @@ export function InputBox({
   );
 
   const visibleCompletionItems = completionItems.slice(0, capabilities.density === 'narrow' ? 4 : 8);
+  // 应用层会在左右各留 1 列内边距，边框与面板按实际内容宽度排版
+  const contentWidth = Math.max(8, capabilities.columns - 2);
   const border = capabilities.unicode ? '─' : '-';
+  const marker = capabilities.unicode ? '❯ ' : '> ';
+  const ellipsis = capabilities.unicode ? '…' : '...';
+  const markerWidth = displayWidth(marker);
+  const maxLabelWidth = visibleCompletionItems.reduce(
+    (max, item) => Math.max(max, displayWidth(item.label)),
+    0,
+  );
+  const labelColumnWidth = Math.min(
+    maxLabelWidth,
+    Math.max(8, Math.floor((contentWidth - markerWidth) * 0.45)),
+  );
+  const descriptionWidth = Math.max(
+    8,
+    contentWidth - markerWidth - labelColumnWidth - 2,
+  );
   return (
     <Box flexDirection="column">
       <Text color={capabilities.color ? BETTERCODE_THEME.border : undefined}>
-        {border.repeat(Math.max(8, capabilities.columns))}
+        {border.repeat(contentWidth)}
       </Text>
       <Box>
         <Text bold color={capabilities.color ? BETTERCODE_THEME.accent : undefined}>
@@ -203,39 +220,39 @@ export function InputBox({
         </Text>
         <Text dimColor={disabled}>{disabled ? '等待当前操作完成…' : input}</Text>
       </Box>
-      {visibleCompletionItems.map((item, index) => (
-        <Box key={item.name} flexDirection="column" width={capabilities.columns}>
-          <Box>
+      <Text color={capabilities.color ? BETTERCODE_THEME.border : undefined}>
+        {border.repeat(contentWidth)}
+      </Text>
+      {visibleCompletionItems.map((item, index) => {
+        const selected = index === completionIndex;
+        const rowText = [
+          selected ? marker : '  ',
+          padDisplay(item.label, labelColumnWidth, ellipsis),
+          '  ',
+          truncateDisplay(item.description, descriptionWidth, ellipsis),
+        ].join('');
+        return (
+          <Box key={item.name} flexDirection="column" width={contentWidth}>
             <Text
-              bold={index === completionIndex}
-              inverse={index === completionIndex && capabilities.color}
+              bold={selected}
+              inverse={selected}
+              dimColor={!selected}
               color={capabilities.color
-                ? index === completionIndex ? BETTERCODE_THEME.selected : BETTERCODE_THEME.muted
+                ? selected ? BETTERCODE_THEME.selected : BETTERCODE_THEME.muted
                 : undefined}
             >
-              {index === completionIndex ? capabilities.unicode ? '❯ ' : '> ' : '  '}
-              {item.label}
+              {rowText}
             </Text>
-            {index !== completionIndex ? (
-              <Text dimColor color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-                {'  '}
-                {truncateDisplay(
-                  item.description,
-                  Math.max(8, capabilities.columns - displayWidth(`  ${item.label}  `) - 2),
-                  capabilities.unicode ? '…' : '...',
-                )}
-              </Text>
+            {selected ? (
+              <Box paddingLeft={markerWidth + labelColumnWidth + 2} width={contentWidth}>
+                <Text dimColor wrap="wrap" color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
+                  {item.description}
+                </Text>
+              </Box>
             ) : undefined}
           </Box>
-          {index === completionIndex ? (
-            <Box paddingLeft={2} width={capabilities.columns}>
-              <Text dimColor wrap="wrap" color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-                {item.description}
-              </Text>
-            </Box>
-          ) : undefined}
-        </Box>
-      ))}
+        );
+      })}
       {completionItems.length > visibleCompletionItems.length ? (
         <Text dimColor>  还有 {completionItems.length - visibleCompletionItems.length} 个候选</Text>
       ) : undefined}
