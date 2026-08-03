@@ -13,7 +13,7 @@ function git(root: string, ...args: string[]): string {
 
 function fixture(t: test.TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), 'bettercode-integration-git-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   git(root, 'init');
   git(root, 'config', 'user.name', 'BetterCode Test');
   git(root, 'config', 'user.email', 'bettercode@example.test');
@@ -34,7 +34,7 @@ test('集成 Git 客户端读取状态并完成无冲突合并和快进', async 
   const commit = git(root, 'rev-parse', 'HEAD');
   git(root, 'checkout', mainBranch);
   const integration = path.join(path.dirname(root), `${path.basename(root)}-worktree`);
-  t.after(() => rmSync(integration, { recursive: true, force: true }));
+  t.after(() => rmSync(integration, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   git(root, 'worktree', 'add', '-b', 'integration', integration, base);
   assert.equal((await client.merge(integration, commit)).ok, true);
   const next = await client.fastForward(root, 'integration', base);
@@ -52,7 +52,7 @@ test('集成 Git 客户端暴露冲突并支持解决后继续', async t => {
   writeFileSync(path.join(root, 'base.txt'), 'lead\n');
   git(root, 'commit', '-am', 'Lead 修改');
   const integration = path.join(path.dirname(root), `${path.basename(root)}-conflict`);
-  t.after(() => rmSync(integration, { recursive: true, force: true }));
+  t.after(() => rmSync(integration, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   git(root, 'worktree', 'add', '-b', 'integration-conflict', integration, 'HEAD');
   const merged = await client.merge(integration, memberCommit);
   assert.equal(merged.ok, false);

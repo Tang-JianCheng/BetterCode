@@ -17,7 +17,7 @@ function git(root: string, ...args: string[]): string {
 
 async function fixture(t: test.TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), 'bettercode-worktree-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   git(root, 'init');
   git(root, 'config', 'user.name', 'BetterCode Test');
   git(root, 'config', 'user.email', 'bettercode@example.test');
@@ -83,7 +83,7 @@ test('Worktree Manager 活动租约保护和快速恢复不调用 Git', async t 
 test('Worktree Manager 保护未推送提交并在推送后允许删除', async t => {
   const { root, manager } = await fixture(t);
   const remote = mkdtempSync(path.join(tmpdir(), 'bettercode-worktree-remote-'));
-  t.after(() => rmSync(remote, { recursive: true, force: true }));
+  t.after(() => rmSync(remote, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   git(remote, 'init', '--bare');
   git(root, 'remote', 'add', 'origin', remote);
   const lease = await manager.acquire('reviewer/sa-push');

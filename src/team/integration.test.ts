@@ -57,7 +57,7 @@ function git(root: string, ...args: string[]): string {
 
 function createGitRoot(t: test.TestContext): string {
   const root = mkdtempSync(path.join(tmpdir(), 'bettercode-team-e2e-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   git(root, 'init');
   git(root, 'config', 'user.name', 'BetterCode Test');
   git(root, 'config', 'user.email', 'bettercode@example.test');
@@ -132,7 +132,7 @@ async function execute(
 test('长期协程团队完成消息、审批、Worktree 隔离和上下文恢复', async t => {
   const root = createGitRoot(t);
   const home = mkdtempSync(path.join(tmpdir(), 'bettercode-team-home-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   const worktrees = await createWorktrees(t, root);
   const guard = new TeamPathGuard(home);
   const repository = new TeamRepository(guard);
@@ -262,7 +262,7 @@ test('长期协程团队完成消息、审批、Worktree 隔离和上下文恢�
 
 test('重启代次和 Coordinator 双锁共同保持恢复与权限边界', async t => {
   const home = mkdtempSync(path.join(tmpdir(), 'bettercode-team-restart-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   const guard = new TeamPathGuard(home);
   const repository = new TeamRepository(guard);
   const team = repository.create({ name: 'alpha', repositoryId: 'repo', projectRoot: '/repo' }).team;
@@ -323,7 +323,7 @@ test('重启代次和 Coordinator 双锁共同保持恢复与权限边界', asyn
 test('真实 Git 集成只在事务全部成功后更新 Lead', async t => {
   const root = createGitRoot(t);
   const home = mkdtempSync(path.join(tmpdir(), 'bettercode-team-git-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   const worktrees = await createWorktrees(t, root);
   const guard = new TeamPathGuard(home);
   const repository = new TeamRepository(guard);

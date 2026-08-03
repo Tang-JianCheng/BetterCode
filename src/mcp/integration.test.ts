@@ -20,7 +20,7 @@ function makeFixture(t: test.TestContext): { root: string; home: string } {
   const home = path.join(base, 'home');
   mkdirSync(root);
   mkdirSync(home);
-  t.after(() => rmSync(base, { recursive: true, force: true }));
+  t.after(() => rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
   return { root, home };
 }
 
