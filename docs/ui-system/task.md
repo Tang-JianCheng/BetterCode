@@ -555,6 +555,22 @@
 
 **验证：** mascot 专项测试、render-harness 55 列测试、全量 `pnpm check` 与 `git diff --check`。
 
+## T34：整体连通的立体字标
+
+**文件：** `src/ui/wordmark.tsx`、`src/ui/theme.ts`、`src/ui/mascot.test.ts`
+
+**依赖：** T33
+
+**步骤：**
+
+1. 将 Slant 整词渲染替换为 ANSI Shadow 逐字形渲染，保留每个字形的固定宽度和六行立体轮廓。
+2. 在九个边界的错开行建立局部双单元亮面连接；连接前校验两侧实体，异常时回退同款静态快照。
+3. 为主题增加深橘阴影色，`Wordmark` 将块面与箱线斜面分段着色。
+4. 调整宽屏、80 列、ASCII 和窄屏选择策略，保证最大 83 列不换行。
+5. 更新测试，验证九处连接、单连通分量、立体字符、无纯横梁、字体异常回退与三档终端降级。
+
+**验证：** `pnpm typecheck`、全量 `pnpm test`、`pnpm check` 与 `git diff --check`。
+
 ## 执行顺序
 
 ```text
