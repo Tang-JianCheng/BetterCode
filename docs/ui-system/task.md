@@ -540,35 +540,20 @@
 
 **验证：** mascot 专项测试、render-harness 55 列测试与全量 `pnpm check`。
 
-## T33：一体式像素字标
+## T33：FIGfont 连贯字标组件
 
-**文件：** `src/ui/mascot.tsx`、`src/ui/mascot.test.ts`
+**文件：** `src/ui/wordmark.tsx`、`src/ui/mascot.tsx`、`src/ui/mascot.test.ts`、`package.json`
 
 **依赖：** T32
 
 **步骤：**
 
-1. 以固定 69 列 × 7 行的 `CONNECTED_BANNER` 替换 ANSI Shadow 横幅，重新绘制可辨识的 BETTERCODE 字形。
-2. 使用共享顶部横梁和底部基线连接全部字母，避免直接删除字间空格导致字形错位。
-3. 将 Unicode 横幅阈值调整为 70 列，保留 ASCII 与窄屏降级路径。
-4. 增加像素四向连通性、固定基线、宽度和降级测试。
+1. 引入 `figlet`，新增独立 `Wordmark` 组件并用 Slant controlled smushing 生成 BETTERCODE。
+2. 将宽屏字标的生成、缓存、宽度判断和回退逻辑迁出 `mascot.tsx`。
+3. 64 列以上非窄屏使用 5 行 ASCII 斜体字标，窄屏保持原紧凑像素字，FIGfont 失败回退预生成的同款 Slant 快照。
+4. 更新字体特征、宽度、ASCII 兼容、窄屏、字体异常回退和启动帧测试。
 
-**验证：** mascot 专项测试、全量 `pnpm check` 与 `git diff --check`。
-
-## T34：移除横梁并重绘自然共边字标
-
-**文件：** `src/ui/mascot.tsx`、`src/ui/mascot.test.ts`
-
-**依赖：** T33
-
-**步骤：**
-
-1. 删除贯穿全部字母的顶部横梁和底部基线，重绘固定 60 列 × 7 行 BETTERCODE 字模。
-2. 不添加字间分隔列，让相邻字母仅通过自身笔画在不同高度直接共边。
-3. 将 Unicode 横幅阈值调整为 60 列，保持窄屏与 ASCII 降级路径不变。
-4. 更新固定宽度、禁用辅助线字符、四向连通和降级测试。
-
-**验证：** mascot 专项测试、全量 `pnpm check` 与 `git diff --check`。
+**验证：** mascot 专项测试、render-harness 55 列测试、全量 `pnpm check` 与 `git diff --check`。
 
 ## 执行顺序
 

@@ -3,69 +3,19 @@ import { Box, Text } from 'ink';
 import type { PresentationTone } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, toneColor } from './theme.js';
-
-// 一体式字标：只由字形自身的笔画相接，不使用贯穿整词的装饰横线。
-const CONNECTED_BANNER = [
-  '█████ █████  ████  ████ █████ █████  ██████████ █████ █████',
-  '██  ████      ██    ██  ██    ██  ████    ██  ████  ████',
-  '██  ████      ██    ██  ██    ██  ████    ██  ████  ████',
-  '█████ ██████  ██    ██  ██████████████    ██  ████  ████████',
-  '██  ████      ██    ██  ██    ██ ██ ██    ██  ████  ████',
-  '██  ████      ██    ██  ██    ██  ████    ██  ████  ████',
-  '█████ ██████████████████████████  ██ ██████████ ████████████',
-].map(line => line.padEnd(60, ' '));
-
-// 5 列宽 × 7 行高的像素字体，`#` 作为占位块，渲染时替换成 █ 或 ASCII 块。
-const PIXEL_FONT: Record<string, readonly string[]> = {
-  B: ['#####', '#   #', '#   #', '#####', '#   #', '#   #', '#####'],
-  E: ['#####', '#    ', '#    ', '#####', '#    ', '#    ', '#####'],
-  T: ['#####', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  '],
-  R: ['#####', '#   #', '#   #', '#####', '##   ', '# #  ', '#  # '],
-  C: ['#### ', '#    ', '#    ', '#    ', '#    ', '#    ', '#### '],
-  O: [' ### ', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '],
-  D: ['#####', '#   #', '#   #', '#   #', '#   #', '#   #', '#####'],
-};
-
-// 3 列宽 × 5 行高的窄屏像素字体。
-const PIXEL_FONT_NARROW: Record<string, readonly string[]> = {
-  B: ['###', '# #', '###', '# #', '###'],
-  E: ['###', '#  ', '###', '#  ', '###'],
-  T: ['###', ' # ', ' # ', ' # ', ' # '],
-  R: ['###', '# #', '###', '# #', '#  '],
-  C: ['###', '#  ', '#  ', '#  ', '###'],
-  O: ['###', '# #', '# #', '# #', '###'],
-  D: ['## ', '# #', '# #', '# #', '## '],
-};
+import { Wordmark, wordmarkLines } from './wordmark.js';
 
 export interface StartupBrandProps {
   capabilities: TerminalCapabilities;
   version: string;
 }
 
-export function bannerLines(capabilities: TerminalCapabilities): readonly string[] {
-  if (capabilities.unicode && capabilities.density !== 'narrow' && capabilities.columns >= 60) {
-    return CONNECTED_BANNER;
-  }
-  const narrow = capabilities.density === 'narrow';
-  const font = narrow ? PIXEL_FONT_NARROW : PIXEL_FONT;
-  const block = capabilities.unicode ? '█' : '#';
-  const rows = narrow ? 5 : 7;
-  const letters = 'BETTERCODE';
-  return Array.from({ length: rows }, (_, row) =>
-    letters.split('').map(letter => font[letter][row].replaceAll('#', block)).join(' '),
-  );
-}
+export const bannerLines = wordmarkLines;
 
 export function StartupBrand({ capabilities, version }: StartupBrandProps) {
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Box flexDirection="column">
-        {bannerLines(capabilities).map((line, index) => (
-          <Text key={`${index}-${line}`} color={capabilities.color ? BETTERCODE_THEME.brand : undefined}>
-            {line}
-          </Text>
-        ))}
-      </Box>
+      <Wordmark capabilities={capabilities} />
       <Box>
         <Text bold color={capabilities.color ? BETTERCODE_THEME.brand : undefined}>BetterCode</Text>
         <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}> v{version}</Text>
