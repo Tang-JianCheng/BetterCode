@@ -2,7 +2,7 @@
 providers:
   - name: deepseek-v4
     protocol: openai
-    model: deepseek-v4-pro
+    model: deepseek-v4-flash
     context_window: 128000
     base_url: https://api.deepseek.com
     api_key: sk-d2d51cbfd6e24d89a311e534b5350063

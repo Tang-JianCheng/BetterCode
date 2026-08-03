@@ -29,7 +29,7 @@ UI 层 (Ink/React) → Chat 层 (Manager) → Provider 层 (抽象接口) → Co
 
 - **HTTP/SSE**: 零依赖，用 Node.js 内置 `fetch` + `ReadableStream` 自解析 SSE
 - **Provider 接口**: `chat(messages: Message[], onEvent: (e: StreamEvent) => void)` — 回调发 `text_delta | thinking_delta | error | done` 四种事件
-- **DeepSeek**: 走 OpenAI 协议（API 完全兼容），`base_url=https://api.deepseek.com`，`model=deepseek-v4-pro`
+- **DeepSeek**: 走 OpenAI 协议（API 完全兼容），`base_url=https://api.deepseek.com`，`model=deepseek-v4-flash`
 - **配置格式**: YAML，6 字段 (`name`/`protocol`/`model`/`base_url`/`api_key`/`thinking`)，支持 `${ENV_VAR}` 占位
 - **供应商选择优先级**: `--provider` 命令行 > `default: true` 标记 > 交互式选择
 - **依赖**: 3 运行时 (`ink`, `react`, `yaml`) + 4 开发 (`typescript`, `tsx`, `@types/react`, `@types/node`)，总计 1037 行代码
@@ -78,7 +78,7 @@ interface AppConfig {
 providers:
   - name: deepseek-v4
     protocol: openai
-    model: deepseek-v4-pro
+    model: deepseek-v4-flash
     base_url: https://api.deepseek.com
     api_key: sk-xxx
     default: true
