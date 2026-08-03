@@ -40,6 +40,7 @@ test('补全支持别名前缀、稳定多候选并排除隐藏命令', () => {
   registry.register(command('rewind', [], true));
   assert.deepEqual(registry.complete('/ses').map(item => item.name), ['session']);
   assert.deepEqual(registry.complete('/r').map(item => item.name), ['session', 'review']);
+  assert.deepEqual(registry.complete('/ses')[0]?.aliases, ['resume', 'r']);
   assert.equal(registry.complete('/rew').some(item => item.name === 'rewind'), false);
   assert.deepEqual(registry.complete('普通输入'), []);
   assert.deepEqual(registry.complete('/session arg'), []);

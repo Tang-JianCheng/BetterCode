@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { useInput } from 'ink';
 import type { CommandCompletion } from '../command/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
-import { detectTerminalCapabilities } from './capabilities.js';
+import { detectTerminalCapabilities, displayWidth, truncateDisplay } from './capabilities.js';
 import { BETTERCODE_THEME } from './theme.js';
 
 interface Props {
@@ -76,6 +76,13 @@ export function moveCompletionIndex(
     : (current + 1) % itemCount;
 }
 
+function exactCommandMatch(input: string, item: CommandCompletion): boolean {
+  const token = input.trim();
+  if (!token.startsWith('/') || /\s/u.test(token)) return false;
+  const name = token.slice(1).toLowerCase();
+  return name === item.name || item.aliases.some(alias => alias === name);
+}
+
 /**
  * 输入框组件——捕获用户键盘输入。
  * 支持：Backspace 删除、Enter 提交、普通字符输入。
@@ -106,16 +113,31 @@ export function InputBox({
 
       if (key.escape && completionItems.length > 0) {
         clearCompletion();
+        return;
       } else if (key.tab && complete) {
         const resolution = resolveCompletion(input, complete(input));
         setInput(resolution.input);
         setCompletionItems(resolution.items);
         setCompletionIndex(resolution.selectedIndex);
         setHistoryCursor(undefined);
+        return;
       } else if (key.return && completionItems.length > 0) {
-        setInput(completionItems[completionIndex].value);
-        clearCompletion();
-        setHistoryCursor(undefined);
+        const selected = completionItems[completionIndex];
+        if (exactCommandMatch(input, selected)) {
+          const trimmed = input.trim();
+          if (trimmed) {
+            onSubmit(trimmed);
+            setInput('');
+            setDraft('');
+            setHistoryCursor(undefined);
+            clearCompletion();
+          }
+        } else {
+          setInput(selected.value);
+          clearCompletion();
+          setHistoryCursor(undefined);
+        }
+        return;
       } else if (key.return) {
         const trimmed = input.trim();
         if (trimmed) {
@@ -125,6 +147,7 @@ export function InputBox({
           setHistoryCursor(undefined);
           clearCompletion();
         }
+        return;
       } else if (key.upArrow || key.downArrow) {
         if (completionItems.length > 0) {
           setCompletionIndex(index => moveCompletionIndex(
@@ -142,21 +165,32 @@ export function InputBox({
         setInput(next.input);
         setHistoryCursor(next.cursor);
         setDraft(next.draft);
+        const items = complete ? complete(next.input) : [];
+        setCompletionItems(items);
+        setCompletionIndex(0);
+        return;
       } else if (key.backspace || key.delete) {
-        setInput(prev => prev.slice(0, -1));
+        const next = input.slice(0, -1);
+        setInput(next);
         setHistoryCursor(undefined);
-        clearCompletion();
+        const items = complete ? complete(next) : [];
+        setCompletionItems(items);
+        setCompletionIndex(0);
+        return;
       } else if (inputChar && !/[\u0000-\u001f\u007f]/.test(inputChar)) {
         // 过滤控制字符（方向键等不会产生 inputChar）
-        setInput(prev => prev + inputChar);
+        const next = input + inputChar;
+        setInput(next);
         setHistoryCursor(undefined);
-        clearCompletion();
+        const items = complete ? complete(next) : [];
+        setCompletionItems(items);
+        setCompletionIndex(0);
       }
     },
     { isActive: !disabled && focused },
   );
 
-  const visibleCompletionItems = completionItems.slice(0, capabilities.density === 'narrow' ? 4 : 6);
+  const visibleCompletionItems = completionItems.slice(0, capabilities.density === 'narrow' ? 4 : 8);
   const border = capabilities.unicode ? '─' : '-';
   return (
     <Box flexDirection="column">
@@ -170,17 +204,37 @@ export function InputBox({
         <Text dimColor={disabled}>{disabled ? '等待当前操作完成…' : input}</Text>
       </Box>
       {visibleCompletionItems.map((item, index) => (
-        <Text
-          key={item.name}
-          bold={index === completionIndex}
-          inverse={index === completionIndex && capabilities.color}
-          color={capabilities.color
-            ? index === completionIndex ? BETTERCODE_THEME.selected : BETTERCODE_THEME.muted
-            : undefined}
-        >
-          {index === completionIndex ? capabilities.unicode ? '❯ ' : '> ' : '  '}
-          {item.label} · {item.description}
-        </Text>
+        <Box key={item.name} flexDirection="column" width={capabilities.columns}>
+          <Box>
+            <Text
+              bold={index === completionIndex}
+              inverse={index === completionIndex && capabilities.color}
+              color={capabilities.color
+                ? index === completionIndex ? BETTERCODE_THEME.selected : BETTERCODE_THEME.muted
+                : undefined}
+            >
+              {index === completionIndex ? capabilities.unicode ? '❯ ' : '> ' : '  '}
+              {item.label}
+            </Text>
+            {index !== completionIndex ? (
+              <Text dimColor color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
+                {'  '}
+                {truncateDisplay(
+                  item.description,
+                  Math.max(8, capabilities.columns - displayWidth(`  ${item.label}  `) - 2),
+                  capabilities.unicode ? '…' : '...',
+                )}
+              </Text>
+            ) : undefined}
+          </Box>
+          {index === completionIndex ? (
+            <Box paddingLeft={2} width={capabilities.columns}>
+              <Text dimColor wrap="wrap" color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
+                {item.description}
+              </Text>
+            </Box>
+          ) : undefined}
+        </Box>
       ))}
       {completionItems.length > visibleCompletionItems.length ? (
         <Text dimColor>  还有 {completionItems.length - visibleCompletionItems.length} 个候选</Text>

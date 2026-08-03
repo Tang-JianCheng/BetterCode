@@ -76,6 +76,7 @@ export class CommandRegistry {
       const hint = definition.argumentHint ? ` ${definition.argumentHint}` : '';
       return [{
         name: definition.name,
+        aliases: [...definition.aliases],
         value: `/${definition.name} `,
         label: `/${definition.name}${hint}`,
         description: definition.description,

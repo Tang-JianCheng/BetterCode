@@ -62,6 +62,7 @@ export type DispatchResult =
 
 export interface CommandCompletion {
   name: string;
+  aliases: readonly string[];
   value: string;
   label: string;
   description: string;
