@@ -511,6 +511,21 @@
 
 **验证：** InputBox 专项测试与全量 `pnpm check`。
 
+## T31：像素文字启动横幅
+
+**文件：** `src/ui/mascot.tsx`、`src/ui/mascot.test.ts`、`src/ui/theme.ts`
+
+**依赖：** 无
+
+**步骤：**
+
+1. 删除虚拟形象字表，新增 5×7 与 3×5 两套像素字表。
+2. 新增 `bannerLines(capabilities)`：按 BETTERCODE 逐行拼装，Unicode 用 `█`、ASCII 用 `#`，窄屏用紧凑字表。
+3. `StartupBrand` 改渲染 `bannerLines`，品牌色改为 `#FFA500`。
+4. 更新测试：横幅行数、宽度不越界、ASCII 无 Unicode、帧内包含 `█████` 且不再包含旧形象字符。
+
+**验证：** mascot 专项测试、render-harness 55 列测试与全量 `pnpm check`。
+
 ## 执行顺序
 
 ```text

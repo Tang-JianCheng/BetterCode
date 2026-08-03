@@ -9,7 +9,8 @@ export type ThemeColor =
   | 'magenta'
   | 'cyan'
   | 'white'
-  | 'gray';
+  | 'gray'
+  | '#FFA500';
 
 export interface BetterCodeTheme {
   brand: ThemeColor;
@@ -25,7 +26,7 @@ export interface BetterCodeTheme {
 }
 
 export const BETTERCODE_THEME: BetterCodeTheme = {
-  brand: 'magenta',
+  brand: '#FFA500',
   accent: 'cyan',
   text: 'white',
   // 黑底终端下正文统一用白/灰白，弱化文字由 dimColor 叠加成灰白

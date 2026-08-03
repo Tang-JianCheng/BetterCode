@@ -180,6 +180,51 @@ test('聚焦行超长描述右对齐展开且不越界', async () => {
   view.unmount();
 });
 
+test('候选超过一页时方向键动态翻页渲染', async () => {
+  const many = (input: string): readonly CommandCompletion[] => {
+    if (!input.startsWith('/')) return [];
+    return Array.from({ length: 10 }, (_, i) => ({
+      name: `cmd${i}`, aliases: [], value: `/cmd${i} `, label: `/cmd${i}`,
+      description: `第 ${i + 1} 个候选`,
+    }));
+  };
+  const view = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    complete: many,
+    capabilities: capabilities(55),
+  }));
+  await flushInput();
+  view.stdin.write('/');
+  await flushInput();
+  let frame = view.lastFrame() ?? '';
+  assert.match(frame, /\/cmd0/u);
+  assert.match(frame, /\/cmd3/u);
+  assert.doesNotMatch(frame, /\/cmd4/u);
+  assert.match(frame, /还有 6 个候选/u);
+
+  for (let i = 0; i < 4; i += 1) {
+    view.stdin.write('\u001B[B');
+    await flushInput();
+  }
+  frame = view.lastFrame() ?? '';
+  assert.doesNotMatch(frame, /\/cmd0/u);
+  assert.match(frame, /\/cmd4/u);
+  assert.match(frame, /\/cmd7/u);
+  assert.match(frame, /还有 2 个候选/u);
+
+  for (let i = 0; i < 4; i += 1) {
+    view.stdin.write('\u001B[B');
+    await flushInput();
+  }
+  frame = view.lastFrame() ?? '';
+  assert.doesNotMatch(frame, /\/cmd4/u);
+  assert.match(frame, /\/cmd8/u);
+  assert.match(frame, /\/cmd9/u);
+  assert.doesNotMatch(frame, /还有/u);
+  view.unmount();
+});
+
 test('Enter 对完整命令直接执行，对部分输入选中候选', async () => {
   const submitted: string[] = [];
   const view = render(React.createElement(InputBox, {

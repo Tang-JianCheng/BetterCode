@@ -271,3 +271,19 @@
 
 - 专项：InputBox 15 项、UI 相关 25 项通过；新增 `truncateStart` 单测。
 - 全量：`pnpm check` 退出码 0，共 474 项测试通过；`git diff --check` 通过。
+
+## 增量：像素文字启动横幅
+
+- [x] **C64：像素文字横幅**
+  启动帧展示全大写「BETTERCODE」像素文字，不再出现虚拟形象；完整宽度 7 行、窄屏 5 行。（验证：mascot 专项测试；覆盖 AC17）
+
+- [x] **C65：品牌色橘黄**
+  品牌色由 magenta 调整为 `#FFA500` 橘黄，横幅与品牌文字统一使用该色。（验证：theme 与启动帧渲染）
+
+- [x] **C66：ASCII 与窄屏降级**
+  55 列 ASCII 环境横幅宽度不越界，使用 `#` 块且不输出 `█` 等 Unicode 装饰。（验证：render-harness 55 列测试；覆盖 AC18）
+
+**验收记录：**
+
+- 专项：mascot 横幅测试、InputBox 翻页测试、render-harness 55 列测试通过。
+- 全量：`pnpm check` 退出码 0，共 475 项测试通过；`git diff --check` 通过。

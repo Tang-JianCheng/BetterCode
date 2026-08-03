@@ -4,40 +4,49 @@ import type { PresentationTone } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, toneColor } from './theme.js';
 
-const UNICODE_MASCOT = [
-  '       ╭──────╮',
-  '    ╭──╯  ▄▄  ╰──╮',
-  '    │    ●  ●    │',
-  '    │      ▿     │',
-  '    ╰╮   ╰──╯   ╭╯',
-  '     ╰──╮    ╭──╯',
-  '       ╱╰────╯╲',
-] as const;
+// 5 列宽 × 7 行高的像素字体，`#` 作为占位块，渲染时替换成 █ 或 ASCII 块。
+const PIXEL_FONT: Record<string, readonly string[]> = {
+  B: ['#####', '#   #', '#   #', '#####', '#   #', '#   #', '#####'],
+  E: ['#####', '#    ', '#    ', '#####', '#    ', '#    ', '#####'],
+  T: ['#####', '  #  ', '  #  ', '  #  ', '  #  ', '  #  ', '  #  '],
+  R: ['#####', '#   #', '#   #', '#####', '##   ', '# #  ', '#  # '],
+  C: ['#### ', '#    ', '#    ', '#    ', '#    ', '#    ', '#### '],
+  O: [' ### ', '#   #', '#   #', '#   #', '#   #', '#   #', ' ### '],
+  D: ['#####', '#   #', '#   #', '#   #', '#   #', '#   #', '#####'],
+};
 
-const ASCII_MASCOT = [
-  '    .------.',
-  '  /  o  o   \\',
-  ' |     v     |',
-  '  \\  ----  /',
-  '   /|____|\\',
-] as const;
+// 3 列宽 × 5 行高的窄屏像素字体。
+const PIXEL_FONT_NARROW: Record<string, readonly string[]> = {
+  B: ['###', '# #', '###', '# #', '###'],
+  E: ['###', '#  ', '###', '#  ', '###'],
+  T: ['###', ' # ', ' # ', ' # ', ' # '],
+  R: ['###', '# #', '###', '# #', '#  '],
+  C: ['###', '#  ', '#  ', '#  ', '###'],
+  O: ['###', '# #', '# #', '# #', '###'],
+  D: ['## ', '# #', '# #', '# #', '## '],
+};
 
 export interface StartupBrandProps {
   capabilities: TerminalCapabilities;
   version: string;
 }
 
-export function mascotLines(capabilities: TerminalCapabilities): readonly string[] {
-  return capabilities.unicode && capabilities.density !== 'narrow'
-    ? UNICODE_MASCOT
-    : ASCII_MASCOT;
+export function bannerLines(capabilities: TerminalCapabilities): readonly string[] {
+  const narrow = capabilities.density === 'narrow';
+  const font = narrow ? PIXEL_FONT_NARROW : PIXEL_FONT;
+  const block = capabilities.unicode ? '█' : '#';
+  const rows = narrow ? 5 : 7;
+  const letters = 'BETTERCODE';
+  return Array.from({ length: rows }, (_, row) =>
+    letters.split('').map(letter => font[letter][row].replaceAll('#', block)).join(' '),
+  );
 }
 
 export function StartupBrand({ capabilities, version }: StartupBrandProps) {
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box flexDirection="column">
-        {mascotLines(capabilities).map((line, index) => (
+        {bannerLines(capabilities).map((line, index) => (
           <Text key={`${index}-${line}`} color={capabilities.color ? BETTERCODE_THEME.brand : undefined}>
             {line}
           </Text>

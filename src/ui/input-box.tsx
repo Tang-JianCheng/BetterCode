@@ -190,14 +190,20 @@ export function InputBox({
     { isActive: !disabled && focused },
   );
 
-  const visibleCompletionItems = completionItems.slice(0, capabilities.density === 'narrow' ? 4 : 8);
+  const pageSize = capabilities.density === 'narrow' ? 4 : 8;
+  const pageCount = Math.max(1, Math.ceil(completionItems.length / pageSize));
+  const pageIndex = completionItems.length === 0
+    ? 0
+    : Math.min(Math.floor(completionIndex / pageSize), pageCount - 1);
+  const pageStart = pageIndex * pageSize;
+  const visibleCompletionItems = completionItems.slice(pageStart, pageStart + pageSize);
   // 应用层会在左右各留 1 列内边距，边框与面板按实际内容宽度排版
   const contentWidth = Math.max(8, capabilities.columns - 2);
   const border = capabilities.unicode ? '─' : '-';
   const marker = capabilities.unicode ? '❯ ' : '> ';
   const ellipsis = capabilities.unicode ? '…' : '...';
   const markerWidth = displayWidth(marker);
-  const maxLabelWidth = visibleCompletionItems.reduce(
+  const maxLabelWidth = completionItems.reduce(
     (max, item) => Math.max(max, displayWidth(item.label)),
     0,
   );
@@ -232,7 +238,7 @@ export function InputBox({
         {border.repeat(contentWidth)}
       </Text>
       {visibleCompletionItems.map((item, index) => {
-        const selected = index === completionIndex;
+        const selected = completionIndex - pageStart === index;
         // 聚焦行让描述在右侧原地展开；超长时保留右缘并从左侧截断，避免挤掉命令名。
         const description = selected
           ? truncateStart(item.description, descriptionColumnWidth, ellipsis)
@@ -260,8 +266,8 @@ export function InputBox({
           </Box>
         );
       })}
-      {completionItems.length > visibleCompletionItems.length ? (
-        <Text dimColor>  还有 {completionItems.length - visibleCompletionItems.length} 个候选</Text>
+      {pageStart + visibleCompletionItems.length < completionItems.length ? (
+        <Text dimColor>  还有 {completionItems.length - pageStart - visibleCompletionItems.length} 个候选</Text>
       ) : undefined}
     </Box>
   );

@@ -101,3 +101,10 @@ description 改为中文短句，保证仓库内 Skill 描述符合“中文且�
 - `capabilities.ts` 新增 `truncateStart`：从左侧截断、保留右缘，带省略号；描述可容纳时原样返回。
 - 候选行统一单行渲染；聚焦行用 `truncateStart`，未聚焦行继续用 `truncateDisplay`。
 - 未聚焦候选行去掉 `dimColor`，颜色改为 `BETTERCODE_THEME.text` 纯白；聚焦行保留 `inverse` 反色高亮。
+
+## 增量：候选面板分页翻页
+
+- 按 `pageSize`（窄屏 4、其他 8）把候选切成页，`pageIndex = floor(completionIndex / pageSize)`，渲染 `slice(pageStart, pageStart + pageSize)`。
+- 选中判断改为页内相对下标 `completionIndex - pageStart`，方向键越过页边界即翻页。
+- 剩余提示按「当前页之后还有多少条」计算，最后一页不显示。
+- 命令名列宽由全部候选计算，避免翻页后列宽跳动。

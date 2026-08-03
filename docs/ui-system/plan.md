@@ -521,6 +521,13 @@ src/
 - 移除聚焦行下方的完整描述补充行，候选行统一单行渲染。
 - 未聚焦候选行颜色改为纯白并去掉 `dimColor`，聚焦行保留 `inverse` 整行反色高亮。
 
+## 增量：像素文字启动横幅
+
+- 删除 `UNICODE_MASCOT` / `ASCII_MASCOT` 两套虚拟形象，新增 `PIXEL_FONT`（5 列 × 7 行）与 `PIXEL_FONT_NARROW`（3 列 × 5 行）两张像素字表。
+- `bannerLines(capabilities)` 按 BETTERCODE 逐行拼装：Unicode 用 `█`，ASCII 用 `#`；窄屏用紧凑字表。
+- `StartupBrand` 改渲染 `bannerLines`，版本与欢迎语保持原结构。
+- `theme.ts` 品牌色改为 `#FFA500`，并允许 ThemeColor 携带该十六进制值。
+
 ## 风险与约束
 
 - Ink 是流式终端渲染器，不是浏览器布局引擎；必须以稳定文本宽度和有限层级设计，不能依赖像素级定位。
