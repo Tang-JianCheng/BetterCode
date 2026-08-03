@@ -528,6 +528,12 @@ src/
 - `StartupBrand` 改渲染 `bannerLines`，版本与欢迎语保持原结构。
 - `theme.ts` 品牌色改为 `#FFA500`，并允许 ThemeColor 携带该十六进制值。
 
+## 增量：立体横幅
+
+- 新增 `BEVELED_BANNER` 常量：按用户给定的立体版式固定 6 行，直接渲染「BETTERCODE」。
+- `bannerLines(capabilities)` 在 `unicode && !narrow` 时直接返回 `BEVELED_BANNER`；其余环境继续走 `PIXEL_FONT`/`PIXEL_FONT_NARROW` 平面像素字降级。
+- 立体横幅行宽约 75 列，80/120 列终端均可完整容纳；55 列 ASCII 环境不受影响。
+
 ## 风险与约束
 
 - Ink 是流式终端渲染器，不是浏览器布局引擎；必须以稳定文本宽度和有限层级设计，不能依赖像素级定位。

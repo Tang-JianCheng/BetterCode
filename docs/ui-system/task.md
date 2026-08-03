@@ -526,6 +526,20 @@
 
 **验证：** mascot 专项测试、render-harness 55 列测试与全量 `pnpm check`。
 
+## T32：立体横幅
+
+**文件：** `src/ui/mascot.tsx`、`src/ui/mascot.test.ts`
+
+**依赖：** T31
+
+**步骤：**
+
+1. 新增 `BEVELED_BANNER` 六行常量，按用户给定的 `█╗╔╚╝═║` 立体版式渲染 BETTERCODE。
+2. `bannerLines` 在 Unicode 且非窄屏时返回 `BEVELED_BANNER`，其余环境保留平面像素字降级。
+3. 更新测试：立体横幅 6 行、每行不超过 80 列、包含 `█╗╔╚╝═` 字符；ASCII/窄屏断言不变。
+
+**验证：** mascot 专项测试、render-harness 55 列测试与全量 `pnpm check`。
+
 ## 执行顺序
 
 ```text

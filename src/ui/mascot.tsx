@@ -4,6 +4,16 @@ import type { PresentationTone } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, toneColor } from './theme.js';
 
+// 立体横幅：带棱角的 Unicode 像素字，BETTERCODE 固定 6 行，按用户给定的版式原样呈现。
+const BEVELED_BANNER = [
+  '███████╗ ██████╗ ██████╗  ██████╗ ███████╗ ██████╗ ██████╗ ██████╗ ███████╗',
+  '██╔════╝██╔═══██╗██╔══██╗██╔════╝ ██╔════╝██╔════╝██╔═══██╗██╔══██╗██╔════╝',
+  '█████╗  ██║   ██║██████╔╝██║  ███╗█████╗  ██║     ██║   ██║██║  ██║█████╗  ',
+  '██╔══╝  ██║   ██║██╔══██╗██║   ██║██╔══╝  ██║     ██║   ██║██║  ██║██╔══╝  ',
+  '██║     ╚██████╔╝██║  ██║╚██████╔╝███████╗╚██████╗╚██████╔╝██████╔╝███████╗',
+  '╚═╝      ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝',
+] as const;
+
 // 5 列宽 × 7 行高的像素字体，`#` 作为占位块，渲染时替换成 █ 或 ASCII 块。
 const PIXEL_FONT: Record<string, readonly string[]> = {
   B: ['#####', '#   #', '#   #', '#####', '#   #', '#   #', '#####'],
@@ -32,6 +42,9 @@ export interface StartupBrandProps {
 }
 
 export function bannerLines(capabilities: TerminalCapabilities): readonly string[] {
+  if (capabilities.unicode && capabilities.density !== 'narrow') {
+    return BEVELED_BANNER;
+  }
   const narrow = capabilities.density === 'narrow';
   const font = narrow ? PIXEL_FONT_NARROW : PIXEL_FONT;
   const block = capabilities.unicode ? '█' : '#';
