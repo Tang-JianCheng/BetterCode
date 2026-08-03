@@ -53,7 +53,8 @@ test('助手消息携带 markdown 时渲染 Markdown，用户消息保持纯文�
     }),
     capabilities: capabilities(100),
   }));
-  assert.match(assistant.lastFrame() ?? '', /# 标题/u);
+  assert.match(assistant.lastFrame() ?? '', /标题/u);
+  assert.doesNotMatch(assistant.lastFrame() ?? '', /# 标题/u);
   assert.match(assistant.lastFrame() ?? '', /链接 \(https:\/\/example\.com\)/u);
   assistant.unmount();
 
@@ -100,4 +101,14 @@ test('ASCII 模式使用 ASCII 边界与列表标记', () => {
   assert.match(frame, /- 一/u);
   assert.doesNotMatch(frame, /[╭╰•─]/u);
   view.unmount();
+});
+
+test('命令表格在超宽终端限制为 88 列', () => {
+  const block = {
+    type: 'table' as const,
+    columns: [{ key: 'command', label: '命令' }, { key: 'description', label: '说明' }],
+    rows: [['/help', '显示命令帮助']],
+  };
+  const lines = formatBlockLines(block, capabilities(120), 116);
+  assert.equal(lines.every(line => displayWidth(line) <= 88), true);
 });

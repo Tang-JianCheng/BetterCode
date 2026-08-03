@@ -50,14 +50,41 @@ function formatTable(
   }
   const separator = capabilities.unicode ? ' │ ' : ' | ';
   const separatorWidth = displayWidth(separator) * Math.max(0, block.columns.length - 1);
-  const columnWidth = Math.max(8, Math.floor((width - separatorWidth) / block.columns.length));
+  const tableWidth = Math.min(88, Math.max(8, width));
+  const columnCount = Math.max(1, block.columns.length);
+  const available = Math.max(columnCount, tableWidth - separatorWidth);
+  const maxCellWidth = Math.max(8, Math.floor(available / columnCount));
+  const naturalWidths = block.columns.map((column, index) => {
+    let cellWidth = displayWidth(column.label);
+    for (const row of block.rows) {
+      cellWidth = Math.max(cellWidth, displayWidth(row[index] ?? ''));
+    }
+    return Math.min(cellWidth, maxCellWidth);
+  });
+  const naturalTotal = naturalWidths.reduce((sum, item) => sum + item, 0);
+  const columnWidths = naturalTotal <= available
+    ? naturalWidths.map(item => Math.max(8, item))
+    : naturalWidths.map(item => Math.max(8, Math.floor(item * available / naturalTotal)));
+  if (naturalTotal > available) {
+    let used = columnWidths.reduce((sum, item) => sum + item, 0);
+    let remaining = available - used;
+    const order = naturalWidths.map((item, index) => ({ item, index }))
+      .sort((a, b) => b.item - a.item);
+    let cursor = 0;
+    while (remaining > 0 && cursor < order.length) {
+      columnWidths[order[cursor].index] += 1;
+      remaining -= 1;
+      cursor += 1;
+    }
+  }
   const renderRow = (row: readonly string[]) => row
-    .map(value => padDisplay(value, columnWidth))
+    .map((value, index) => padDisplay(value, columnWidths[index]))
     .join(separator)
     .trimEnd();
+  const tableWidthUsed = columnWidths.reduce((sum, item) => sum + item, 0) + separatorWidth;
   return [
     renderRow(block.columns.map(column => column.label)),
-    dividerLine(capabilities, Math.min(width, columnWidth * block.columns.length + separatorWidth)),
+    dividerLine(capabilities, Math.min(tableWidth, tableWidthUsed)),
     ...block.rows.map(renderRow),
   ];
 }

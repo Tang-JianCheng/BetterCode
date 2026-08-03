@@ -184,3 +184,45 @@ T5 -> T7 -> T8 -> T9 -> T10
 ```
 
 T1 与 T5 无代码依赖但 T5 依赖 T2 的类型定义；T6 依赖 T4 和 T5；T8 依赖 T3 和 T7。T8 集中修改 App，必须单独串行执行。
+
+## 增量任务：渲染体验第二轮（2026-08-03）
+
+### T11：表格解析健壮化
+
+**文件：** `src/markdown/parser.ts`、`src/markdown/parser.test.ts`
+
+**步骤：**
+
+1. 增加按代码区识别拆分表格行的 `splitTableCells`，剥离首尾 `|` 并过滤空行。
+2. 行内代码里的 `|` 不再拆列，单元格内行内语法正常解析。
+
+**验证：** parser 专项测试通过；`SET key [NX|XX]` 保持单列且 code 内容完整。
+
+### T12：表格与面板自适应列宽
+
+**文件：** `src/markdown/renderer.ts`、`src/ui/presentation-view.tsx` 及对应测试
+
+**步骤：**
+
+1. 宽屏表格按内容自然列宽渲染，去掉外侧边框和尾部空白，分隔线跟随表宽。
+2. 命令面板表格同步自然列宽。
+
+**验证：** renderer、markdown-view、presentation-view 专项测试通过。
+
+### T13：标题与间距打磨
+
+**文件：** `src/markdown/renderer.ts` 及对应测试
+
+**步骤：**
+
+1. 标题不再输出 `#`。
+2. 块间空行稳定，`hr` 缩短为最多 28 列。
+
+**验证：** renderer 与 app 集成测试通过，无 `# 标题` 残留。
+
+### T14：全量验收
+
+1. `pnpm typecheck`。
+2. `pnpm test`（464 项）。
+3. `git diff --check`。
+4. 更新四份文档并创建中文提交。

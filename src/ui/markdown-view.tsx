@@ -52,7 +52,7 @@ export interface MarkdownViewProps {
 /** 把已解析的 Markdown 行片段映射为 Ink 组件 */
 export function MarkdownView({ ast, capabilities, thinking }: MarkdownViewProps) {
   const lines = useMemo(() => renderMarkdown(ast, {
-    columns: capabilities.columns,
+    columns: Math.max(20, capabilities.columns - 2),
     unicode: capabilities.unicode,
     color: capabilities.color,
   }), [ast, capabilities]);

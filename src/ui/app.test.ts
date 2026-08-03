@@ -341,7 +341,8 @@ test('流式期间保持纯文本，流结束后最终回复渲染 Markdown', as
   await flushAppInput();
   await flushAppInput();
   const finalFrame = view.lastFrame() ?? '';
-  assert.match(finalFrame, /# 标题/u);
+  assert.match(finalFrame, /标题/u);
+  assert.doesNotMatch(finalFrame, /# 标题/u);
   assert.match(finalFrame, /链接 \(https:\/\/example\.com\)/u);
   assert.match(finalFrame, /- 项目/u);
   assert.doesNotMatch(finalFrame, /\[链接\]\(https:\/\/example\.com\)/u);
@@ -391,7 +392,8 @@ test('恢复会话时助手消息渲染 Markdown，用户消息保持纯文本',
   await flushAppInput();
 
   const frame = view.lastFrame() ?? '';
-  assert.match(frame, /# 标题/u);
+  assert.match(frame, /标题/u);
+  assert.doesNotMatch(frame, /# 标题/u);
   assert.match(frame, /链接 \(https:\/\/example\.com\)/u);
   assert.match(frame, /\[链接\]\(https:\/\/example\.com\)/u);
   assert.match(frame, /会话已恢复/u);
@@ -432,7 +434,8 @@ test('回滚恢复的助手消息渲染 Markdown', async () => {
   await flushAppInput();
 
   const frame = view.lastFrame() ?? '';
-  assert.match(frame, /# 标题/u);
+  assert.match(frame, /标题/u);
+  assert.doesNotMatch(frame, /# 标题/u);
   assert.match(frame, /链接 \(https:\/\/example\.com\)/u);
   assert.match(frame, /已回滚到/u);
   view.unmount();

@@ -16,6 +16,41 @@ export function sanitizeText(value: string): string {
     .replace(CONTROL_PATTERN, '');
 }
 
+function splitTableCells(line: string): string[] {
+  let source = line.trim();
+  if (source.startsWith('|')) source = source.slice(1);
+  if (source.endsWith('|') && !source.endsWith('\\|')) source = source.slice(0, -1);
+  const cells: string[] = [];
+  let current = '';
+  let inCode = false;
+  let escaped = false;
+  for (const char of source) {
+    if (escaped) {
+      current += char;
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      current += char;
+      escaped = true;
+      continue;
+    }
+    if (char === '`') {
+      inCode = !inCode;
+      current += char;
+      continue;
+    }
+    if (char === '|' && !inCode) {
+      cells.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
 function parseInlineToken(token: Token): MarkdownInline[] {
   switch (token.type) {
     case 'text':
@@ -61,6 +96,9 @@ function parseBlockToken(token: Token): MarkdownBlock[] {
       }];
     case 'paragraph':
       return [{ type: 'paragraph', inline: (token.tokens ?? []).flatMap(parseInlineToken) }];
+    case 'text':
+      // marked 在列表项内把段落生成为 text 块 token，同样要展开行内语法。
+      return [{ type: 'paragraph', inline: (token.tokens ?? []).flatMap(parseInlineToken) }];
     case 'code':
       return [{
         type: 'code',
@@ -82,11 +120,26 @@ function parseBlockToken(token: Token): MarkdownBlock[] {
       }];
     }
     case 'table': {
-      const table = token as Tokens.Table;
+      const textInline = (text: string): readonly MarkdownInline[] => {
+        try {
+          const paragraph = lexer(text, { gfm: true, breaks: false })
+            .find((block): block is Tokens.Paragraph => block.type === 'paragraph');
+          return paragraph
+            ? paragraph.tokens.flatMap(parseInlineToken)
+            : [{ type: 'text', content: sanitizeText(text) }];
+        } catch {
+          return [{ type: 'text', content: sanitizeText(text) }];
+        }
+      };
+      const rawLines = token.raw.split('\n');
+      const header = splitTableCells(rawLines[0] ?? '').map(textInline);
+      const rows = rawLines.slice(2)
+        .filter(line => line.trim().length > 0)
+        .map(line => splitTableCells(line).map(textInline));
       return [{
         type: 'table',
-        header: table.header.map(cell => sanitizeText(cell.text)),
-        rows: table.rows.map(row => row.map(cell => sanitizeText(cell.text))),
+        header,
+        rows,
       }];
     }
     case 'hr':

@@ -93,3 +93,25 @@
 | AC6 | C6 |
 | AC7 | C15-C16 |
 | AC8 | C18-C21 |
+
+## 增量验收（渲染体验第二轮）
+
+- [x] **D1：表格代码内 `|` 不拆列**
+  parser 测试 `SET key [NX|XX]` 保持单列且 code 完整。（验证：`src/markdown/parser.test.ts`；覆盖 AC9）
+
+- [x] **D2：表格自适应列宽**
+  宽屏表格无外侧竖线、无尾随空白，分隔线长度跟随内容并受 88 列约束。（验证：renderer、markdown-view、presentation-view 测试；覆盖 AC9）
+
+- [x] **D3：标题不输出 `#`**
+  彩色、无颜色与 ASCII 模式下均不显示 `# 标题`，正文文字完整。（验证：renderer、markdown-view、presentation-view、app 测试；覆盖 AC10）
+
+- [x] **D4：块间距与分隔线**
+  块间空行稳定，`hr` 不超过 28 列。（验证：renderer 测试；覆盖 F12）
+
+- [x] **D5：全量回归**
+  `pnpm typecheck` 通过；`pnpm test` 464/464 通过；`git diff --check` 通过。（验证：本次验收记录；覆盖 AC11）
+
+**验收记录：**
+
+- Markdown/UI 专项：23 项通过。
+- 全量：464 项通过。为修复既有 macOS 临时目录清理 ENOTEMPTY 抖动，测试清理调用增加 `maxRetries`/`retryDelay`。

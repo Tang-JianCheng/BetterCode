@@ -9,6 +9,8 @@ import type {
   MarkdownSegmentStyle,
 } from './types.js';
 
+const BLANK_LINE: MarkdownLine = { segments: [{ text: ' ', style: 'normal' }] };
+
 function takeDisplay(value: string, maxWidth: number): { head: string; rest: string } {
   if (maxWidth <= 0) return { head: '', rest: value };
   const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
@@ -21,11 +23,6 @@ function takeDisplay(value: string, maxWidth: number): { head: string; rest: str
     width += segmentWidth;
   }
   return { head, rest: value.slice(head.length) };
-}
-
-function padDisplay(value: string, width: number): string {
-  const head = takeDisplay(value, Math.max(0, width)).head;
-  return `${head}${' '.repeat(Math.max(0, width - stringWidth(head)))}`;
 }
 
 function trimTrailingSpaces(segments: readonly MarkdownSegment[]): MarkdownSegment[] {
@@ -87,6 +84,39 @@ function wrapSegments(
   }
   flush();
   return lines;
+}
+
+function truncateSegments(
+  segments: readonly MarkdownSegment[],
+  maxWidth: number,
+): MarkdownSegment[] {
+  if (maxWidth <= 0) return [];
+  const result: MarkdownSegment[] = [];
+  let width = 0;
+  for (const segment of segments) {
+    if (width >= maxWidth) break;
+    const { head } = takeDisplay(segment.text, maxWidth - width);
+    if (!head) break;
+    result.push({ ...segment, text: head });
+    width += stringWidth(head);
+  }
+  return result;
+}
+
+function segmentWidth(segments: readonly MarkdownSegment[]): number {
+  return segments.reduce((sum, segment) => sum + stringWidth(segment.text), 0);
+}
+
+function renderInlineCell(
+  cell: readonly MarkdownInline[],
+  maxWidth: number,
+  options: MarkdownRenderOptions,
+): MarkdownSegment[] {
+  const segments = inlineSegments(cell, options);
+  if (stringWidth(markdownLineText({ segments })) <= maxWidth) return segments;
+  const ellipsis = options.unicode ? '…' : '...';
+  const contentWidth = Math.max(0, maxWidth - stringWidth(ellipsis));
+  return [...truncateSegments(segments, contentWidth), { text: ellipsis, style: 'muted' }];
 }
 
 function restyle(segments: readonly MarkdownSegment[], style: MarkdownSegmentStyle): MarkdownSegment[] {
@@ -242,41 +272,83 @@ function renderTable(
   options: MarkdownRenderOptions,
   indent: number,
 ): MarkdownLine[] {
-  const width = Math.max(8, options.columns - indent);
+  const width = Math.min(88, Math.max(8, options.columns - indent));
+  const columnCount = Math.max(1, block.header.length);
+  const separator = options.unicode ? ' │ ' : ' | ';
+  const separatorWidth = stringWidth(separator) * Math.max(0, columnCount - 1);
   if (options.columns < 64) {
     return block.rows.flatMap(row => row.map((cell, index) => {
-      const label = block.header[index] ?? `列 ${index + 1}`;
-      const value = takeDisplay(cell, Math.max(8, width - stringWidth(label) - 2)).head;
+      const label = block.header[index] ?? [{ type: 'text', content: `列 ${index + 1}` }];
+      const labelSegments = restyle(inlineSegments(label, options), 'muted');
+      const labelText = markdownLineText({ segments: labelSegments });
+      const value = renderInlineCell(
+        cell,
+        Math.max(8, width - stringWidth(labelText) - 2),
+        options,
+      );
       return {
         segments: [
-          { text: label, style: 'muted' as const },
+          ...labelSegments,
           { text: ': ', style: 'normal' as const },
-          { text: value, style: 'normal' as const },
+          ...value,
         ],
         indent,
       };
     }));
   }
-  const columnCount = Math.max(1, block.header.length);
-  const separator = options.unicode ? ' │ ' : ' | ';
-  const separatorWidth = stringWidth(separator) * Math.max(0, columnCount - 1);
-  const columnWidth = Math.max(6, Math.floor((width - separatorWidth) / columnCount));
-  const renderRow = (cells: readonly string[]) => {
+  const available = Math.max(columnCount, width - separatorWidth);
+  const maxCellWidth = Math.max(6, Math.floor(available / columnCount));
+  const naturalWidths = Array.from({ length: columnCount }, () => 0);
+  const considerWidth = (cells: readonly (readonly MarkdownInline[])[]) => {
+    cells.forEach((cell, index) => {
+      if (index >= columnCount) return;
+      const cellWidth = stringWidth(markdownLineText({
+        segments: inlineSegments(cell, options),
+      }));
+      naturalWidths[index] = Math.max(naturalWidths[index], cellWidth);
+    });
+  };
+  considerWidth(block.header);
+  block.rows.forEach(considerWidth);
+  const capped = naturalWidths.map(item => Math.min(item, maxCellWidth));
+  const naturalTotal = capped.reduce((sum, item) => sum + item, 0);
+  const columnWidths = naturalTotal <= available
+    ? capped.map(item => Math.max(6, item))
+    : capped.map(item => Math.max(6, Math.floor(item * available / naturalTotal)));
+  if (naturalTotal > available) {
+    let used = columnWidths.reduce((sum, item) => sum + item, 0);
+    let remaining = available - used;
+    const order = capped.map((item, index) => ({ item, index }))
+      .sort((a, b) => b.item - a.item);
+    let cursor = 0;
+    while (remaining > 0 && cursor < order.length) {
+      columnWidths[order[cursor].index] += 1;
+      remaining -= 1;
+      cursor += 1;
+    }
+  }
+  const renderRow = (cells: readonly (readonly MarkdownInline[])[]) => {
     const segments: MarkdownSegment[] = [];
     for (let index = 0; index < columnCount; index += 1) {
       if (index > 0) segments.push({ text: separator, style: 'muted' });
-      segments.push({ text: padDisplay(cells[index] ?? '', columnWidth), style: 'normal' });
+      const content = renderInlineCell(cells[index] ?? [], columnWidths[index], options);
+      const contentWidth = segmentWidth(content);
+      segments.push(...content);
+      if (contentWidth < columnWidths[index]) {
+        segments.push({
+          text: ' '.repeat(columnWidths[index] - contentWidth),
+          style: 'normal',
+        });
+      }
     }
-    return { segments, indent };
+    return { segments: trimTrailingSpaces(segments), indent };
   };
+  const tableWidth = columnWidths.reduce((sum, item) => sum + item, 0) + separatorWidth;
   return [
     renderRow(block.header),
     {
       segments: [{
-        text: (options.unicode ? '─' : '-').repeat(Math.min(
-          width,
-          columnWidth * columnCount + separatorWidth,
-        )),
+        text: (options.unicode ? '─' : '-').repeat(Math.min(width, tableWidth)),
         style: 'muted',
       }],
       indent,
@@ -292,13 +364,9 @@ function renderBlock(
 ): MarkdownLine[] {
   switch (block.type) {
     case 'heading': {
-      const marker = block.level <= 3 ? `${'#'.repeat(block.level)} ` : '';
       const inner = inlineSegments(block.inline, options);
-      const segments = marker
-        ? [{ text: marker, style: 'heading' as const }, ...restyle(inner, 'heading')]
-        : restyle(inner, 'heading');
       return withIndent(
-        wrapSegments(segments, Math.max(8, options.columns - indent)),
+        wrapSegments(restyle(inner, 'heading'), Math.max(8, options.columns - indent)),
         indent,
       );
     }
@@ -315,7 +383,9 @@ function renderBlock(
     case 'hr':
       return [{
         segments: [{
-          text: (options.unicode ? '─' : '-').repeat(Math.max(8, options.columns - indent)),
+          text: (options.unicode ? '─' : '-').repeat(
+            Math.min(28, Math.max(8, options.columns - indent)),
+          ),
           style: 'muted',
         }],
         indent,
@@ -335,7 +405,12 @@ export function renderMarkdown(
   ast: MarkdownAst,
   options: MarkdownRenderOptions,
 ): MarkdownLine[] {
-  return ast.blocks.flatMap(block => renderBlock(block, options, 0));
+  const lines: MarkdownLine[] = [];
+  ast.blocks.forEach((block, index) => {
+    if (index > 0) lines.push(BLANK_LINE);
+    lines.push(...renderBlock(block, options, 0));
+  });
+  return lines;
 }
 
 export function markdownLineText(line: MarkdownLine): string {

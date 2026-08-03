@@ -31,7 +31,8 @@ test('标题、列表、引用、代码块与表格在 120 列完整渲染', () 
     '- 项目一\n- 项目二\n\n> 引用\n\n```ts\nconst x = 1;\n```\n\n' +
     '| 命令 | 说明 |\n| --- | --- |\n| /help | 帮助 |\n';
   const frame = frameText(source, capabilities(120));
-  assert.match(frame, /# 标题/u);
+  assert.match(frame, /标题/u);
+  assert.doesNotMatch(frame, /# 标题/u);
   assert.match(frame, /粗体/u);
   assert.match(frame, /代码/u);
   assert.match(frame, /链接 \(https:\/\/example\.com\)/u);
@@ -70,4 +71,10 @@ test('无颜色保留文字语义，ASCII 不使用 Unicode 装饰', () => {
   const ascii = frameText(source, capabilities(80, false, false));
   assert.doesNotMatch(ascii, /[•┊│─]/u);
   assert.match(ascii, /> 引用/u);
+});
+
+test('彩色模式下标题省略 # 标记', () => {
+  const frame = frameText('# 标题\n\n正文', capabilities(80, true, true));
+  assert.match(frame, /标题/u);
+  assert.doesNotMatch(frame, /# 标题/u);
 });

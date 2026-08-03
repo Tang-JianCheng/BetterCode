@@ -21,8 +21,8 @@ export type MarkdownBlock =
   | { type: 'quote'; blocks: readonly MarkdownBlock[] }
   | {
       type: 'table';
-      header: readonly string[];
-      rows: readonly (readonly string[])[];
+      header: readonly (readonly MarkdownInline[])[];
+      rows: readonly (readonly (readonly MarkdownInline[])[])[];
     }
   | { type: 'hr' }
   | { type: 'html'; content: string };

@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parseMarkdown, sanitizeText, tryParseMarkdown } from './parser.js';
+import type { MarkdownBlock } from './types.js';
+
+function collectParagraphs(blocks: readonly MarkdownBlock[]): MarkdownBlock[] {
+  return blocks.flatMap(block => {
+    if (block.type === 'paragraph') return [block];
+    if (block.type === 'list') return block.items.flatMap(item => collectParagraphs(item.blocks));
+    if (block.type === 'quote') return collectParagraphs(block.blocks);
+    return [];
+  });
+}
 
 test('解析常见 Markdown 块级与行内语法', () => {
   const ast = parseMarkdown(
@@ -36,6 +46,30 @@ test('原始 HTML 与 ANSI 控制序列按纯文本安全处理', () => {
     ? paragraph.inline.find(inline => inline.type === 'code')
     : undefined;
   assert.equal(code?.type === 'code' && code.content, 'red');
+});
+
+test('列表项中的行内代码按行内语法解析', () => {
+  const ast = parseMarkdown('- 支持的命令：\n  - `XADD` 添加事件\n');
+  const paragraphs = collectParagraphs(ast.blocks);
+  assert.ok(paragraphs.some(block => block.type === 'paragraph' &&
+    block.inline.some(inline => inline.type === 'code' && inline.content === 'XADD')));
+});
+
+test('表格单元格行内代码解析为 code 节点', () => {
+  const ast = parseMarkdown('| 命令 |\n| --- |\n| `SET key` |\n');
+  const table = ast.blocks.find(block => block.type === 'table');
+  assert.ok(table?.type === 'table');
+  assert.ok(table.rows[0].some(cell =>
+    cell.some(inline => inline.type === 'code' && inline.content === 'SET key')));
+});
+
+test('表格代码内的 | 不被当作列分隔符', () => {
+  const ast = parseMarkdown('| 命令 |\n| --- |\n| `SET key [NX|XX]` |\n');
+  const table = ast.blocks.find(block => block.type === 'table');
+  assert.ok(table?.type === 'table');
+  assert.equal(table.rows[0].length, table.header.length);
+  assert.ok(table.rows[0][0].some(inline =>
+    inline.type === 'code' && inline.content === 'SET key [NX|XX]'));
 });
 
 test('空输入与异常输入返回稳定 AST', () => {
