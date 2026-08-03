@@ -126,7 +126,7 @@ test('候选面板位于输入框下方，左命令右描述', async () => {
   view.unmount();
 });
 
-test('未聚焦行短描述，聚焦行命令与描述同行高亮并展示完整内容', async () => {
+test('未聚焦行短描述，聚焦行描述同行展开且右对齐', async () => {
   const view = render(React.createElement(InputBox, {
     onSubmit: () => undefined,
     disabled: false,
@@ -143,11 +143,40 @@ test('未聚焦行短描述，聚焦行命令与描述同行高亮并展示完�
   const frame = view.lastFrame() ?? '';
   const mewLine = frame.split('\n').find(line => line.includes('/mew-spec'));
   assert.ok(mewLine, '聚焦行应包含命令名');
-  assert.match(mewLine ?? '', /启动功能/u, '聚焦行应同时包含描述');
-  assert.match(frame, /启动功能、模块或系统性优化时先创建四份规格文档/u);
+  assert.match(mewLine ?? '', /启动功能、模块或系统性优化时先创建四份规格文档/u, '完整描述应在聚焦行内展开');
+  assert.doesNotMatch(mewLine ?? '', /…/u, '能放下的描述不应被截断');
+  const fullDescriptionLines = frame.split('\n')
+    .filter(line => line.includes('启动功能、模块或系统性优化时先创建四份规格文档'));
+  assert.equal(fullDescriptionLines.length, 1, '完整描述只出现在聚焦行，不再另起一行');
   for (const line of frame.split('\n')) {
     assert.equal(displayWidth(line) <= 120, true, `行超过 120 列: ${line}`);
   }
+  view.unmount();
+});
+
+test('聚焦行超长描述右对齐展开且不越界', async () => {
+  const longComplete = (input: string): readonly CommandCompletion[] => {
+    if (!input.startsWith('/')) return [];
+    return [{
+      name: 'long', aliases: [], value: '/long ', label: '/long [超长参数]',
+      description: '这是一个非常长的描述文字，用来验证选中之后描述会在右侧展开并保持右对齐，不能把命令名挤掉也不能超出终端宽度',
+    }];
+  };
+  const view = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    complete: longComplete,
+    capabilities: capabilities(55),
+  }));
+  await flushInput();
+  view.stdin.write('/');
+  await flushInput();
+  const frame = view.lastFrame() ?? '';
+  const longLine = frame.split('\n').find(line => line.includes('/long'));
+  assert.ok(longLine, '聚焦行应包含命令名');
+  assert.match(longLine ?? '', /…/u, '超长描述应从左侧截断并保留省略号');
+  assert.match(longLine ?? '', /终端宽度$/u, '展开应保留右缘描述');
+  assert.ok(displayWidth(longLine ?? '') <= 55, '展开后不能越界');
   view.unmount();
 });
 

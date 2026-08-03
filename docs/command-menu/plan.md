@@ -94,3 +94,10 @@ description 改为中文短句，保证仓库内 Skill 描述符合“中文且�
 
 - 输入文本后追加 `█`（Unicode）或 `_`（ASCII）作为可见光标。
 - 只在 `focused && !disabled` 时渲染，避免等待状态和权限面板期间出现假光标。
+
+## 增量：聚焦行内联展开与更白文字
+
+- 移除聚焦行下方的完整描述补充行，改为描述在右侧原地展开并保持右对齐。
+- `capabilities.ts` 新增 `truncateStart`：从左侧截断、保留右缘，带省略号；描述可容纳时原样返回。
+- 候选行统一单行渲染；聚焦行用 `truncateStart`，未聚焦行继续用 `truncateDisplay`。
+- 未聚焦候选行去掉 `dimColor`，颜色改为 `BETTERCODE_THEME.text` 纯白；聚焦行保留 `inverse` 反色高亮。

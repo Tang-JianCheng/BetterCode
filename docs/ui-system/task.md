@@ -496,6 +496,21 @@
 
 **验证：** InputBox 专项测试。
 
+## T30：命令面板聚焦展开与更白文字
+
+**文件：** `src/ui/input-box.tsx`、`src/ui/capabilities.ts`、`src/ui/capabilities.test.ts`、`src/ui/input-box.test.ts`
+
+**依赖：** T29
+
+**步骤：**
+
+1. 新增 `truncateStart`：保留右缘并从左侧截断，超长时前缀省略号，可容纳时原样返回。
+2. 聚焦候选行改用 `truncateStart` 展开完整描述，删除聚焦行下方补充行。
+3. 未聚焦候选行颜色改为 `BETTERCODE_THEME.text` 并去掉 `dimColor`。
+4. 新增测试：聚焦行同行包含完整描述、超长描述 55 列不越界、`truncateStart` 单测。
+
+**验证：** InputBox 专项测试与全量 `pnpm check`。
+
 ## 执行顺序
 
 ```text

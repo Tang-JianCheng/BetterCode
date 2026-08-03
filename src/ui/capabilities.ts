@@ -79,6 +79,31 @@ export function truncateDisplay(
   return `${result}${marker}`;
 }
 
+export function truncateStart(
+  value: string,
+  maxWidth: number,
+  ellipsis = '…',
+): string {
+  if (maxWidth <= 0) return '';
+  if (displayWidth(value) <= maxWidth) return value;
+  const marker = displayWidth(ellipsis) <= maxWidth
+    ? ellipsis
+    : '.'.repeat(Math.min(maxWidth, 3));
+  const contentWidth = maxWidth - displayWidth(marker);
+  if (contentWidth <= 0) return marker;
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  const segments = [...segmenter.segment(value)].map(({ segment }) => segment);
+  let result = '';
+  let width = 0;
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segmentWidth = displayWidth(segments[index]);
+    if (width + segmentWidth > contentWidth) break;
+    result = `${segments[index]}${result}`;
+    width += segmentWidth;
+  }
+  return `${marker}${result}`;
+}
+
 export function padDisplay(value: string, width: number, ellipsis = '…'): string {
   const content = truncateDisplay(value, Math.max(0, width), ellipsis);
   return `${content}${' '.repeat(Math.max(0, width - displayWidth(content)))}`;

@@ -6,6 +6,7 @@ import {
   displayWidth,
   padDisplay,
   truncateDisplay,
+  truncateStart,
 } from './capabilities.js';
 
 test('终端密度阈值保持确定性', () => {
@@ -44,4 +45,12 @@ test('显示宽度和截断正确处理中文与组合字符', () => {
   assert.equal(truncateDisplay('abcdef', 2, '...'), '..');
   assert.equal(displayWidth(padDisplay('命令', 8)), 8);
   assert.equal(displayWidth(padDisplay('超长中文字段', 8)), 8);
+});
+
+test('从左侧截断保留右缘并带省略号', () => {
+  assert.equal(truncateStart('abcdef', 6), 'abcdef');
+  assert.equal(truncateStart('abcdef', 4, '...'), '...f');
+  assert.equal(truncateStart('模型deepseek', 6), '…pseek');
+  assert.ok(displayWidth(truncateStart('启动功能、模块或系统性优化', 10)) <= 10);
+  assert.equal(truncateStart('abc', 0), '');
 });

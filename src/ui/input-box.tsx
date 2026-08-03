@@ -3,7 +3,7 @@ import { Box, Text } from 'ink';
 import { useInput } from 'ink';
 import type { CommandCompletion } from '../command/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
-import { detectTerminalCapabilities, displayWidth, padDisplay, truncateDisplay } from './capabilities.js';
+import { detectTerminalCapabilities, displayWidth, padDisplay, truncateDisplay, truncateStart } from './capabilities.js';
 import { BETTERCODE_THEME } from './theme.js';
 
 interface Props {
@@ -233,10 +233,13 @@ export function InputBox({
       </Text>
       {visibleCompletionItems.map((item, index) => {
         const selected = index === completionIndex;
-        const truncatedDescription = truncateDisplay(item.description, descriptionColumnWidth, ellipsis);
+        // 聚焦行让描述在右侧原地展开；超长时保留右缘并从左侧截断，避免挤掉命令名。
+        const description = selected
+          ? truncateStart(item.description, descriptionColumnWidth, ellipsis)
+          : truncateDisplay(item.description, descriptionColumnWidth, ellipsis);
         const paddedDescription = `${' '.repeat(
-          Math.max(0, descriptionColumnWidth - displayWidth(truncatedDescription)),
-        )}${truncatedDescription}`;
+          Math.max(0, descriptionColumnWidth - displayWidth(description)),
+        )}${description}`;
         const rowText = [
           selected ? marker : '  ',
           padDisplay(item.label, labelColumnWidth, ellipsis),
@@ -244,24 +247,16 @@ export function InputBox({
           paddedDescription,
         ].join('');
         return (
-          <Box key={item.name} flexDirection="column" width={contentWidth}>
+          <Box key={item.name} width={contentWidth}>
             <Text
               bold={selected}
               inverse={selected}
-              dimColor={!selected}
               color={capabilities.color
-                ? selected ? BETTERCODE_THEME.selected : BETTERCODE_THEME.muted
+                ? selected ? BETTERCODE_THEME.selected : BETTERCODE_THEME.text
                 : undefined}
             >
               {rowText}
             </Text>
-            {selected ? (
-              <Box paddingLeft={markerWidth + labelColumnWidth + commandGap} width={contentWidth}>
-                <Text dimColor wrap="wrap" color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-                  {item.description}
-                </Text>
-              </Box>
-            ) : undefined}
           </Box>
         );
       })}

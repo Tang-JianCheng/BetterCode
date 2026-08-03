@@ -100,3 +100,23 @@
 5. 测试：聚焦行同一行同时包含命令名与描述；完整描述仍在聚焦项下方。
 
 **验证：** InputBox 专项测试。
+
+## T10：聚焦描述同行内联展开
+
+**文件：** `src/ui/input-box.tsx`、`src/ui/capabilities.ts`、`src/ui/input-box.test.ts`
+
+1. 新增 `truncateStart(value, maxWidth, ellipsis)`：保留右缘并从左侧截断，超长时前缀省略号。
+2. 聚焦候选行改用 `truncateStart` 展开完整描述，未聚焦行保持 `truncateDisplay` 截断。
+3. 删除聚焦行下方的完整描述补充行，候选行保持单行。
+4. 测试：聚焦行同一行包含完整描述且无省略号；超长描述在 55 列下保留右缘、不越界。
+
+**验证：** InputBox 专项测试。
+
+## T11：面板文字更白
+
+**文件：** `src/ui/input-box.tsx`、`src/ui/input-box.test.ts`
+
+1. 未聚焦候选行去掉 `dimColor`，颜色使用 `BETTERCODE_THEME.text`。
+2. 聚焦行保留 `inverse` 反色高亮。
+
+**验证：** UI 专项测试与全量 `pnpm check`。
