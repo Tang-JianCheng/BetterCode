@@ -20,6 +20,12 @@ BetterCode 目前只能通过 `/status` 看到累计 Token 用量，用户无法
 - F9：Messages 分类行展示消息条数（`· N 条消息`），不逐条展示避免面板过长。
 - F10：明细与分类行保持同一文本块，渲染顺序稳定，不再出现单独的 `MCP tools 明细` 标题。
 
+## 增量：树形展开与弱化 Token 数值
+
+- F11：分类明细改用树形展开样式，分支行以 `├ ` 前缀并缩进 5 格挂在分类行下方，Unicode 模式用 `├`、ASCII 模式用 `|-`。
+- F12：每条明细的 `xx tokens` 数值使用弱化标记（`~~...~~`），终端彩色模式下渲染为淡色；非彩色模式保留 Markdown 删除线标记。
+- F13：明细仍最多展示前 10 项，长内容换行时继续保持在分支行缩进内。
+
 ## 非功能需求
 
 - N1：估算复用现有 `TokenEstimator`，不做网络请求。
@@ -43,3 +49,4 @@ BetterCode 目前只能通过 `/status` 看到累计 Token 用量，用户无法
 - AC5：展示内容中不出现任何 API key。
 - AC6：MCP / System tools / Skills 明细分别出现在对应分类行下方，且不再出现 `MCP tools 明细` 独立标题。
 - AC7：Messages 分类行带消息条数，多类明细并存时顺序为 System tools → MCP tools → Skills → Messages。
+- AC8：明细以 `├` 树形缩进展示，`xx tokens` 数值在彩色终端下呈淡色。

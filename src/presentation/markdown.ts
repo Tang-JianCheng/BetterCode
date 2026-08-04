@@ -66,6 +66,16 @@ export function presentationBlocksToMarkdown(
           items: block.items.map(listItem),
         });
         break;
+      case 'tree':
+        result.push({
+          type: 'tree',
+          lines: block.lines.map(line => ({
+            content: parseInlineMarkdown(line.content),
+            indent: line.indent ?? 0,
+            branch: line.branch ?? false,
+          })),
+        });
+        break;
       case 'divider':
         result.push({ type: 'hr' });
         break;

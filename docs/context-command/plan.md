@@ -83,8 +83,16 @@ interface ContextUsageSnapshot extends ContextUsageBreakdown {
 ## 增量：嵌套明细渲染
 
 - 数据源：`AgentLoop.estimateContextUsage` 把 `currentSupplemental().activeSkills`（`name` + `content`）传给 `estimateUsageBreakdown`，系统工具与 MCP 工具沿用可见工具集合。
-- 渲染：`buildContextUsagePresentation` 把分类行与明细放在同一个文本块，明细缩进两格并带 `•`；旧的独立 `MCP tools 明细` 标题与 list block 删除。
+- 渲染：`buildContextUsagePresentation` 把分类行与明细放在同一个文本块，明细缩进挂在对应分类行下方；旧的独立 `MCP tools 明细` 标题与 list block 删除。
 - 截断：每个分类明细最多展示前 10 项，超出部分不展示，避免长工具列表撑爆面板。
+
+## 增量：树形块渲染
+
+- 新增展示块类型 `tree`：每行带 `content`、`indent`、`branch`，`branch` 行渲染 `├ `（ASCII 模式 `|- `）前缀。
+- `presentationBlocksToMarkdown` 把 `tree` 块转为 Markdown AST 的 `tree` 块，逐行解析行内 Markdown，支持 `~~...~~` 弱化标记。
+- `renderMarkdown` 新增 `renderTree`：分支行按 `indent` 设置行缩进，换行续行保持分支缩进；`├` 前缀与 `~~...~~` 内容都使用 `muted` 样式。
+- `/context` 的分类明细改为单个 `tree` 块：分类行 `indent=0`，明细行 `indent=5`、`branch=true`，token 数值包在 `~~...~~` 内。
+- `presentationToPlainText` 支持 `tree` 块，按缩进输出 `├` 并去掉 `~~` 标记。
 
 ## 文件组织
 

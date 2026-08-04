@@ -52,3 +52,23 @@ test('列表、分隔线和通知内容转换为对应 Markdown 块', () => {
   assert.equal(notice.blocks[1].type, 'list');
   assert.equal(presentationNoticeMarkdown({}), undefined);
 });
+
+test('树形块转换为带缩进与分支标记的 Markdown 树', () => {
+  const blocks = presentationBlocksToMarkdown([{
+    type: 'tree',
+    lines: [
+      { content: 'MCP tools: 16.2k tokens (1.6%) · 2 tools' },
+      { content: 'mcp_demo: ~~421 tokens~~', indent: 5, branch: true },
+    ],
+  }]);
+  assert.equal(blocks[0].type, 'tree');
+  if (blocks[0].type === 'tree') {
+    assert.equal(blocks[0].lines.length, 2);
+    assert.equal(blocks[0].lines[0].indent, 0);
+    assert.equal(blocks[0].lines[0].branch, false);
+    assert.equal(blocks[0].lines[1].indent, 5);
+    assert.equal(blocks[0].lines[1].branch, true);
+    assert.equal(blocks[0].lines[1].content[0].type, 'text');
+    assert.equal(blocks[0].lines[1].content[1].type, 'del');
+  }
+});

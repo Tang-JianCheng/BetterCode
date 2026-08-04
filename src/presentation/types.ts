@@ -14,6 +14,12 @@ export interface PresentationColumn {
   priority?: number;
 }
 
+export interface PresentationTreeLine {
+  content: string;
+  indent?: number;
+  branch?: boolean;
+}
+
 export type PresentationBlock =
   | { type: 'text'; content: string; muted?: boolean; heading?: boolean }
   | { type: 'key_value'; entries: readonly PresentationEntry[]; columns?: 1 | 2 }
@@ -23,6 +29,7 @@ export type PresentationBlock =
       rows: readonly (readonly string[])[];
     }
   | { type: 'list'; items: readonly string[]; ordered?: boolean }
+  | { type: 'tree'; lines: readonly PresentationTreeLine[] }
   | { type: 'divider' };
 
 export interface PresentationDocument {

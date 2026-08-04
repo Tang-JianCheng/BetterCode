@@ -5,7 +5,11 @@ import type { PermissionMode, PermissionStatus } from '../permission/types.js';
 import type { TokenUsage } from '../provider/types.js';
 import type { SessionInfo } from '../session/session.js';
 import { createDocument, createNotice } from '../presentation/builders.js';
-import type { PresentationBlock, PresentationItem } from '../presentation/types.js';
+import type {
+  PresentationBlock,
+  PresentationItem,
+  PresentationTreeLine,
+} from '../presentation/types.js';
 import type { CommandDefinition } from './types.js';
 import type { CommandRegistry } from './registry.js';
 
@@ -65,8 +69,12 @@ function usagePercent(tokens: number, contextWindow: number): string {
   return `${((tokens / contextWindow) * 100).toFixed(1)}%`;
 }
 
-function nestedEntryLines(entries: readonly ContextUsageEntry[]): string[] {
-  return entries.slice(0, 10).map(entry => `  • ${entry.name}: ${formatCompactTokens(entry.tokens)} tokens`);
+function treeEntryLine(entry: ContextUsageEntry): PresentationTreeLine {
+  return {
+    content: `${entry.name}: ~~${formatCompactTokens(entry.tokens)} tokens~~`,
+    indent: 5,
+    branch: true,
+  };
 }
 
 export function buildContextUsagePresentation(
@@ -87,28 +95,28 @@ export function buildContextUsagePresentation(
     `${formatCompactTokens(snapshot.usedTokens)} / ${formatCompactTokens(snapshot.contextWindow)} tokens ` +
       `(${usagePercent(snapshot.usedTokens, snapshot.contextWindow)})`,
   ];
-  const categoryLines = [
-    'Estimated usage by category',
-    `System prompt: ${formatCompactTokens(snapshot.systemPromptTokens)} tokens ` +
-      `(${usagePercent(snapshot.systemPromptTokens, snapshot.contextWindow)})`,
-    `System tools: ${formatCompactTokens(snapshot.systemToolsTokens)} tokens ` +
-      `(${usagePercent(snapshot.systemToolsTokens, snapshot.contextWindow)}) · ${snapshot.systemToolCount} tools`,
-    ...nestedEntryLines(snapshot.systemToolEntries),
-    `MCP tools: ${formatCompactTokens(snapshot.mcpToolsTokens)} tokens ` +
-      `(${usagePercent(snapshot.mcpToolsTokens, snapshot.contextWindow)}) · ${snapshot.mcpToolCount} tools`,
-    ...nestedEntryLines(snapshot.mcpToolEntries),
-    `Skills: ${formatCompactTokens(snapshot.skillsTokens)} tokens ` +
-      `(${usagePercent(snapshot.skillsTokens, snapshot.contextWindow)})`,
-    ...nestedEntryLines(snapshot.skillEntries),
-    `Messages: ${formatCompactTokens(snapshot.messagesTokens)} tokens ` +
-      `(${usagePercent(snapshot.messagesTokens, snapshot.contextWindow)}) · ${snapshot.messageCount} 条消息`,
-    `Free space: ${formatCompactTokens(freeTokens)} tokens ` +
-      `(${usagePercent(freeTokens, snapshot.contextWindow)})`,
+  const categoryLines: PresentationTreeLine[] = [
+    { content: 'Estimated usage by category' },
+    { content: `System prompt: ${formatCompactTokens(snapshot.systemPromptTokens)} tokens ` +
+      `(${usagePercent(snapshot.systemPromptTokens, snapshot.contextWindow)})` },
+    { content: `System tools: ${formatCompactTokens(snapshot.systemToolsTokens)} tokens ` +
+      `(${usagePercent(snapshot.systemToolsTokens, snapshot.contextWindow)}) · ${snapshot.systemToolCount} tools` },
+    ...snapshot.systemToolEntries.slice(0, 10).map(treeEntryLine),
+    { content: `MCP tools: ${formatCompactTokens(snapshot.mcpToolsTokens)} tokens ` +
+      `(${usagePercent(snapshot.mcpToolsTokens, snapshot.contextWindow)}) · ${snapshot.mcpToolCount} tools` },
+    ...snapshot.mcpToolEntries.slice(0, 10).map(treeEntryLine),
+    { content: `Skills: ${formatCompactTokens(snapshot.skillsTokens)} tokens ` +
+      `(${usagePercent(snapshot.skillsTokens, snapshot.contextWindow)})` },
+    ...snapshot.skillEntries.slice(0, 10).map(treeEntryLine),
+    { content: `Messages: ${formatCompactTokens(snapshot.messagesTokens)} tokens ` +
+      `(${usagePercent(snapshot.messagesTokens, snapshot.contextWindow)}) · ${snapshot.messageCount} 条消息` },
+    { content: `Free space: ${formatCompactTokens(freeTokens)} tokens ` +
+      `(${usagePercent(freeTokens, snapshot.contextWindow)})` },
   ];
   const blocks: PresentationBlock[] = [
     { type: 'text', content: lines.join('\n') },
     { type: 'divider' },
-    { type: 'text', content: categoryLines.join('\n') },
+    { type: 'tree', lines: categoryLines },
   ];
   return createDocument({
     source: 'command',
@@ -344,6 +352,10 @@ export function presentationToPlainText(item: PresentationItem): string {
     }
     if (block.type === 'list') {
       lines.push(...block.items.map((value, index) => `${block.ordered ? `${index + 1}.` : '-'} ${value}`));
+    }
+    if (block.type === 'tree') {
+      lines.push(...block.lines.map(line =>
+        `${' '.repeat(line.indent ?? 0)}${line.branch ? '├ ' : ''}${line.content.replace(/~~/gu, '')}`));
     }
     if (block.type === 'table') {
       lines.push(block.columns.map(column => column.label).join('  '));

@@ -3,6 +3,7 @@ import test from 'node:test';
 import stringWidth from 'string-width';
 import { parseMarkdown } from './parser.js';
 import { markdownLineText, renderMarkdown } from './renderer.js';
+import type { MarkdownAst } from './types.js';
 
 function capabilities(columns: number, unicode = true, color = true) {
   return { columns, unicode, color };
@@ -108,4 +109,35 @@ test('HTML 与图片按纯文本占位展示', () => {
   const text = renderMarkdown(ast, capabilities(80)).map(markdownLineText).join('\n');
   assert.match(text, /<script>alert\(1\)<\/script>/u);
   assert.match(text, /\[alt 文本\]\(https:\/\/example\.com\/a\.png\)/u);
+});
+
+test('树形块按缩进渲染分支明细并弱化 token 数值', () => {
+  const ast: MarkdownAst = {
+    blocks: [{
+      type: 'tree',
+      lines: [
+        { content: [{ type: 'text', content: 'MCP tools: 16.2k tokens (1.6%) · 2 tools' }], indent: 0, branch: false },
+        {
+          content: [
+            { type: 'text', content: 'mcp_demo: ' },
+            { type: 'del', children: [{ type: 'text', content: '421 tokens' }] },
+          ],
+          indent: 5,
+          branch: true,
+        },
+      ],
+    }],
+  };
+  const lines = renderMarkdown(ast, capabilities(80));
+  assert.equal(lines[0].indent, 0);
+  assert.match(markdownLineText(lines[0]), /^MCP tools:/u);
+  assert.equal(lines[1].indent, 5);
+  assert.match(markdownLineText(lines[1]), /^├ mcp_demo: 421 tokens$/u);
+  const muted = lines[1].segments.filter(segment => segment.style === 'muted');
+  const mutedText = muted.map(segment => segment.text).join('');
+  assert.ok(mutedText.includes('├ '));
+  assert.ok(mutedText.includes('421 tokens'));
+
+  const ascii = renderMarkdown(ast, capabilities(80, false, false));
+  assert.match(markdownLineText(ascii[1]), /^\|- mcp_demo: ~~421 tokens~~$/u);
 });

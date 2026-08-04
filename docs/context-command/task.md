@@ -28,6 +28,7 @@
 - [x] T4: 命令与 UI 完成，`/context` 打开展示面板。
 - [x] T5: 测试、README 与文档完成。
 - [x] T6: 增量完成分类明细嵌套展示。
+- [x] T7: 增量完成树形展开与 token 数值弱化。
 
 ## T1: 上下文估算
 
@@ -78,6 +79,18 @@
 4. `buildContextUsagePresentation` 把 System tools / MCP tools / Skills 明细缩进挂在对应分类行下方，Messages 行带消息条数，移除 `MCP tools 明细` 独立块。
 
 **验证：** `pnpm test src/context/manager.test.ts src/agent/loop.test.ts src/command/presenters.test.ts src/ui/app.test.ts`。
+
+## T7: 增量：树形展开与弱化 Token 数值
+
+**文件：** `src/markdown/types.ts`、`src/presentation/types.ts`、`src/presentation/markdown.ts`、`src/markdown/renderer.ts`、`src/command/presenters.ts`
+
+1. `MarkdownBlock` 与 `PresentationBlock` 增加 `tree` 类型，行字段为 `content`、`indent`、`branch`。
+2. `presentationBlocksToMarkdown` 转换 `tree` 块并逐行解析行内 Markdown。
+3. `renderMarkdown` 新增 `renderTree`，分支行渲染 `├ `（ASCII `|- `）并按 `indent` 缩进，`muted` 样式处理 `├` 与 `~~...~~`。
+4. `/context` 分类明细改为单个 `tree` 块，token 数值用 `~~...~~` 弱化。
+5. `presentationToPlainText` 支持 `tree` 块并去掉 `~~` 标记。
+
+**验证：** `pnpm test src/markdown/renderer.test.ts src/presentation/markdown.test.ts src/command/presenters.test.ts src/ui/presentation-view.test.ts`。
 
 ## T5: 文档与收尾
 

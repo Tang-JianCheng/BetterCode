@@ -13,4 +13,8 @@
 - [x] 不再出现独立的 `MCP tools 明细` 标题块
 - [x] Messages 分类行展示消息条数
 - [x] 明细顺序稳定：System tools → MCP tools → Skills → Messages
+- [x] 分类明细以 `├` 树形缩进展开（ASCII 模式 `|-`）
+- [x] `xx tokens` 数值在彩色终端下渲染为淡色
+- [x] 明细长内容换行保持在分支行缩进内
+- [x] `tree` 块在 Markdown 渲染器与纯文本展示中均可正常输出
 - [x] `pnpm typecheck`、`pnpm test`、`git diff --check` 通过

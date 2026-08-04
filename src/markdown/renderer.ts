@@ -253,6 +253,33 @@ function renderList(
   return lines;
 }
 
+function renderTree(
+  block: Extract<MarkdownBlock, { type: 'tree' }>,
+  options: MarkdownRenderOptions,
+  indent: number,
+): MarkdownLine[] {
+  const lines: MarkdownLine[] = [];
+  for (const line of block.lines) {
+    const baseIndent = indent + line.indent;
+    const prefix = line.branch
+      ? options.unicode ? '├ ' : '|- '
+      : '';
+    const prefixWidth = stringWidth(prefix);
+    const wrapped = renderParagraph(line.content, options, baseIndent + prefixWidth);
+    if (wrapped.length === 0) continue;
+    const first = wrapped[0];
+    lines.push({
+      segments: [
+        ...(prefix ? [{ text: prefix, style: 'muted' as const }] : []),
+        ...first.segments,
+      ],
+      indent: baseIndent,
+    });
+    lines.push(...wrapped.slice(1));
+  }
+  return lines;
+}
+
 function renderQuote(
   block: Extract<MarkdownBlock, { type: 'quote' }>,
   options: MarkdownRenderOptions,
@@ -376,6 +403,8 @@ function renderBlock(
       return renderCode(block, options, indent);
     case 'list':
       return renderList(block, options, indent);
+    case 'tree':
+      return renderTree(block, options, indent);
     case 'quote':
       return renderQuote(block, options, indent);
     case 'table':

@@ -87,11 +87,11 @@ test('上下文 presenter 渲染动态格子和分类下嵌套明细', () => {
   assert.match(text, /52\.6k \/ 1m tokens \(5\.3%\)/u);
   assert.match(text, /System prompt: 2\.4k tokens \(0\.2%\)/u);
   assert.match(text, /System tools: 10\.2k tokens \(1\.0%\) · 6 tools/u);
-  assert.match(text, /  • read_file: 1\.7k tokens/u);
+  assert.match(text, /     ├ read_file: 1\.7k tokens/u);
   assert.match(text, /MCP tools: 16\.2k tokens \(1\.6%\) · 2 tools/u);
-  assert.match(text, /  • mcp_tzc_mcp_batchList_12345678: 421 tokens/u);
+  assert.match(text, /     ├ mcp_tzc_mcp_batchList_12345678: 421 tokens/u);
   assert.match(text, /Skills: 10k tokens \(1\.0%\)/u);
-  assert.match(text, /  • review: 1\.5k tokens/u);
+  assert.match(text, /     ├ review: 1\.5k tokens/u);
   assert.match(text, /Messages: 13\.8k tokens \(1\.4%\) · 12 条消息/u);
   assert.match(text, /Free space: 947\.4k tokens \(94\.7%\)/u);
   assert.doesNotMatch(text, /MCP tools 明细/u);

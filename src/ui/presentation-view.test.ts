@@ -114,6 +114,22 @@ test('命令表格在超宽终端限制为 88 列', () => {
   }
 });
 
+test('树形明细块渲染出缩进与分支线', () => {
+  const item = createDocument({
+    source: 'command', title: '上下文使用', tone: 'info', badge: 'CONTEXT',
+    blocks: [{
+      type: 'tree',
+      lines: [
+        { content: 'MCP tools: 16.2k tokens (1.6%) · 2 tools' },
+        { content: 'mcp_demo: 421 tokens', indent: 5, branch: true },
+      ],
+    }],
+  });
+  assert.match(renderItem(item, capabilities(100)), /MCP tools: 16\.2k tokens/u);
+  assert.match(renderItem(item, capabilities(100)), /     ├ mcp_demo: 421 tokens/u);
+  assert.match(renderItem(item, capabilities(100, false)), /     \|- mcp_demo: 421 tokens/u);
+});
+
 test('Apple Terminal 下用户消息与思考内容中的破折号被替换', () => {
   const user = renderItem(createConversation({ role: 'user', content: '你好—世界' }), {
     ...capabilities(100), appleTerminal: true,

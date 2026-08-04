@@ -13,11 +13,18 @@ export interface MarkdownListItem {
   blocks: readonly MarkdownBlock[];
 }
 
+export interface MarkdownTreeLine {
+  content: readonly MarkdownInline[];
+  indent: number;
+  branch: boolean;
+}
+
 export type MarkdownBlock =
   | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; inline: readonly MarkdownInline[] }
   | { type: 'paragraph'; inline: readonly MarkdownInline[] }
   | { type: 'code'; language?: string; content: string }
   | { type: 'list'; ordered: boolean; start: number; items: readonly MarkdownListItem[] }
+  | { type: 'tree'; lines: readonly MarkdownTreeLine[] }
   | { type: 'quote'; blocks: readonly MarkdownBlock[] }
   | {
       type: 'table';
