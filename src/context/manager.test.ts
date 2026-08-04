@@ -10,6 +10,7 @@ import type {
   StreamEvent,
   TokenUsage,
 } from '../provider/types.js';
+import type { ToolDefinition } from '../tool/types.js';
 import { CONTEXT_SUMMARY_HEADINGS } from './constants.js';
 import { ContextManager } from './manager.js';
 import type { ContextEvent, ContextTrigger } from './types.js';
@@ -177,4 +178,30 @@ test('手动无内容、取消、clear 和 close 保持状态一致', async t =>
   await manager.close();
   const closed = await manage(manager, provider, [], 'automatic');
   assert.equal(closed.status, 'blocked');
+});
+
+test('estimateUsageBreakdown 按类别估算并汇总', async t => {
+  const manager = await createManager(t);
+  const tool = (name: string): ToolDefinition => ({
+    name,
+    description: '工具',
+    inputSchema: { type: 'object' },
+  });
+  const breakdown = manager.estimateUsageBreakdown({
+    systemPrompt: '系统提示',
+    systemTools: [tool('read_file')],
+    mcpTools: [tool('mcp_demo_tool_12345678')],
+    fullReminder: '<system-reminder>\n## 已激活的 Skill\n### review\n检查事实\n## 环境信息\nroot\n</system-reminder>',
+    baseReminder: '<system-reminder>\n## 环境信息\nroot\n</system-reminder>',
+    messages: [{ role: 'user', content: '你好' }],
+  });
+  assert.equal(breakdown.systemToolCount, 1);
+  assert.equal(breakdown.mcpToolCount, 1);
+  assert.equal(breakdown.mcpToolEntries.length, 1);
+  assert.equal(breakdown.skillsTokens > 0, true);
+  assert.equal(
+    breakdown.usedTokens,
+    breakdown.systemPromptTokens + breakdown.systemToolsTokens +
+      breakdown.mcpToolsTokens + breakdown.skillsTokens + breakdown.messagesTokens,
+  );
 });

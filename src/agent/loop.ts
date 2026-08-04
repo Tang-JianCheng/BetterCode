@@ -1,9 +1,11 @@
 import { serializeToolResult } from '../tool/output-limit.js';
+import { isMcpToolName } from '../mcp/naming.js';
 import { ToolRegistry } from '../tool/registry.js';
-import type { Message, ProviderRequest, TokenUsage } from '../provider/types.js';
+import type { LLMProvider, Message, ProviderRequest, TokenUsage } from '../provider/types.js';
 import { buildSystemPrompt } from '../prompt/builder.js';
 import { buildSystemReminder, collectEnvironment } from '../prompt/reminder.js';
 import type { SupplementalPromptContent } from '../prompt/types.js';
+import type { ContextUsageSnapshot } from '../context/types.js';
 import type { PermissionManager } from '../permission/manager.js';
 import { ContextManager } from '../context/manager.js';
 import type { ContextManageResult } from '../context/types.js';
@@ -372,6 +374,47 @@ export class AgentLoop {
       signal,
       emit,
     });
+  }
+
+  estimateContextUsage(
+    provider: LLMProvider,
+    history: readonly Message[],
+    mode: AgentLoopRequest['mode'] = 'act',
+  ): ContextUsageSnapshot {
+    const visibleToolNames = this.runtime.visibleToolNames?.();
+    const definitions = visibleToolNames
+      ? this.registry.definitionsFor(visibleToolNames, mode === 'plan' ? 'read_only' : undefined)
+      : mode === 'plan'
+        ? this.registry.definitions('read_only')
+        : this.registry.definitions();
+    const systemTools = definitions.filter(tool => !isMcpToolName(tool.name));
+    const mcpTools = definitions.filter(tool => isMcpToolName(tool.name));
+    const supplemental = this.currentSupplemental();
+    const environment = collectEnvironment(this.registry.rootDir, mode);
+    const fullReminder = buildSystemReminder({ environment, iteration: 1, supplemental });
+    const baseReminder = buildSystemReminder({
+      environment,
+      iteration: 1,
+      supplemental: {
+        ...supplemental,
+        activeSkills: undefined,
+        availableSkills: undefined,
+      },
+    });
+    const breakdown = this.contextManager.estimateUsageBreakdown({
+      systemPrompt: this.systemPrompt,
+      systemTools,
+      mcpTools,
+      fullReminder,
+      baseReminder,
+      messages: history,
+    });
+    return {
+      providerName: provider.name,
+      model: provider.model,
+      contextWindow: provider.contextWindow,
+      ...breakdown,
+    };
   }
 
   private currentSupplemental(hookInstructions?: string): SupplementalPromptContent {

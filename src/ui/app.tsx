@@ -10,6 +10,7 @@ import { CommandDispatcher } from '../command/dispatcher.js';
 import { createSkillCommandDefinitions } from '../command/skills.js';
 import type { CommandUIController } from '../command/types.js';
 import {
+  buildContextUsagePresentation,
   buildMemoryPresentation,
   buildPermissionPresentation,
   buildStatusPresentation,
@@ -919,6 +920,11 @@ export function App({
     }));
   }, [activeProvider, appendPresentation, chatManager, skillManager, usage]);
 
+  const showContextUsage = useCallback(() => {
+    const snapshot = chatManager.getContextUsage(activeProvider, agentModeRef.current);
+    appendPresentation(buildContextUsagePresentation(snapshot, { unicode: capabilities.unicode }));
+  }, [activeProvider, appendPresentation, capabilities.unicode, chatManager]);
+
   const rewindConversation = useCallback(() => {
     const snapshots = chatManager.getSnapshots();
     if (snapshots.length === 0) {
@@ -961,6 +967,7 @@ export function App({
     showMemoryStatus,
     showOrSetPermission,
     showStatus,
+    showContextUsage,
     showSubAgentTasks,
     manageTeam,
     rewindConversation,
@@ -980,6 +987,7 @@ export function App({
     showOrSwitchModel,
     showOrSetPermission,
     showStatus,
+    showContextUsage,
     showSubAgentTasks,
     manageTeam,
     usage,

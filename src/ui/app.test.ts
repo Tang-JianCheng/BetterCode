@@ -67,6 +67,20 @@ function createAppDependencies() {
     listSubAgentTasks: () => [],
     getTeamStatus: () => ({ active: false }),
     getSessionId: () => 'session-12345678',
+    getContextUsage: () => ({
+      providerName: 'deepseek',
+      model: 'deepseek-chat',
+      contextWindow: 128_000,
+      systemPromptTokens: 2_000,
+      systemToolsTokens: 8_000,
+      mcpToolsTokens: 0,
+      skillsTokens: 0,
+      messagesTokens: 10_000,
+      systemToolCount: 6,
+      mcpToolCount: 0,
+      mcpToolEntries: [],
+      usedTokens: 20_000,
+    }),
     getMemoryStatus: () => ({
       userDirectory: '/home/.bettercode/memory',
       projectDirectory: '/repo/.bettercode/memory',
@@ -645,6 +659,24 @@ test('/model 只有一个 Provider 时提示而不是打开面板', async () => 
   assert.match(frame, /无法切换/u);
   assert.match(frame, /只有一个 Provider/u);
   assert.doesNotMatch(frame, /\[MODEL\] 切换模型/u);
+  view.unmount();
+});
+
+test('/context 渲染上下文占用视图', async () => {
+  const dependencies = createAppDependencies();
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('/context');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /\[CONTEXT\] 上下文使用/u);
+  assert.match(frame, /deepseek-chat\[128k\]/u);
+  assert.match(frame, /System prompt/u);
+  assert.match(frame, /Free space/u);
   view.unmount();
 });
 

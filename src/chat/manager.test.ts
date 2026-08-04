@@ -453,3 +453,25 @@ test('ChatManager 新增内容不足两条时暂不触发记忆提取', async t 
   await manager.close();
   assert.equal(next.calls.length, 2);
 });
+
+test('ChatManager.getContextUsage 返回当前会话的估算快照', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const manager = makeManager(root);
+  const provider = new FakeProvider([
+    [{ type: 'text_delta', content: '已完成' }, done()],
+  ]);
+  await collect(manager.run('执行任务', provider));
+
+  const usage = manager.getContextUsage(provider);
+  assert.equal(usage.providerName, 'fake');
+  assert.equal(usage.model, 'fake-model');
+  assert.equal(usage.contextWindow, 128_000);
+  assert.ok(usage.usedTokens > 0);
+  assert.equal(
+    usage.usedTokens,
+    usage.systemPromptTokens + usage.systemToolsTokens +
+      usage.mcpToolsTokens + usage.skillsTokens + usage.messagesTokens,
+  );
+  await manager.close();
+});

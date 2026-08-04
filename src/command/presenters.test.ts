@@ -3,6 +3,7 @@ import test from 'node:test';
 import { CommandRegistry } from './registry.js';
 import {
   buildCommandErrorPresentation,
+  buildContextUsagePresentation,
   buildHelpPresentation,
   buildMemoryPresentation,
   buildStatusPresentation,
@@ -61,4 +62,29 @@ test('命令错误使用危险通知而不是助手消息', () => {
     assert.equal(item.tone, 'danger');
     assert.match(item.message ?? '', /\/help/u);
   }
+});
+
+test('上下文 presenter 渲染动态格子和五类明细', () => {
+  const snapshot = {
+    providerName: 'PackyCode-Deepseek',
+    model: 'deepseek-v4-flash',
+    contextWindow: 1_000_000,
+    systemPromptTokens: 2_400,
+    systemToolsTokens: 10_200,
+    mcpToolsTokens: 16_200,
+    skillsTokens: 10_000,
+    messagesTokens: 13_800,
+    systemToolCount: 6,
+    mcpToolCount: 2,
+    mcpToolEntries: [{ name: 'mcp_tzc_mcp_batchList_12345678', tokens: 421 }],
+    usedTokens: 52_600,
+  };
+  const text = presentationToPlainText(buildContextUsagePresentation(snapshot, { unicode: false }));
+  assert.match(text, /deepseek-v4-flash\[1M\]/u);
+  assert.match(text, /52\.6k \/ 1m tokens \(5\.3%\)/u);
+  assert.match(text, /System prompt: 2\.4k tokens \(0\.2%\)/u);
+  assert.match(text, /MCP tools: 16\.2k tokens \(1\.6%\) · 2 tools/u);
+  assert.match(text, /Free space: 947\.4k tokens \(94\.7%\)/u);
+  assert.match(text, /mcp_tzc_mcp_batchList_12345678/u);
+  assert.match(text, /#/u);
 });

@@ -3,6 +3,7 @@ import { createEventStream } from '../agent/event-stream.js';
 import { buildExecutePlanRequest } from '../agent/prompts.js';
 import type {
   AgentEvent,
+  AgentMode,
   AgentLoopOptions,
   AgentRunOptions,
   SavedPlan,
@@ -340,6 +341,10 @@ export class ChatManager {
 
   getHistory(): ReadonlyArray<Message> {
     return [...this.history];
+  }
+
+  getContextUsage(provider: LLMProvider, mode: AgentMode = 'act'): ReturnType<AgentLoop['estimateContextUsage']> {
+    return this.loop.estimateContextUsage(provider, this.history, mode);
   }
 
   getLatestPlan(): Readonly<SavedPlan> | undefined {

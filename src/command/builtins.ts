@@ -113,6 +113,13 @@ function definitions(): CommandDefinition[] {
       },
     },
     {
+      name: 'context', aliases: ['ctx'], description: '查看上下文使用情况', usage: '/context',
+      type: 'local', handler: invocation => {
+        if (!noArguments(invocation)) return;
+        invocation.ui.showContextUsage();
+      },
+    },
+    {
       name: 'team', aliases: [], description: '管理长期团队',
       usage: '/team list|create <名称>|use <名称>|status|archive <名称>|restore <名称>',
       argumentHint: '<动作>', type: 'local',

@@ -1,0 +1,76 @@
+# /context 命令 Tasks
+
+## 文件清单
+
+| 操作 | 文件 | 职责 |
+|------|------|------|
+| 修改 | `src/context/types.ts` | `ContextUsageSnapshot` 与输入类型 |
+| 修改 | `src/context/manager.ts` | `estimateUsageBreakdown` |
+| 修改 | `src/agent/loop.ts` | `estimateContextUsage` |
+| 修改 | `src/chat/manager.ts` | `getContextUsage` |
+| 修改 | `src/command/types.ts` | `showContextUsage` |
+| 修改 | `src/command/builtins.ts` | 注册 `/context` |
+| 修改 | `src/command/presenters.ts` | 上下文使用展示 |
+| 修改 | `src/ui/app.tsx` | 接入命令 |
+| 修改 | `src/command/builtins.test.ts`、`dispatcher.test.ts` | 控制器桩补字段 |
+| 修改 | `src/command/presenters.test.ts` | 展示渲染测试 |
+| 修改 | `src/context/manager.test.ts` | 估算分类测试 |
+| 修改 | `src/agent/loop.test.ts` | AgentLoop 估算测试 |
+| 修改 | `src/chat/manager.test.ts` | ChatManager 转发测试 |
+| 修改 | `README.md` | 命令表 |
+| 新建 | `docs/context-command/*.md` | 本套文档 |
+
+## 状态
+
+- [x] T1: 估算层完成，`estimateUsageBreakdown` 输出五类 Token。
+- [x] T2: AgentLoop 完成，`estimateContextUsage` 生成完整快照。
+- [x] T3: ChatManager 完成，`getContextUsage` 转发历史与模式。
+- [x] T4: 命令与 UI 完成，`/context` 打开展示面板。
+- [x] T5: 测试、README 与文档完成。
+
+## T1: 上下文估算
+
+**文件：** `src/context/types.ts`、`src/context/manager.ts`
+
+1. 定义 `ContextUsageBreakdownInput`、`ContextUsageBreakdown`、`ContextUsageSnapshot`。
+2. `estimateUsageBreakdown` 估算 system prompt / system tools / mcp tools / skills / messages。
+3. 返回 `usedTokens` 为五类之和。
+
+**验证：** `pnpm test src/context/manager.test.ts`。
+
+## T2: AgentLoop 快照
+
+**文件：** `src/agent/loop.ts`
+
+1. `estimateContextUsage(provider, history, mode)` 计算可见工具集合。
+2. 按 `isMcpToolName` 拆分 MCP 与系统工具。
+3. 用完整 / base reminder 计算 skills 段，组装快照。
+
+**验证：** `pnpm test src/agent/loop.test.ts`。
+
+## T3: ChatManager 转发
+
+**文件：** `src/chat/manager.ts`
+
+1. 新增 `getContextUsage(provider, mode)`，转发当前 `history`。
+
+**验证：** `pnpm test src/chat/manager.test.ts`。
+
+## T4: 命令与展示
+
+**文件：** `src/command/types.ts`、`src/command/builtins.ts`、`src/command/presenters.ts`、`src/ui/app.tsx`
+
+1. `CommandUIController` 增加 `showContextUsage`。
+2. 注册 `/context`（别名 `/ctx`）。
+3. `buildContextUsagePresentation` 渲染动态格子、模型、总占用、五类明细与 MCP 明细。
+4. `App` 接入 `showContextUsage`，传入当前 Provider、模式与终端能力。
+
+**验证：** `pnpm test src/command/builtins.test.ts src/command/dispatcher.test.ts src/command/presenters.test.ts`。
+
+## T5: 文档与收尾
+
+**文件：** `README.md`、`docs/context-command/*.md`
+
+1. README 命令表增加 `/context`。
+2. 四份文档按最终实现同步。
+3. 全量 `pnpm check` 与 `git diff --check` 通过。

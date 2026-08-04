@@ -1,5 +1,6 @@
 import type { AgentMode } from '../agent/types.js';
 import type { MemoryStatus } from '../chat/manager.js';
+import type { ContextUsageSnapshot } from '../context/types.js';
 import type { PermissionMode, PermissionStatus } from '../permission/types.js';
 import type { TokenUsage } from '../provider/types.js';
 import type { SessionInfo } from '../session/session.js';
@@ -27,8 +28,97 @@ export interface CommandStatusSnapshot {
   };
 }
 
+export interface ContextUsageRenderOptions {
+  unicode?: boolean;
+}
+
 function commandUsage(definition: CommandDefinition): string {
   return definition.usage || `/${definition.name}`;
+}
+
+function contextGridCells(contextWindow: number): number {
+  return Math.min(64, Math.max(12, Math.round(contextWindow / 32_000)));
+}
+
+function formatCompactTokens(value: number): string {
+  if (value >= 1_000_000) {
+    const amount = value / 1_000_000;
+    return `${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(1)}m`;
+  }
+  if (value >= 1_000) {
+    const amount = value / 1_000;
+    return `${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(1)}k`;
+  }
+  return String(value);
+}
+
+function contextWindowSuffix(contextWindow: number): string {
+  if (contextWindow >= 1_000_000) {
+    const amount = contextWindow / 1_000_000;
+    return `[${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(1)}M]`;
+  }
+  const amount = contextWindow / 1_000;
+  return `[${Number.isInteger(amount) ? amount.toFixed(0) : amount.toFixed(1)}k]`;
+}
+
+function usagePercent(tokens: number, contextWindow: number): string {
+  return `${((tokens / contextWindow) * 100).toFixed(1)}%`;
+}
+
+export function buildContextUsagePresentation(
+  snapshot: ContextUsageSnapshot,
+  options: ContextUsageRenderOptions = {},
+): PresentationItem {
+  const cellCount = contextGridCells(snapshot.contextWindow);
+  const usedCells = Math.max(0, Math.min(
+    cellCount,
+    Math.round((snapshot.usedTokens / snapshot.contextWindow) * cellCount),
+  ));
+  const usedGlyph = options.unicode === false ? '#' : '⛁';
+  const freeGlyph = options.unicode === false ? '.' : '⛶';
+  const grid = usedGlyph.repeat(usedCells) + freeGlyph.repeat(cellCount - usedCells);
+  const freeTokens = Math.max(0, snapshot.contextWindow - snapshot.usedTokens);
+  const lines = [
+    `${grid}   ${snapshot.model}${contextWindowSuffix(snapshot.contextWindow)}`,
+    `${formatCompactTokens(snapshot.usedTokens)} / ${formatCompactTokens(snapshot.contextWindow)} tokens ` +
+      `(${usagePercent(snapshot.usedTokens, snapshot.contextWindow)})`,
+  ];
+  const categoryLines = [
+    'Estimated usage by category',
+    `System prompt: ${formatCompactTokens(snapshot.systemPromptTokens)} tokens ` +
+      `(${usagePercent(snapshot.systemPromptTokens, snapshot.contextWindow)})`,
+    `System tools: ${formatCompactTokens(snapshot.systemToolsTokens)} tokens ` +
+      `(${usagePercent(snapshot.systemToolsTokens, snapshot.contextWindow)}) · ${snapshot.systemToolCount} tools`,
+    `MCP tools: ${formatCompactTokens(snapshot.mcpToolsTokens)} tokens ` +
+      `(${usagePercent(snapshot.mcpToolsTokens, snapshot.contextWindow)}) · ${snapshot.mcpToolCount} tools`,
+    `Skills: ${formatCompactTokens(snapshot.skillsTokens)} tokens ` +
+      `(${usagePercent(snapshot.skillsTokens, snapshot.contextWindow)})`,
+    `Messages: ${formatCompactTokens(snapshot.messagesTokens)} tokens ` +
+      `(${usagePercent(snapshot.messagesTokens, snapshot.contextWindow)})`,
+    `Free space: ${formatCompactTokens(freeTokens)} tokens ` +
+      `(${usagePercent(freeTokens, snapshot.contextWindow)})`,
+  ];
+  const blocks: PresentationBlock[] = [
+    { type: 'text', content: lines.join('\n') },
+    { type: 'divider' },
+    { type: 'text', content: categoryLines.join('\n') },
+  ];
+  const mcpEntries = snapshot.mcpToolEntries
+    .slice(0, 10)
+    .map(entry => `${entry.name}: ${formatCompactTokens(entry.tokens)} tokens`);
+  if (mcpEntries.length > 0) {
+    blocks.push({ type: 'divider' });
+    blocks.push({ type: 'text', content: 'MCP tools 明细', heading: true });
+    blocks.push({ type: 'list', items: mcpEntries });
+  }
+  return createDocument({
+    source: 'command',
+    title: '上下文使用',
+    tone: 'info',
+    badge: 'CONTEXT',
+    blocks,
+    footer: '使用 /model 切换模型 · 上下文窗口随模型动态变化',
+  });
 }
 
 export function buildHelpPresentation(

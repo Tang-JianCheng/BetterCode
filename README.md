@@ -49,6 +49,7 @@ BetterCode 启动时展示一次原创“小码”品牌区，运行期间使用
 | `/permission [模式]` | 查看或切换权限模式 |
 | `/tasks [任务 ID]` | 查看当前会话的子 Agent 任务或单项详情 |
 | `/status` | 查看 Provider、模式、Token、会话和记忆状态 |
+| `/context` | 查看上下文占用、格子视图与分类明细 |
 | `/review [范围]` | 使用内置 review Skill 独立审查代码 |
 
 旧命令 `/resume`、`/r` 和 `/permissions` 继续作为别名可用；`/rewind`、`/exit`、`/quit` 保持兼容。

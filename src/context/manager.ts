@@ -1,4 +1,5 @@
 import type { Message, ProviderRequest, TokenUsage } from '../provider/types.js';
+import { stableStringifyJson } from '../tool/stable-json.js';
 import { resolveContextOptions } from './constants.js';
 import { HistoryPlanner } from './history-planner.js';
 import { LightweightCompactor } from './lightweight-compactor.js';
@@ -7,6 +8,8 @@ import { TokenEstimator } from './token-estimator.js';
 import { ToolResultStore } from './tool-result-store.js';
 import type {
   ContextErrorCode,
+  ContextUsageBreakdown,
+  ContextUsageBreakdownInput,
   ContextManageInput,
   ContextManageResult,
   ContextManagerOptions,
@@ -49,6 +52,35 @@ export class ContextManager {
       consecutiveSummaryFailures: this.consecutiveSummaryFailures,
       circuitOpen: this.circuitOpen,
       offloadedResults: this.offloadedResults,
+    };
+  }
+
+  estimateUsageBreakdown(input: ContextUsageBreakdownInput): ContextUsageBreakdown {
+    const systemPromptTokens = this.estimator.estimateText(input.systemPrompt) + 4;
+    const systemToolsTokens = this.estimateTools(input.systemTools);
+    const mcpToolsTokens = this.estimateTools(input.mcpTools);
+    const fullReminderTokens = this.estimator.estimateText(input.fullReminder);
+    const baseReminderTokens = this.estimator.estimateText(input.baseReminder);
+    const skillsTokens = Math.max(0, fullReminderTokens - baseReminderTokens);
+    const messagesTokens = input.messages.reduce(
+      (sum, message) => sum + this.estimator.estimateMessage(message),
+      0,
+    ) + (input.baseReminder ? baseReminderTokens + 4 : 0) + 12;
+    const mcpToolEntries = input.mcpTools.map(tool => ({
+      name: tool.name,
+      tokens: this.estimateTools([tool]),
+    }));
+    return {
+      systemPromptTokens,
+      systemToolsTokens,
+      mcpToolsTokens,
+      skillsTokens,
+      messagesTokens,
+      systemToolCount: input.systemTools.length,
+      mcpToolCount: input.mcpTools.length,
+      mcpToolEntries,
+      usedTokens: systemPromptTokens + systemToolsTokens + mcpToolsTokens +
+        skillsTokens + messagesTokens,
     };
   }
 
@@ -253,6 +285,10 @@ export class ContextManager {
         beforeTokens,
       );
     }
+  }
+
+  private estimateTools(tools: ContextUsageBreakdownInput['systemTools']): number {
+    return this.estimator.estimateText(stableStringifyJson(tools)) + tools.length * 8;
   }
 
   private buildRequest(input: ContextManageInput, history: readonly Message[]): ProviderRequest {

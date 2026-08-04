@@ -34,6 +34,33 @@ export interface ContextStatus {
   offloadedResults: number;
 }
 
+export interface ContextUsageBreakdownInput {
+  systemPrompt: string;
+  systemTools: readonly ToolDefinition[];
+  mcpTools: readonly ToolDefinition[];
+  fullReminder: string;
+  baseReminder: string;
+  messages: readonly Message[];
+}
+
+export interface ContextUsageBreakdown {
+  systemPromptTokens: number;
+  systemToolsTokens: number;
+  mcpToolsTokens: number;
+  skillsTokens: number;
+  messagesTokens: number;
+  systemToolCount: number;
+  mcpToolCount: number;
+  mcpToolEntries: ReadonlyArray<{ name: string; tokens: number }>;
+  usedTokens: number;
+}
+
+export interface ContextUsageSnapshot extends ContextUsageBreakdown {
+  providerName: string;
+  model: string;
+  contextWindow: number;
+}
+
 export type ContextEvent =
   | {
       type: 'context_progress';

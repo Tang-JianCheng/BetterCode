@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createPermissionManager } from '../permission/factory.js';
+import { createMcpToolName } from '../mcp/naming.js';
 import type {
   LLMProvider,
   ProviderRequest,
@@ -684,4 +685,42 @@ test('两个 AgentLoop 的 ToolExecutionState 读取缓存互不共享', async t
   assert.match(await execute(firstState), /"cached":false/);
   assert.match(await execute(firstState), /"cached":true/);
   assert.match(await execute(secondState), /"cached":false/);
+});
+
+test('estimateContextUsage 统计系统工具、MCP 工具与技能', t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = createCoreToolRegistry(root);
+  registry.register({
+    name: createMcpToolName('demo', 'ping'),
+    description: 'MCP ping',
+    inputSchema: { type: 'object', properties: {} },
+    effect: 'read_only',
+    permission: { targetKind: 'arguments', risk: 'read' },
+    async execute() { return createToolSuccess('pong'); },
+  });
+  const permissionManager = createPermissionManager(
+    registry,
+    'allow',
+    { userHome: path.join(root, '.home') },
+  );
+  const loop = new AgentLoop(registry, permissionManager, { maxIterations: 3 }, {
+    activeSkills: [{ name: 'review', content: '检查事实' }],
+  });
+  const provider = new FakeProvider([]);
+  const usage = loop.estimateContextUsage(
+    provider,
+    [{ role: 'user', content: 'hello' }],
+    'act',
+  );
+  assert.equal(usage.providerName, 'fake');
+  assert.equal(usage.contextWindow, 128_000);
+  assert.equal(usage.mcpToolCount, 1);
+  assert.ok(usage.systemToolCount > 0);
+  assert.ok(usage.skillsTokens > 0);
+  assert.equal(
+    usage.usedTokens,
+    usage.systemPromptTokens + usage.systemToolsTokens +
+      usage.mcpToolsTokens + usage.skillsTokens + usage.messagesTokens,
+  );
 });
