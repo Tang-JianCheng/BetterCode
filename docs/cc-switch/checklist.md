@@ -17,6 +17,10 @@
 - [x] `--provider cc-switch.claude` 可显式选择 Claude 线（验证：集成测试）
 - [x] 数据库导入后 `/model` 面板列出全部 cc-switch 供应商，当前激活项标为默认（验证：应用集成测试）
 - [x] 导入失败时回退到 config.yaml 原 default provider（验证：集成测试）
+- [x] 档位 env（`ANTHROPIC_DEFAULT_*_MODEL`）解析为 `model_tiers`，`[1M]` 换算为 1M 上下文，`_NAME` 作为显示名（验证：database/loader 专项测试）
+- [x] `settings_config.model` 为档位名时正确记录激活档位（验证：database 专项测试）
+- [x] `/model` 对带档位的 cc-switch Provider 展示 Sonnet/Opus/Fable/Haiku 与上下文窗口（验证：model-dialog / app 测试）
+- [x] 档位切换后 `/status` 与后续请求使用新档位模型，未配置档位时报错不崩溃（验证：应用集成测试）
 
 ## Anthropic 兼容
 
@@ -36,3 +40,4 @@
 - [ ] 场景 2：`~/.claude/settings.json` 缺失或 key 缺失 → BetterCode 正常启动，显示诊断并回退 config.yaml 默认供应商
 - [ ] 场景 3：`--provider deepseek-v4` 显式指定时，即使 cc-switch 已启用也使用指定供应商
 - [ ] 场景 4：cc-switch 中配置多个 Claude 供应商 → 重启 BetterCode → `/model` 可见全部并可切换，当前激活项带标记
+- [ ] 场景 5：cc-switch 当前供应商带 Sonnet/Opus/Haiku/Fable 档位与 1M 上下文 → 重启 BetterCode → `/model` 展示档位并可切换，`/status` 跟随

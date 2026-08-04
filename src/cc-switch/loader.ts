@@ -46,6 +46,8 @@ function importFromDatabase(
       environment,
       { ...claudeOptions, name: undefined },
       name,
+      row.tiers,
+      row.activeTier,
     );
     if (!built.provider) {
       for (const diagnostic of built.diagnostics) {

@@ -112,6 +112,7 @@ function createAppDependencies() {
     { name: 'flash', model: 'deepseek-v4-flash', base_url: 'https://api.deepseek.com' },
   ];
   let switchProviderCalls: string[] = [];
+  let switchTierCalls: string[] = [];
   const switchProvider = (name: string): LLMProvider => {
     switchProviderCalls = [...switchProviderCalls, name];
     const option = providers.find(item => item.name === name) ?? providers[0];
@@ -123,14 +124,30 @@ function createAppDependencies() {
       async chat() {},
     };
   };
+  const switchModelTier = (tier: string): LLMProvider => {
+    switchTierCalls = [...switchTierCalls, tier];
+    const option = providers.find(item => item.name === 'deepseek') ?? providers[0];
+    const tierConfig = option.model_tiers?.[tier as keyof NonNullable<ModelOption['model_tiers']>];
+    const model = tierConfig?.model ?? option.model;
+    const contextWindow = tierConfig?.context_window ?? 128_000;
+    return {
+      name: option.name,
+      model,
+      contextWindow,
+      contextWindowIsDefault: tierConfig?.context_window === undefined,
+      async chat() {},
+    };
+  };
   return {
     chatManager,
     skillManager,
     provider,
     providers,
     switchProvider,
+    switchModelTier,
     getClearCount: () => clearCount,
     getSwitchProviderCalls: () => switchProviderCalls,
+    getSwitchTierCalls: () => switchTierCalls,
     setAgentStream: (stream: AsyncIterable<AgentEvent>) => {
       agentStream = stream;
     },
@@ -628,6 +645,62 @@ test('/model 只有一个 Provider 时提示而不是打开面板', async () => 
   assert.match(frame, /无法切换/u);
   assert.match(frame, /只有一个 Provider/u);
   assert.doesNotMatch(frame, /\[MODEL\] 切换模型/u);
+  view.unmount();
+});
+
+test('/model 对 cc-switch Provider 展示档位模型并可切换', async () => {
+  const dependencies = createAppDependencies();
+  const provider: LLMProvider = {
+    name: 'PackyCode-Deepseek',
+    model: 'deepseek-v4-flash',
+    contextWindow: 1_000_000,
+    contextWindowIsDefault: false,
+    async chat() {},
+  };
+  const providers: ModelOption[] = [{
+    name: 'PackyCode-Deepseek',
+    model: 'deepseek-v4-flash',
+    base_url: 'https://www.packyapi.ai',
+    active_tier: 'sonnet',
+    model_tiers: {
+      sonnet: { model: 'deepseek-v4-flash', context_window: 1_000_000 },
+      opus: { model: 'deepseek-v4-flash', context_window: 1_000_000 },
+      fable: { model: 'deepseek-v4-flash', context_window: 1_000_000 },
+      haiku: { model: 'deepseek-v4-flash' },
+    },
+  }];
+  const view = render(React.createElement(App, {
+    ...dependencies,
+    provider,
+    providers,
+  }));
+  await flushAppInput();
+  view.stdin.write('/model');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  let frame = view.lastFrame() ?? '';
+  assert.match(frame, /\[MODEL\] 切换模型/u);
+  assert.match(frame, /Sonnet/u);
+  assert.match(frame, /Opus/u);
+  assert.match(frame, /Fable/u);
+  assert.match(frame, /Haiku/u);
+  assert.match(frame, /deepseek-v4-flash/u);
+  assert.match(frame, /1M/u);
+  assert.match(frame, /\[当前\]/u);
+  assert.doesNotMatch(frame, /PackyCode-CC/u);
+  assert.doesNotMatch(frame, /default/u);
+
+  view.stdin.write('\u001B[B');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  frame = view.lastFrame() ?? '';
+  assert.match(frame, /模型已切换/u);
+  assert.deepEqual(dependencies.getSwitchTierCalls(), ['opus']);
   view.unmount();
 });
 

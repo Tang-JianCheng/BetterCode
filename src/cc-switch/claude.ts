@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import type { ProviderConfig } from '../config/types.js';
+import type {
+  ClaudeModelTier,
+  ModelTierConfig,
+  ProviderConfig,
+} from '../config/types.js';
 import type { CcSwitchDiagnostic } from './types.js';
 
 export interface ClaudeReadOptions {
@@ -35,6 +39,8 @@ export function buildClaudeProviderFromEnv(
   environment: NodeJS.ProcessEnv,
   options: ClaudeReadOptions = {},
   nameHint = DEFAULT_CLAUDE_NAME,
+  tiers?: Partial<Record<ClaudeModelTier, ModelTierConfig>>,
+  activeTier?: ClaudeModelTier,
 ): ClaudeReadResult {
   const diagnostics: CcSwitchDiagnostic[] = [];
   if (!isRecord(rawEnv)) {
@@ -93,6 +99,8 @@ export function buildClaudeProviderFromEnv(
     authMode: authToken ? 'bearer' : 'api-key',
     thinking: options.thinking ?? false,
     ...(options.context_window === undefined ? {} : { context_window: options.context_window }),
+    ...(tiers && Object.keys(tiers).length > 0 ? { model_tiers: tiers } : {}),
+    ...(activeTier ? { active_tier: activeTier } : {}),
   };
   return { provider, diagnostics };
 }

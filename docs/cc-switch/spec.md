@@ -10,6 +10,7 @@ cc-switch 桌面版（farion1231/cc-switch）把全部 Claude 供应商保存在
 - `ANTHROPIC_AUTH_TOKEN`：可选，Bearer 认证。
 - `ANTHROPIC_BASE_URL`：可选，自定义端点。
 - `ANTHROPIC_MODEL`：可选，部分版本写入。
+- `ANTHROPIC_DEFAULT_SONNET_MODEL` / `ANTHROPIC_DEFAULT_OPUS_MODEL` / `ANTHROPIC_DEFAULT_HAIKU_MODEL` / `ANTHROPIC_DEFAULT_FABLE_MODEL`：可选，Claude 档位模型，值可带 `[1M]` 上下文标记（另有对应的 `_NAME` 显示名）。
 
 ## 目标
 
@@ -21,6 +22,7 @@ cc-switch 桌面版（farion1231/cc-switch）把全部 Claude 供应商保存在
 - F6：Anthropic 协议支持 `ANTHROPIC_AUTH_TOKEN`（Bearer）与 `ANTHROPIC_API_KEY`（x-api-key）两种认证，并对 `base_url` 是否已含 `/v1` 做归一化。
 - F7：只读适配：只读 cc-switch 数据库，不写回 cc-switch 文件，不影响 Claude Code 自身配置。
 - F8：全部 Claude 供应商导入后进入 `/model` 面板，可在会话内直接切换；切换只影响本次进程。
+- F9：导入时解析当前激活供应商的档位模型映射（Sonnet/Opus/Haiku/Fable）与上下文窗口，`/model` 对该供应商展示档位面板并支持运行中切换档位。
 
 ## 非功能需求
 
@@ -46,3 +48,8 @@ cc-switch 桌面版（farion1231/cc-switch）把全部 Claude 供应商保存在
 - AC5：Anthropic `base_url` 以 `/v1` 结尾时不会拼成 `/v1/v1/messages`；Bearer 认证发送 `Authorization: Bearer`。
 - AC6：诊断文本中不出现任何 API key 明文。
 - AC7：数据库导入多个同名供应商时名称自动去重；`/model` 面板可见全部供应商，当前激活项带 `[当前]` 标记。
+- AC8：当前激活供应商带档位 env 时，`model_tiers` 正确导入（模型名去掉 `[1M]` 后缀并换算 `context_window`）；`/model` 显示档位与上下文，切换后请求使用对应模型。
+
+## 增量：档位模型导入
+
+cc-switch 桌面版的新版 Claude 配置通过 `ANTHROPIC_DEFAULT_*_MODEL` env 声明 Sonnet/Opus/Haiku/Fable 四档模型。数据库解析在展开 `${VAR}` 后读取这些键，`_NAME` 存在时作为显示名，`[1M]` / `[N K]` 后缀换算为 `context_window`；`settings_config.model` 为 `sonnet|opus|haiku|fable` 时作为当前激活档位。该信息随 Provider 一起导入，成为 `/model` 档位面板的数据来源。

@@ -44,7 +44,7 @@ BetterCode 启动时展示一次原创“小码”品牌区，运行期间使用
 | `/plan` | 切换到 `[PLAN]` 只读计划模式 |
 | `/do` | 切换回 `[DEFAULT]` 执行模式 |
 | `/session [ID]` | 查看近期会话或恢复指定会话 |
-| `/model` | 打开 Provider 面板，运行中切换模型 |
+| `/model` | 切换模型：cc-switch Provider 显示档位（Sonnet/Opus/Haiku/Fable），其他 Provider 显示列表 |
 | `/memory` | 查看用户级和项目级记忆状态 |
 | `/permission [模式]` | 查看或切换权限模式 |
 | `/tasks [任务 ID]` | 查看当前会话的子 Agent 任务或单项详情 |
@@ -232,7 +232,7 @@ Hook 命令与 HTTP 是用户主动安装的本地自动化代码，不经过 Ag
 
 ## cc-switch 适配
 
-BetterCode 启动时读取 cc-switch 桌面版维护的 `~/.cc-switch/cc-switch.db`（仅 Claude Code 线），把所有 Claude 供应商导入为可用 Provider，当前激活项标为默认；`/model` 可在会话内直接切换这些供应商。数据库或 Node 内置 SQLite 不可用时，回退读取 `~/.claude/settings.json` 的当前激活 `env` 块（`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`）。`ANTHROPIC_AUTH_TOKEN` 存在时走 Bearer 认证，否则走 `x-api-key`，`base_url` 已含 `/v1` 时会自动归一化。
+BetterCode 启动时读取 cc-switch 桌面版维护的 `~/.cc-switch/cc-switch.db`（仅 Claude Code 线），把所有 Claude 供应商导入为可用 Provider，当前激活项标为默认；当前激活供应商的档位映射（Sonnet/Opus/Haiku/Fable，含 `[1M]` 上下文标记）也会一并导入。`/model` 在 cc-switch Provider 上显示档位模型与上下文并允许会话内切换，在其他 Provider 上显示供应商列表。数据库或 Node 内置 SQLite 不可用时，回退读取 `~/.claude/settings.json` 的当前激活 `env` 块（`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`）。`ANTHROPIC_AUTH_TOKEN` 存在时走 Bearer 认证，否则走 `x-api-key`，`base_url` 已含 `/v1` 时会自动归一化。
 
 在 `config.yaml` 启用：
 

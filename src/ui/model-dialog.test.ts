@@ -100,3 +100,39 @@ test('超过一页时显示剩余候选并可滚动窗口', async () => {
   assert.match(scrolled, /p12/u);
   view.unmount();
 });
+
+test('档位模式展示 Sonnet/Opus/Fable/Haiku 并支持 Enter 切换', async () => {
+  const selected: string[] = [];
+  let cancelled = false;
+  const view = render(React.createElement(ModelDialog, {
+    tiers: [
+      { tier: 'sonnet', model: 'deepseek-v4-flash', context_window: 1_000_000 },
+      { tier: 'opus', model: 'deepseek-v4-flash', context_window: 1_000_000 },
+      { tier: 'fable', model: 'deepseek-v4-flash', context_window: 1_000_000 },
+      { tier: 'haiku', model: 'deepseek-v4-flash' },
+    ],
+    currentTier: 'sonnet',
+    onSelectTier: tier => selected.push(tier),
+    onCancel: () => { cancelled = true; },
+    capabilities,
+  }));
+  await flushInput();
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /Sonnet/u);
+  assert.match(frame, /Opus/u);
+  assert.match(frame, /Fable/u);
+  assert.match(frame, /Haiku/u);
+  assert.match(frame, /1M/u);
+  assert.match(frame, /\[当前\]/u);
+
+  view.stdin.write('\u001B[B');
+  await flushInput();
+  view.stdin.write('\r');
+  await flushInput();
+  assert.deepEqual(selected, ['opus']);
+
+  view.stdin.write('\u001B');
+  await flushInput();
+  assert.equal(cancelled, true);
+  view.unmount();
+});

@@ -4,7 +4,12 @@ import { loadCcSwitchProviders } from '../cc-switch/loader.js';
 import type { CcSwitchDiagnostic } from '../cc-switch/types.js';
 import { loadConfig } from '../config/loader.js';
 import { resolveProvider } from '../config/resolver.js';
-import type { AppConfig, ProviderConfig } from '../config/types.js';
+import type {
+  AppConfig,
+  ClaudeModelTier,
+  ModelTierConfig,
+  ProviderConfig,
+} from '../config/types.js';
 import { createProvider } from '../provider/factory.js';
 import type { LLMProvider } from '../provider/types.js';
 import { createCoreToolRegistry } from '../tool/factory.js';
@@ -86,6 +91,7 @@ export interface BetterCodeApplication {
   readonly ccSwitchStatus: readonly CcSwitchDiagnostic[];
   readonly providers: readonly ProviderSummary[];
   switchProvider(name: string): LLMProvider;
+  switchModelTier(tier: ClaudeModelTier): LLMProvider;
   readonly workerHost?: TeamWorkerHost;
   readonly workerDescriptor?: TeamWorkerDescriptor;
   close(): Promise<void>;
@@ -102,6 +108,8 @@ export interface ProviderSummary {
   name: string;
   model: string;
   base_url: string;
+  model_tiers?: Partial<Record<ClaudeModelTier, ModelTierConfig>>;
+  active_tier?: ClaudeModelTier;
 }
 
 type CloseAction = () => void | Promise<void>;
@@ -206,6 +214,7 @@ export async function createApplication(options: CreateApplicationOptions): Prom
     const provider = createProvider(selectedConfig);
     const providerCache = new Map<string, LLMProvider>([[selectedConfig.name, provider]]);
     let activeProvider: LLMProvider = provider;
+    let activeTier: ClaudeModelTier | undefined = selectedConfig.active_tier;
     const providerResolver = {
       has: (name: string) => appConfig.providers.some(item => item.name === name),
       resolve: (name: string) => {
@@ -219,10 +228,23 @@ export async function createApplication(options: CreateApplicationOptions): Prom
       },
     };
     const switchProvider = (name: string): LLMProvider => {
-      if (!appConfig.providers.some(item => item.name === name)) {
-        throw new Error(`未找到 Provider 配置: ${name}`);
-      }
+      const config = appConfig.providers.find(item => item.name === name);
+      if (!config) throw new Error(`未找到 Provider 配置: ${name}`);
       activeProvider = providerResolver.resolve(name);
+      activeTier = config.active_tier;
+      return activeProvider;
+    };
+    const switchModelTier = (tier: ClaudeModelTier): LLMProvider => {
+      const config = appConfig.providers.find(item => item.name === activeProvider.name);
+      if (!config) throw new Error(`未找到当前 Provider 配置: ${activeProvider.name}`);
+      const tierConfig = config.model_tiers?.[tier];
+      if (!tierConfig?.model) throw new Error(`当前 Provider 未配置 ${tier} 档模型`);
+      activeTier = tier;
+      activeProvider = createProvider({
+        ...config,
+        model: tierConfig.model,
+        ...(tierConfig.context_window === undefined ? {} : { context_window: tierConfig.context_window }),
+      });
       return activeProvider;
     };
 
@@ -470,8 +492,13 @@ export async function createApplication(options: CreateApplicationOptions): Prom
         name: item.name,
         model: item.model,
         base_url: item.base_url,
+        ...(item.model_tiers && Object.keys(item.model_tiers).length > 0
+          ? { model_tiers: item.model_tiers }
+          : {}),
+        ...(item.active_tier ? { active_tier: item.active_tier } : {}),
       })),
       switchProvider,
+      switchModelTier,
       workerHost,
       workerDescriptor,
       close: () => lifecycle.close(error => {

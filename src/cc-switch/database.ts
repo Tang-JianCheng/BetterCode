@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import type { ClaudeModelTier, ModelTierConfig } from '../config/types.js';
 import type { CcSwitchDiagnostic } from './types.js';
 
 const require = createRequire(import.meta.url);
@@ -10,6 +11,8 @@ export interface CcSwitchClaudeRow {
   name: string;
   env: Record<string, string>;
   isCurrent: boolean;
+  tiers: Partial<Record<ClaudeModelTier, ModelTierConfig>>;
+  activeTier?: ClaudeModelTier;
 }
 
 export interface CcSwitchDatabaseResult {
@@ -32,6 +35,46 @@ interface ClaudeProviderRow {
   is_current: number;
 }
 
+const TIER_ENV_KEYS: Record<ClaudeModelTier, { model: string; name: string }> = {
+  sonnet: { model: 'ANTHROPIC_DEFAULT_SONNET_MODEL', name: 'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME' },
+  opus: { model: 'ANTHROPIC_DEFAULT_OPUS_MODEL', name: 'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME' },
+  haiku: { model: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', name: 'ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME' },
+  fable: { model: 'ANTHROPIC_DEFAULT_FABLE_MODEL', name: 'ANTHROPIC_DEFAULT_FABLE_MODEL_NAME' },
+};
+
+const CLAUDE_TIERS = new Set<ClaudeModelTier>(['sonnet', 'opus', 'haiku', 'fable']);
+
+function parseContextWindow(modelValue: string): number | undefined {
+  const match = modelValue.match(/\[(\d+)([KM])\]/iu);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  const unit = match[2].toUpperCase();
+  return unit === 'M' ? value * 1_000_000 : value * 1_000;
+}
+
+function cleanModelName(modelValue: string, nameValue: string | undefined): string {
+  if (nameValue && nameValue.trim()) return nameValue.trim();
+  return modelValue.replace(/\[[^\]]+\]$/u, '');
+}
+
+function parseTiers(parsedEnv: Record<string, unknown>): Partial<Record<ClaudeModelTier, ModelTierConfig>> {
+  const tiers: Partial<Record<ClaudeModelTier, ModelTierConfig>> = {};
+  for (const tier of CLAUDE_TIERS) {
+    const keys = TIER_ENV_KEYS[tier];
+    const rawModel = parsedEnv[keys.model];
+    if (typeof rawModel !== 'string' || !rawModel.trim()) continue;
+    const rawName = parsedEnv[keys.name];
+    const name = typeof rawName === 'string' ? rawName : undefined;
+    const model = cleanModelName(rawModel.trim(), name);
+    if (!model) continue;
+    const contextWindow = parseContextWindow(rawModel);
+    tiers[tier] = contextWindow === undefined
+      ? { model }
+      : { model, context_window: contextWindow };
+  }
+  return tiers;
+}
+
 function parseProviderRow(
   row: ClaudeProviderRow,
   environment: NodeJS.ProcessEnv,
@@ -51,11 +94,18 @@ function parseProviderRow(
   }
   if (Object.keys(env).length === 0) return undefined;
 
+  let activeTier: ClaudeModelTier | undefined;
+  if (typeof parsed.model === 'string' && CLAUDE_TIERS.has(parsed.model as ClaudeModelTier)) {
+    activeTier = parsed.model as ClaudeModelTier;
+  }
+
   return {
     id: row.id,
     name: row.name,
     env,
     isCurrent: row.is_current === 1,
+    tiers: parseTiers(parsed.env),
+    ...(activeTier ? { activeTier } : {}),
   };
 }
 

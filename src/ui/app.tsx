@@ -16,6 +16,7 @@ import {
   buildTextCommandPresentation,
 } from '../command/presenters.js';
 import type { ContextEvent } from '../context/types.js';
+import type { ClaudeModelTier } from '../config/types.js';
 import type {
   PermissionChoice,
   PermissionDecider,
@@ -42,7 +43,12 @@ import { MessageList, type DisplayMessage } from './message-list.js';
 import { PermissionPrompt } from './permission-prompt.js';
 import { RewindDialog, type RewindAction } from './rewind-dialog.js';
 import { SessionDialog } from './session-dialog.js';
-import { ModelDialog, type ModelOption } from './model-dialog.js';
+import {
+  MODEL_TIER_LABELS,
+  ModelDialog,
+  type ModelOption,
+  type ModelTierOption,
+} from './model-dialog.js';
 import { detectTerminalCapabilities, terminalEnvironmentFromProcess } from './capabilities.js';
 import { StartupBrand } from './mascot.js';
 import {
@@ -125,6 +131,7 @@ interface Props {
   ccSwitchStatus?: readonly CcSwitchDiagnostic[];
   providers: readonly ModelOption[];
   switchProvider(name: string): LLMProvider;
+  switchModelTier(tier: ClaudeModelTier): LLMProvider;
 }
 
 export function formatContextWindowNotice(provider: LLMProvider): string | undefined {
@@ -273,6 +280,7 @@ export function App({
   ccSwitchStatus = [],
   providers,
   switchProvider,
+  switchModelTier,
 }: Props) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -333,6 +341,7 @@ export function App({
   const [sessionDialogSessions, setSessionDialogSessions] = useState<SessionInfo[]>([]);
   const [activeProvider, setActiveProvider] = useState(provider);
   const [modelDialogActive, setModelDialogActive] = useState(false);
+  const [modelTiers, setModelTiers] = useState<ModelTierOption[]>([]);
   const [skillRevision, setSkillRevision] = useState(() => skillManager.getSnapshot().revision);
 
   const commandRegistry = useMemo(() => {
@@ -824,12 +833,44 @@ export function App({
   }, [appendNotice, appendPresentation, chatManager]);
 
   const showOrSwitchModel = useCallback(() => {
+    const active = providers.find(item => item.name === activeProvider.name);
+    const tierEntries = active?.model_tiers;
+    const tierList: ModelTierOption[] = tierEntries
+      ? (Object.entries(tierEntries) as [ClaudeModelTier, { model: string; context_window?: number }][])
+        .filter(([, config]) => Boolean(config.model))
+        .map(([tier, config]) => ({
+          tier,
+          model: config.model,
+          context_window: config.context_window,
+        }))
+      : [];
+    if (tierList.length > 0) {
+      setModelTiers(tierList);
+      setModelDialogActive(true);
+      return;
+    }
     if (providers.length <= 1) {
       appendNotice('无法切换', '当前只有一个 Provider，无需切换模型。', 'warning');
       return;
     }
+    setModelTiers([]);
     setModelDialogActive(true);
-  }, [appendNotice, providers.length]);
+  }, [activeProvider.name, appendNotice, providers]);
+
+  const handleTierSelect = useCallback((tier: ClaudeModelTier) => {
+    setModelDialogActive(false);
+    try {
+      const next = switchModelTier(tier);
+      setActiveProvider(next);
+      appendNotice('模型已切换', `${MODEL_TIER_LABELS[tier]}（${next.model}）`, 'success');
+    } catch (error) {
+      appendNotice(
+        '切换失败',
+        error instanceof Error ? error.message : String(error),
+        'danger',
+      );
+    }
+  }, [appendNotice, switchModelTier]);
 
   const handleModelSelect = useCallback((name: string) => {
     setModelDialogActive(false);
@@ -968,6 +1009,9 @@ export function App({
           providers={providers}
           currentProviderName={activeProvider.name}
           onSelect={handleModelSelect}
+          tiers={modelTiers}
+          currentTier={providers.find(item => item.name === activeProvider.name)?.active_tier ?? 'sonnet'}
+          onSelectTier={handleTierSelect}
           onCancel={() => setModelDialogActive(false)}
           capabilities={capabilities}
         />

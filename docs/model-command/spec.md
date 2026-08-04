@@ -14,6 +14,7 @@ BetterCode 的 Provider 目前只在启动时确定，运行中想换模型只�
 - F4：只有一个 Provider 时不打开面板，给出明确提示。
 - F5：面板样式遵循动态命令规范：左侧名称、右侧模型说明、当前项带 `[当前]` 标记、选中整行高亮、超一页可滚动。
 - F6：切换是本次进程的内存态，不影响 `config.yaml` 与 cc-switch 下次启动的默认选择。
+- F7：当前 Provider 来自 cc-switch 且带档位映射（Sonnet/Opus/Fable/Haiku）时，面板改为展示档位模型与上下文窗口（如 `[1M]`），切换档位后后续请求使用对应模型，无需重启。
 
 ## 非功能需求
 
@@ -24,5 +25,13 @@ BetterCode 的 Provider 目前只在启动时确定，运行中想换模型只�
 ## 不做的事
 
 - 不做 Provider 热插拔（新增/删除 Provider 仍需改配置重启）。
-- 不做单 Provider 多模型的模型级拆分，切换粒度与 `providers` 列表一致。
+- 普通 Provider 不做模型级拆分；cc-switch 供应商自带档位映射时按档位切换，未配置档位时仍按供应商列表切换。
 - 不做持久化最近选择。
+
+## 增量：cc-switch 档位模型切换
+
+cc-switch 的 Claude 供应商 env 里可声明 `ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_OPUS_MODEL`、`ANTHROPIC_DEFAULT_HAIKU_MODEL`、`ANTHROPIC_DEFAULT_FABLE_MODEL`（以及对应的 `_NAME`），值可带 `[1M]` 上下文标记。数据库导入时把这些档位解析进 Provider，`/model` 对这类 Provider 展示档位面板而不是供应商列表。
+
+- 档位行左侧显示档位名，右侧显示 `模型 · 上下文`，当前档位带 `[当前]` 标记。
+- 切换档位使用 `switchModelTier(tier)`，基于档位模型与上下文窗口重建 Provider，仅影响本次进程。
+- 当前供应商没有档位映射时，`/model` 行为保持原 Provider 列表模式不变。

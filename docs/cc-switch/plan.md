@@ -144,6 +144,34 @@ docs/cc-switch/*.md      — 本四份文档
 | 失败策略 | fail-open | 外部工具文件不可用不影响 BetterCode 正常启动 |
 | 认证优先级 | AUTH_TOKEN 存在用 Bearer，否则 x-api-key | 与 Claude Code 实际读取顺序一致 |
 
+## 增量：档位模型导入与 /model 档位切换
+
+cc-switch 桌面版新版供应商的 `settings_config.env` 会带 `ANTHROPIC_DEFAULT_SONNET_MODEL` 等档位键。导入时把这些档位解析进 `ProviderConfig.model_tiers`，并把 `settings_config.model` 中的激活档位写入 `active_tier`，供 `/model` 面板按档位展示和切换。
+
+### database.ts 增量
+
+- 读取 `ANTHROPIC_DEFAULT_SONNET_MODEL` / `OPUS` / `HAIKU` / `FABLE` 与对应 `_NAME`。
+- 值里的 `[1M]` / `[N K]` 后缀解析为 `context_window`，模型名去掉后缀；`_NAME` 非空时优先作为显示模型名。
+- `settings_config.model` 为档位名（sonnet/opus/haiku/fable）时记录 `activeTier`。
+
+### application.ts 增量
+
+- `ProviderSummary` 增加 `model_tiers`、`active_tier`（不含密钥）。
+- 新增 `switchModelTier(tier: ClaudeModelTier): LLMProvider`：用 `model_tiers[tier].model` 与 `context_window` 重建 Provider，更新 `active_tier`；档位缺失时报结构化错误。
+- 切换 Provider 时同步更新 `active_tier` 为所选 Provider 的档位。
+
+### ui/model-dialog.tsx 与 ui/app.tsx 增量
+
+- `ModelDialog` 支持档位模式：档位列表非空时按 Sonnet/Opus/Fable/Haiku 渲染，右侧显示 `模型 · 上下文`，当前档位带 `[当前]` 标记。
+- `App` 增加 `switchModelTier` prop 与 `handleTierSelect`，档位切换后刷新活跃 Provider 并提示 `模型已切换`。
+- `showOrSwitchModel` 分流：当前 Provider 有档位映射时打开档位面板，否则保持原 Provider 列表。
+
+### 新增测试
+
+- 档位解析：`[1M]` 上下文换算、`_NAME` 显示名、激活档位。
+- 应用集成：`switchModelTier('opus')` 返回 1M 上下文的 Provider，未配置档位抛错。
+- UI：档位面板展示、Enter 切换、无档位时仍走 Provider 列表。
+
 ## 配置示例
 
 ```yaml

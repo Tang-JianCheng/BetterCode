@@ -57,6 +57,7 @@ async function main(): Promise<void> {
         ccSwitchStatus: application.ccSwitchStatus,
         providers: application.providers,
         switchProvider: application.switchProvider,
+        switchModelTier: application.switchModelTier,
       }),
       { exitOnCtrlC: false },
     );

@@ -20,9 +20,22 @@ export interface ProviderConfig {
   thinking?: boolean;
   /** 是否为默认供应商，默认 false */
   default?: boolean;
+  /** cc-switch Claude 线的档位模型映射（Sonnet/Opus/Haiku/Fable）。 */
+  model_tiers?: Partial<Record<ClaudeModelTier, ModelTierConfig>>;
+  /** cc-switch 供应商当前激活的档位，缺省按 sonnet 处理。 */
+  active_tier?: ClaudeModelTier;
 }
 
 export type AgentModelTier = 'haiku' | 'sonnet' | 'opus';
+
+/** cc-switch Claude 线支持的档位模型名。 */
+export type ClaudeModelTier = 'sonnet' | 'opus' | 'haiku' | 'fable';
+
+/** 单个 Claude 档位对应的模型与上下文窗口。 */
+export interface ModelTierConfig {
+  model: string;
+  context_window?: number;
+}
 
 export interface AgentModelAliases {
   haiku?: string;

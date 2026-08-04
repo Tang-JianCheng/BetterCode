@@ -16,6 +16,13 @@
 | 修改 | `src/ui/app.tsx` | cc-switch 启动诊断展示 |
 | 修改 | `config.yaml` | 注释示例块 |
 | 新建 | `src/cc-switch/*.test.ts` | 各模块测试 |
+| 修改 | `src/config/types.ts` | `ClaudeModelTier`、`ModelTierConfig`、`model_tiers`、`active_tier` |
+| 修改 | `src/cc-switch/database.ts` | 解析档位模型与上下文窗口 |
+| 修改 | `src/cc-switch/claude.ts` | Provider 写入档位元数据 |
+| 修改 | `src/bootstrap/application.ts` | `switchModelTier` 与档位摘要 |
+| 修改 | `src/ui/model-dialog.tsx` | 档位模式展示 |
+| 修改 | `src/ui/app.tsx` | 档位切换与通知 |
+| 修改 | `src/index.tsx` | 传递 `switchModelTier` |
 
 ## T1: 类型与配置解析
 
@@ -119,7 +126,7 @@
 ## 执行顺序
 
 ```
-T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8
+T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9
 ```
 
 ## 完成状态
@@ -132,3 +139,17 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8
 - T6 配置示例与文档收尾：已完成，`config.yaml` 注释示例、README 章节与本套文档。
 - T7 全部 Claude 供应商导入：已完成，`database.ts` 读取 cc-switch.db，loader 优先导入全部并回退 settings.json。
 - T8 数据库导入文档收尾：已完成，config.yaml、README 与本套文档按增量补充。
+- T9 档位模型导入与 /model 档位切换：已完成，`switchModelTier` 与档位面板测试覆盖。
+
+## T9: 档位模型导入与 /model 档位切换
+
+**文件：** `src/config/types.ts`、`src/cc-switch/database.ts`、`src/cc-switch/claude.ts`、`src/cc-switch/loader.ts`、`src/bootstrap/application.ts`、`src/ui/model-dialog.tsx`、`src/ui/app.tsx`、`src/index.tsx`
+**依赖：** T7
+
+1. `ProviderConfig` 增加 `model_tiers`、`active_tier`，`database.ts` 解析 `ANTHROPIC_DEFAULT_*_MODEL` / `_NAME` 与 `[1M]` 上下文标记。
+2. `buildClaudeProviderFromEnv` 接收档位与激活档位并写入 Provider。
+3. `createApplication` 增加 `switchModelTier(tier)`，用档位模型与上下文重建 Provider，未配置档位时报错。
+4. `ModelDialog` 支持档位模式，`/model` 对带档位映射的 Provider 展示 Sonnet/Opus/Fable/Haiku 与上下文窗口。
+5. 补充测试：tier 解析、应用切换、档位面板与 `/model` 全流程。
+
+**验证：** `pnpm test src/cc-switch/database.test.ts src/cc-switch/loader.test.ts src/bootstrap/application.test.ts src/ui/model-dialog.test.ts src/ui/app.test.ts` 通过。

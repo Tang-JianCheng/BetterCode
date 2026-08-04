@@ -113,10 +113,17 @@ test('数据库存在时导入全部 Claude 供应商并标记当前激活项', 
       id: 'p2-22222222',
       name: 'PackyCode-Deepseek',
       settings: {
+        model: 'sonnet',
         env: {
           ANTHROPIC_AUTH_TOKEN: 'tok-b',
           ANTHROPIC_BASE_URL: 'https://gateway.example',
           ANTHROPIC_MODEL: 'claude-sonnet',
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-flash[1M]',
+          ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'deepseek-v4-flash',
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash[1M]',
+          ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'deepseek-v4-flash',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: 'deepseek-v4-flash',
         },
       },
       isCurrent: true,
@@ -131,6 +138,10 @@ test('数据库存在时导入全部 Claude 供应商并标记当前激活项', 
   assert.equal(config.providers[2].name, 'PackyCode-Deepseek');
   assert.equal(config.providers[2].default, true);
   assert.equal(result.provider?.name, 'PackyCode-Deepseek');
+  assert.equal(result.provider?.active_tier, 'sonnet');
+  assert.equal(result.provider?.model_tiers?.sonnet?.model, 'deepseek-v4-flash');
+  assert.equal(result.provider?.model_tiers?.sonnet?.context_window, 1_000_000);
+  assert.equal(result.provider?.model_tiers?.haiku?.context_window, undefined);
   assert.equal(result.diagnostics.length, 0);
 });
 

@@ -192,10 +192,17 @@ test('createApplication 从 cc-switch 数据库导入全部 Claude 供应商', a
     'p2-22222222',
     'PackyCode-Deepseek',
     JSON.stringify({
+      model: 'sonnet',
       env: {
         ANTHROPIC_AUTH_TOKEN: 'tok-b',
         ANTHROPIC_BASE_URL: 'https://gateway.example',
         ANTHROPIC_MODEL: 'claude-sonnet',
+        ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-flash[1M]',
+        ANTHROPIC_DEFAULT_SONNET_MODEL_NAME: 'deepseek-v4-flash',
+        ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-flash[1M]',
+        ANTHROPIC_DEFAULT_OPUS_MODEL_NAME: 'deepseek-v4-flash',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
+        ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME: 'deepseek-v4-flash',
       },
     }),
     1,
@@ -227,6 +234,13 @@ cc_switch:
     'PackyCode-Deepseek',
   ]);
   assert.equal(application.providers.some(item => Object.hasOwn(item, 'api_key')), false);
+  assert.equal(application.providers[2].model_tiers?.sonnet?.model, 'deepseek-v4-flash');
+  assert.equal(application.providers[2].model_tiers?.sonnet?.context_window, 1_000_000);
+  assert.equal(application.providers[2].active_tier, 'sonnet');
+  const switched = application.switchModelTier('opus');
+  assert.equal(switched.model, 'deepseek-v4-flash');
+  assert.equal(switched.contextWindow, 1_000_000);
+  assert.throws(() => application.switchModelTier('fable'), /未配置/);
   await application.close();
 });
 
