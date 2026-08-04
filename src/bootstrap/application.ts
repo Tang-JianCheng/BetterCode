@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { loadCcSwitchProviders } from '../cc-switch/loader.js';
+import type { CcSwitchDiagnostic } from '../cc-switch/types.js';
 import { loadConfig } from '../config/loader.js';
 import { resolveProvider } from '../config/resolver.js';
 import type { AppConfig, ProviderConfig } from '../config/types.js';
@@ -80,6 +82,7 @@ export interface BetterCodeApplication {
   readonly skillManager: SkillManager;
   readonly mcpStatus: McpStartupStatus;
   readonly agentDiagnostics: ReturnType<AgentDefinitionManager['getSnapshot']>['diagnostics'];
+  readonly ccSwitchStatus: readonly CcSwitchDiagnostic[];
   readonly workerHost?: TeamWorkerHost;
   readonly workerDescriptor?: TeamWorkerDescriptor;
   close(): Promise<void>;
@@ -178,6 +181,14 @@ export async function createApplication(options: CreateApplicationOptions): Prom
     const rootDir = path.resolve(workerDescriptor?.projectRoot ?? options.rootDir ?? process.cwd());
     const configPath = path.resolve(rootDir, workerDescriptor?.configPath ?? options.configPath);
     const appConfig = loadConfig(configPath);
+    const ccSwitchStatus: CcSwitchDiagnostic[] = [];
+    if (!workerDescriptor) {
+      const imported = loadCcSwitchProviders(appConfig, {
+        userHome: options.userHome,
+        environment,
+      });
+      ccSwitchStatus.push(...imported.diagnostics);
+    }
     const selectedConfig = workerDescriptor
       ? resolveWorkerProvider(appConfig, options.providerName)
       : await resolveProvider(appConfig, options.providerName);
@@ -435,6 +446,7 @@ export async function createApplication(options: CreateApplicationOptions): Prom
       skillManager,
       mcpStatus,
       agentDiagnostics: agentSnapshot.diagnostics,
+      ccSwitchStatus,
       workerHost,
       workerDescriptor,
       close: () => lifecycle.close(error => {

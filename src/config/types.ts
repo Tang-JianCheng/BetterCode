@@ -1,3 +1,5 @@
+import type { CcSwitchConfig } from '../cc-switch/types.js';
+
 /** 单个供应商配置，与 config.yaml 中每个 provider 条目一一对应 */
 export interface ProviderConfig {
   /** 供应商标识名，方便区分多个配置 */
@@ -12,6 +14,8 @@ export interface ProviderConfig {
   base_url: string;
   /** 认证密钥，支持 ${ENV_VAR} 环境变量占位 */
   api_key: string;
+  /** Anthropic 认证方式：x-api-key 或 Bearer token，默认 api-key */
+  authMode?: 'api-key' | 'bearer';
   /** 是否启用 extended thinking，默认 false（仅 Anthropic 生效） */
   thinking?: boolean;
   /** 是否为默认供应商，默认 false */
@@ -91,6 +95,7 @@ export interface TeamConfig {
 /** config.yaml 顶层结构 */
 export interface AppConfig {
   providers: ProviderConfig[];
+  cc_switch?: CcSwitchConfig;
   agent_models?: AgentModelAliases;
   subagents?: SubAgentConfig;
   worktrees?: WorktreeConfig;

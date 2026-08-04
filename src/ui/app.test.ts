@@ -17,6 +17,7 @@ import {
   formatMcpStartupStatus,
   formatSkillStartupStatus,
   formatAgentStartupStatus,
+  formatCcSwitchStartupStatus,
   formatSubAgentEvent,
   formatSessionList,
   formatStatus,
@@ -309,6 +310,32 @@ test('MCP 启动状态只展示脱敏诊断字段和准确安全边界', () => {
   assert.match(message ?? '', /已连接 1\/2 个 Server，注册 3 个工具/);
   assert.match(message ?? '', /broken: 连接失败: \[REDACTED\]/);
   assert.match(message ?? '', /外部 MCP Server 不受 BetterCode 文件沙箱或危险命令黑名单强制保护/);
+});
+
+test('cc-switch 启动状态按来源展示诊断且空诊断不展示', () => {
+  const message = formatCcSwitchStartupStatus([
+    { line: 'claude', severity: 'warning', message: '缺少 ANTHROPIC_MODEL，跳过导入' },
+    { line: 'config', severity: 'info', message: 'settings.json 未找到' },
+  ]);
+  assert.match(message ?? '', /cc-switch 导入/u);
+  assert.match(message ?? '', /claude: 缺少 ANTHROPIC_MODEL/u);
+  assert.match(message ?? '', /config: settings\.json 未找到/u);
+  assert.equal(formatCcSwitchStartupStatus([]), undefined);
+});
+
+test('cc-switch 启动诊断渲染为启动提示', async () => {
+  const dependencies = createAppDependencies();
+  const view = render(React.createElement(App, {
+    ...dependencies,
+    ccSwitchStatus: [
+      { line: 'claude', severity: 'warning', message: '缺少 ANTHROPIC_MODEL，跳过导入' },
+    ],
+  }));
+  await flushAppInput();
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /cc-switch 诊断/u);
+  assert.match(frame, /缺少 ANTHROPIC_MODEL/u);
+  view.unmount();
 });
 
 test('主布局保持单一品牌和干净输入区，命令使用结构化展示', async () => {

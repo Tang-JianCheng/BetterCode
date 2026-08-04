@@ -8,6 +8,7 @@ import { ToolRegistry } from '../tool/registry.js';
 import { createToolSuccess } from '../tool/types.js';
 import {
   ApplicationLifecycle,
+  createApplication,
   parseApplicationArguments,
   registerTeamDispatchTools,
   resolveWorkerProvider,
@@ -86,4 +87,98 @@ permission_mode: strict
   const snapshot = manager.initialize();
   assert.equal(snapshot.definitions.has('team-reader'), true);
   assert.equal(snapshot.diagnostics.some(item => item.code === 'UNKNOWN_TOOL'), false);
+});
+
+test('createApplication 集成 cc-switch 导入并接管默认供应商', async t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'bettercode-app-root-'));
+  const home = mkdtempSync(path.join(tmpdir(), 'bettercode-app-home-'));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+  mkdirSync(path.join(home, '.claude'), { recursive: true });
+  writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({
+    env: { ANTHROPIC_API_KEY: 'sk-cc', ANTHROPIC_MODEL: 'claude-sonnet-5-20251001' },
+  }));
+  writeFileSync(path.join(root, 'config.yaml'), `providers:
+  - name: deepseek-v4
+    protocol: openai
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+    api_key: sk-local
+    default: true
+cc_switch:
+  enabled: true
+`);
+  const application = await createApplication({
+    configPath: 'config.yaml',
+    permissionMode: 'default',
+    rootDir: root,
+    userHome: home,
+  });
+  assert.equal(application.provider.name, 'cc-switch.claude');
+  assert.equal(application.provider.model, 'claude-sonnet-5-20251001');
+  assert.equal(application.ccSwitchStatus.length, 0);
+  await application.close();
+});
+
+test('createApplication 在 cc-switch 不可用时回退原默认供应商', async t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'bettercode-app-root-'));
+  const home = mkdtempSync(path.join(tmpdir(), 'bettercode-app-home-'));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+  writeFileSync(path.join(root, 'config.yaml'), `providers:
+  - name: deepseek-v4
+    protocol: openai
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+    api_key: sk-local
+    default: true
+cc_switch:
+  enabled: true
+`);
+  const application = await createApplication({
+    configPath: 'config.yaml',
+    permissionMode: 'default',
+    rootDir: root,
+    userHome: home,
+  });
+  assert.equal(application.provider.name, 'deepseek-v4');
+  assert.ok(application.ccSwitchStatus.length > 0);
+  await application.close();
+});
+
+test('createApplication 显式 --provider 优先于 cc-switch 导入', async t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'bettercode-app-root-'));
+  const home = mkdtempSync(path.join(tmpdir(), 'bettercode-app-home-'));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+  mkdirSync(path.join(home, '.claude'), { recursive: true });
+  writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({
+    env: { ANTHROPIC_API_KEY: 'sk-cc', ANTHROPIC_MODEL: 'claude-sonnet-5-20251001' },
+  }));
+  writeFileSync(path.join(root, 'config.yaml'), `providers:
+  - name: deepseek-v4
+    protocol: openai
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+    api_key: sk-local
+    default: true
+cc_switch:
+  enabled: true
+`);
+  const application = await createApplication({
+    configPath: 'config.yaml',
+    permissionMode: 'default',
+    rootDir: root,
+    userHome: home,
+    providerName: 'deepseek-v4',
+  });
+  assert.equal(application.provider.name, 'deepseek-v4');
+  assert.equal(application.ccSwitchStatus.length, 0);
+  await application.close();
 });

@@ -172,3 +172,48 @@ ${extra}`);
     assert.throws(() => loadConfig(file), expected);
   }
 });
+
+test('cc_switch 配置解析与缺省 enabled', async t => {
+  const file = await withConfig(t);
+  await writeFile(file, `providers:
+  - name: test
+    protocol: openai
+    model: model
+    base_url: https://example.test
+    api_key: key
+cc_switch:
+  claude:
+    name: cc-switch.claude
+    model: claude-sonnet-5-20251001
+    thinking: false
+    context_window: 200000
+`);
+  const config = loadConfig(file);
+  assert.equal(config.cc_switch?.enabled, true);
+  assert.equal(config.cc_switch?.claude?.name, 'cc-switch.claude');
+  assert.equal(config.cc_switch?.claude?.model, 'claude-sonnet-5-20251001');
+  assert.equal(config.cc_switch?.claude?.thinking, false);
+  assert.equal(config.cc_switch?.claude?.context_window, 200_000);
+});
+
+test('cc_switch 配置拒绝未知字段、非法类型和越界值', async t => {
+  const cases = [
+    ['cc_switch:\n  enabled: maybe\n', /布尔值/],
+    ['cc_switch:\n  unknown: true\n', /未知字段/],
+    ['cc_switch:\n  claude:\n    unknown: true\n', /未知字段/],
+    ['cc_switch:\n  claude:\n    name: ""\n', /非空字符串/],
+    ['cc_switch:\n  claude:\n    thinking: yes\n', /布尔值/],
+    ['cc_switch:\n  claude:\n    context_window: 0\n', /1 到 10000000 的整数/],
+  ] as const;
+  for (const [extra, expected] of cases) {
+    const file = await withConfig(t);
+    await writeFile(file, `providers:
+  - name: test
+    protocol: openai
+    model: model
+    base_url: https://example.test
+    api_key: key
+${extra}`);
+    assert.throws(() => loadConfig(file), expected);
+  }
+});

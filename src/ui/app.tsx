@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useApp, useInput, useStdout } from 'ink';
 import type { AgentEvent, AgentMode, AgentStopReason } from '../agent/types.js';
+import type { CcSwitchDiagnostic } from '../cc-switch/types.js';
 import {
   createDefaultCommandRegistry,
   formatCommandHelp,
@@ -120,6 +121,7 @@ interface Props {
   skillManager: SkillManager;
   mcpStatus?: McpStartupStatus;
   agentDiagnostics?: readonly AgentDefinitionDiagnostic[];
+  ccSwitchStatus?: readonly CcSwitchDiagnostic[];
 }
 
 export function formatContextWindowNotice(provider: LLMProvider): string | undefined {
@@ -239,6 +241,16 @@ export function formatAgentStartupStatus(
   ].join('\n');
 }
 
+export function formatCcSwitchStartupStatus(
+  diagnostics: readonly CcSwitchDiagnostic[],
+): string | undefined {
+  if (diagnostics.length === 0) return undefined;
+  return [
+    'cc-switch 导入: 读取外部 Claude 配置时产生以下诊断。',
+    ...diagnostics.map(item => `- ${item.line}: ${item.message}`),
+  ].join('\n');
+}
+
 export function formatSubAgentEvent(event: SubAgentEvent): string | undefined {
   if (event.type === 'task_backgrounded') {
     return `子 Agent 已转后台: ${event.task.id}（${event.reason}）`;
@@ -249,7 +261,14 @@ export function formatSubAgentEvent(event: SubAgentEvent): string | undefined {
   return `后台子 Agent 执行失败: ${event.task.id} - ${event.task.error?.message ?? '未知错误'}`;
 }
 
-export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagnostics = [] }: Props) {
+export function App({
+  provider,
+  chatManager,
+  skillManager,
+  mcpStatus,
+  agentDiagnostics = [],
+  ccSwitchStatus = [],
+}: Props) {
   const { exit } = useApp();
   const { stdout } = useStdout();
   const capabilities = detectTerminalCapabilities({
@@ -278,6 +297,21 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     if (agentMessage) initial.push(identifyPresentation(createNotice({
       tone: 'warning', title: '子 Agent 启动诊断', message: agentMessage, source: 'system',
     })));
+    const ccSwitchMessage = formatCcSwitchStartupStatus(ccSwitchStatus);
+    if (ccSwitchMessage) {
+      const worstSeverity = ccSwitchStatus.some(item => item.severity === 'error')
+        ? 'danger'
+        : ccSwitchStatus.some(item => item.severity === 'warning')
+          ? 'warning'
+          : 'info';
+      initial.push(identifyPresentation(createNotice({
+        tone: worstSeverity,
+        title: 'cc-switch 诊断',
+        message: `cc-switch 导入: 共 ${ccSwitchStatus.length} 条诊断，未成功导入时回退原配置。`,
+        details: ccSwitchStatus.slice(0, 20).map(item => `${item.line}: ${item.message}`),
+        source: 'system',
+      })));
+    }
     return initial;
   });
   const [currentStreaming, setCurrentStreaming] = useState('');

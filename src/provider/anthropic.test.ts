@@ -269,3 +269,38 @@ test('Anthropic provider treats abort as cancellation rather than a stream error
   await provider.chat(makeRequest(), event => events.push(event), controller.signal);
   assert.deepEqual(events, []);
 });
+
+test('Anthropic provider 默认使用 x-api-key 并拼接 /v1/messages', async () => {
+  let url = '';
+  let headers: Record<string, string> | undefined;
+  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+    url = String(input);
+    headers = init?.headers as Record<string, string>;
+    return responseFor(['data: {"type":"message_stop"}\n\n']);
+  };
+  const provider = new AnthropicProvider(config(), fetchImpl);
+  await provider.chat(makeRequest(), () => undefined);
+  assert.equal(url, 'https://example.test/v1/messages');
+  assert.equal(headers?.['x-api-key'], 'test-key');
+  assert.equal('authorization' in (headers ?? {}), false);
+});
+
+test('Anthropic provider Bearer 认证并归一化 /v1 结尾 base_url', async () => {
+  let url = '';
+  let headers: Record<string, string> | undefined;
+  const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit) => {
+    url = String(input);
+    headers = init?.headers as Record<string, string>;
+    return responseFor(['data: {"type":"message_stop"}\n\n']);
+  };
+  const provider = new AnthropicProvider({
+    ...config(),
+    base_url: 'https://gateway.example/v1/',
+    authMode: 'bearer',
+    api_key: 'token-abc',
+  }, fetchImpl);
+  await provider.chat(makeRequest(), () => undefined);
+  assert.equal(url, 'https://gateway.example/v1/messages');
+  assert.equal(headers?.authorization, 'Bearer token-abc');
+  assert.equal('x-api-key' in (headers ?? {}), false);
+});

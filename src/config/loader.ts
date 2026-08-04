@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
+import type { CcSwitchClaudeConfig, CcSwitchConfig } from '../cc-switch/types.js';
 import type {
   AgentModelAliases,
   AppConfig,
@@ -40,6 +41,8 @@ const TEAM_INTEGRATION_FIELDS = new Set(['timeout_ms', 'validation_commands']);
 const TEAM_TERMINAL_FIELDS = new Set(['name', 'detect', 'spawn', 'wake', 'terminate']);
 const TEAM_PROCESS_FIELDS = new Set(['command', 'args']);
 const TEAM_TEMPLATE_PLACEHOLDERS = new Set(['worker_descriptor', 'cwd', 'pane_id']);
+const CC_SWITCH_FIELDS = new Set(['enabled', 'claude']);
+const CC_SWITCH_CLAUDE_FIELDS = new Set(['name', 'model', 'thinking', 'context_window']);
 
 /**
  * 校验单个 provider 配置，不合法时抛 Error。
@@ -359,6 +362,47 @@ function parseTeams(value: unknown): TeamConfig | undefined {
   };
 }
 
+function parseCcSwitchClaude(value: unknown): CcSwitchClaudeConfig | undefined {
+  if (value === undefined) return undefined;
+  const raw = record(value, 'cc_switch.claude');
+  assertKnownFields(raw, CC_SWITCH_CLAUDE_FIELDS, 'cc_switch.claude');
+  const result: CcSwitchClaudeConfig = {};
+  if (raw.name !== undefined) {
+    if (typeof raw.name !== 'string' || !raw.name.trim()) {
+      throw new Error('cc_switch.claude.name 必须是非空字符串');
+    }
+    result.name = raw.name.trim();
+  }
+  if (raw.model !== undefined) {
+    if (typeof raw.model !== 'string' || !raw.model.trim()) {
+      throw new Error('cc_switch.claude.model 必须是非空字符串');
+    }
+    result.model = raw.model.trim();
+  }
+  const thinking = optionalBoolean(raw.thinking, 'cc_switch.claude.thinking');
+  if (thinking !== undefined) result.thinking = thinking;
+  if (raw.context_window !== undefined) {
+    result.context_window = positiveInteger(
+      raw.context_window,
+      'cc_switch.claude.context_window',
+      1,
+      10_000_000,
+    );
+  }
+  return result;
+}
+
+function parseCcSwitch(value: unknown): CcSwitchConfig | undefined {
+  if (value === undefined) return undefined;
+  const raw = record(value, 'cc_switch');
+  assertKnownFields(raw, CC_SWITCH_FIELDS, 'cc_switch');
+  const claude = parseCcSwitchClaude(raw.claude);
+  return {
+    enabled: optionalBoolean(raw.enabled, 'cc_switch.enabled') ?? true,
+    ...(claude ? { claude } : {}),
+  };
+}
+
 /**
  * 读取并解析 YAML 配置文件。
  * @param path 配置文件路径，默认 ./config.yaml
@@ -428,10 +472,12 @@ export function loadConfig(path: string = './config.yaml'): AppConfig {
   const subagents = parseSubAgents(obj.subagents);
   const worktrees = parseWorktrees(obj.worktrees);
   const teams = parseTeams(obj.teams);
+  const ccSwitch = parseCcSwitch(obj.cc_switch);
   if (agentModels) config.agent_models = agentModels;
   if (subagents) config.subagents = subagents;
   if (worktrees) config.worktrees = worktrees;
   if (teams) config.teams = teams;
+  if (ccSwitch) config.cc_switch = ccSwitch;
 
   return config;
 }

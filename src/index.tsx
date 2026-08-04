@@ -54,6 +54,7 @@ async function main(): Promise<void> {
         skillManager: application.skillManager,
         mcpStatus: application.mcpStatus,
         agentDiagnostics: application.agentDiagnostics,
+        ccSwitchStatus: application.ccSwitchStatus,
       }),
       { exitOnCtrlC: false },
     );

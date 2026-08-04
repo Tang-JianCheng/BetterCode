@@ -128,6 +128,7 @@ export class AnthropicProvider implements LLMProvider {
   readonly contextWindowIsDefault: boolean;
   private readonly baseUrl: string;
   private readonly apiKey: string;
+  private readonly authMode: 'api-key' | 'bearer';
   private readonly thinking: boolean;
   private readonly fetchImpl: FetchLike;
 
@@ -136,8 +137,9 @@ export class AnthropicProvider implements LLMProvider {
     this.model = config.model;
     this.contextWindow = config.context_window ?? DEFAULT_CONTEXT_WINDOW;
     this.contextWindowIsDefault = config.context_window === undefined;
-    this.baseUrl = config.base_url.replace(/\/$/, '');
+    this.baseUrl = config.base_url.replace(/\/+$/u, '').replace(/\/v1$/u, '');
     this.apiKey = config.api_key;
+    this.authMode = config.authMode ?? 'api-key';
     this.thinking = config.thinking ?? false;
     this.fetchImpl = fetchImpl;
   }
@@ -163,13 +165,15 @@ export class AnthropicProvider implements LLMProvider {
 
     let response: Response;
     try {
+      const headers: Record<string, string> = {
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      };
+      if (this.authMode === 'bearer') headers.authorization = `Bearer ${this.apiKey}`;
+      else headers['x-api-key'] = this.apiKey;
       response = await this.fetchImpl(`${this.baseUrl}/v1/messages`, {
         method: 'POST',
-        headers: {
-          'x-api-key': this.apiKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(body),
         signal,
       });

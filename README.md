@@ -229,6 +229,24 @@ hooks:
 
 Hook 命令与 HTTP 是用户主动安装的本地自动化代码，不经过 Agent 工具权限系统，并继承 BetterCode 进程可见的环境和操作系统权限。只应加载可信 Hook 配置；本章不提供操作系统沙箱、网络白名单或日志轮转。
 
+## cc-switch 适配
+
+BetterCode 可以跟随 cc-switch 桌面版当前激活的 Claude Code 供应商。启动时读取 `~/.claude/settings.json` 的 `env` 块（`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`），转换为 Anthropic Provider；`ANTHROPIC_AUTH_TOKEN` 存在时走 Bearer 认证，否则走 `x-api-key`，`base_url` 已含 `/v1` 时会自动归一化。
+
+在 `config.yaml` 启用：
+
+```yaml
+cc_switch:
+  enabled: true
+  claude:
+    name: cc-switch.claude
+    model: claude-sonnet-5-20251001
+    thinking: false
+    context_window: 200000
+```
+
+供应商选择优先级：`--provider` 命令行 > cc-switch 导入的默认供应商 > `config.yaml` 原 `default: true` > 交互选择。只读取 Claude Code 线，不读取 Codex、Gemini 等其他 cc-switch 来源，也不写回 cc-switch 文件。文件缺失、解析失败或 key/model 缺失时启动不崩溃，会在界面显示诊断并回退到原配置；诊断不会包含 API key。cc-switch 中切换供应商后需要重启 BetterCode 生效。
+
 ## 记忆系统
 
 - 启动时按层级加载 `BETTERCODE.md`、`AGENTS.md`、`.bettercode/INSTRUCTIONS.md` 和 `BETTERCODE.local.md`，并通过运行期指令消息注入，不改变可缓存的系统提示与工具定义。
