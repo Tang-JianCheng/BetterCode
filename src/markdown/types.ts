@@ -28,6 +28,12 @@ export interface MarkdownTreeLine {
   indent: number;
   branch: boolean;
   prefix?: string;
+  prefixSegments?: readonly MarkdownPrefixSegment[];
+  color?: MarkdownColor;
+}
+
+export interface MarkdownPrefixSegment {
+  text: string;
   color?: MarkdownColor;
 }
 

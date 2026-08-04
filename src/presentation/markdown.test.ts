@@ -63,6 +63,7 @@ test('树形块转换为带缩进与分支标记的 Markdown 树', () => {
         indent: 5,
         branch: true,
         prefix: '⛶ ⛶   ',
+        prefixSegments: [{ text: '⛁ ⛁', color: 'brand' }, { text: '   ', color: 'muted' }],
         color: 'warning',
       },
     ],
@@ -75,6 +76,8 @@ test('树形块转换为带缩进与分支标记的 Markdown 树', () => {
     assert.equal(blocks[0].lines[1].indent, 5);
     assert.equal(blocks[0].lines[1].branch, true);
     assert.equal(blocks[0].lines[1].prefix, '⛶ ⛶   ');
+    assert.deepEqual(blocks[0].lines[1].prefixSegments,
+      [{ text: '⛁ ⛁', color: 'brand' }, { text: '   ', color: 'muted' }]);
     assert.equal(blocks[0].lines[1].color, 'warning');
     assert.equal(blocks[0].lines[1].content[0].type, 'text');
     assert.equal(blocks[0].lines[1].content[1].type, 'del');

@@ -144,6 +144,28 @@ test('树形块按缩进渲染分支明细并弱化 token 数值', () => {
   assert.ok(mutedText.includes('├ '));
   assert.ok(mutedText.includes('421 tokens'));
 
+  const colored = renderMarkdown({
+    blocks: [{
+      type: 'tree',
+      lines: [{
+        content: [{ type: 'text', content: 'deepseek-v4-flash[1M]' }],
+        indent: 0,
+        branch: false,
+        prefixSegments: [
+          { text: '⛁ ⛁', color: 'brand' },
+          { text: ' ', color: 'muted' },
+          { text: '⛶ ⛶', color: 'muted' },
+          { text: '   ', color: 'muted' },
+        ],
+      }],
+    }],
+  }, capabilities(80));
+  const prefix = colored[0].segments.slice(0, 4);
+  assert.equal(prefix[0].color, 'brand');
+  assert.equal(prefix[1].color, 'muted');
+  assert.equal(prefix[2].color, 'muted');
+  assert.match(markdownLineText(colored[0]), /^⛁ ⛁ ⛶ ⛶\s+deepseek-v4-flash/u);
+
   const ascii = renderMarkdown(ast, capabilities(80, false, false));
   assert.match(markdownLineText(ascii[1]), /^⛶ ⛶   \|- mcp_demo: ~~421 tokens~~$/u);
 });

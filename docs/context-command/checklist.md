@@ -22,4 +22,10 @@
 - [x] 分类区每行带格子前缀，Free space 使用空闲图标
 - [x] System prompt / System tools / MCP tools / Skills / Messages / Free space 分类按类型着色
 - [x] 树形明细行颜色与所属分类一致，`xx tokens` 数值继续弱化淡色
+- [x] 方格区不再夹带 `├` 明细行，只保留分类汇总
+- [x] System tools / MCP tools / Skills 明细在方格下方按分类重新列出
+- [x] 明细小节先显示粗体标题（如 `**MCP tools**`），再显示 `├` 明细
+- [x] 无明细的分类不生成独立小节
+- [x] 占用格子按用量分级着色：低占用橙、中黄、高红
+- [x] 空格子与格子间分隔统一弱化灰，占用格与空格颜色可区分
 - [x] `pnpm typecheck`、`pnpm test`、`git diff --check` 通过

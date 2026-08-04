@@ -53,10 +53,18 @@ function contextGridPrefix(
   usedCells: number,
   usedGlyph: string,
   freeGlyph: string,
-): string {
-  const cells = Array.from({ length: cellCount }, (_, index) =>
-    index < usedCells ? usedGlyph : freeGlyph).join(' ');
-  return `${cells}   `;
+): readonly { text: string; color?: MarkdownColor }[] {
+  const usedColor = usedCells >= cellCount * 0.8
+    ? 'danger'
+    : usedCells >= cellCount * 0.5 ? 'warning' : 'brand';
+  const used = Array.from({ length: usedCells }, () => usedGlyph).join(' ');
+  const free = Array.from({ length: Math.max(0, cellCount - usedCells) }, () => freeGlyph).join(' ');
+  return [
+    ...(used ? [{ text: used, color: usedColor as MarkdownColor }] : []),
+    ...(used && free ? [{ text: ' ', color: 'muted' as const }] : []),
+    ...(free ? [{ text: free, color: 'muted' as const }] : []),
+    { text: '   ', color: 'muted' as const },
+  ];
 }
 
 function formatCompactTokens(value: number): string {
@@ -93,6 +101,21 @@ function treeEntryLine(entry: ContextUsageEntry, color: MarkdownColor): Presenta
   };
 }
 
+function detailSection(
+  title: string,
+  entries: readonly ContextUsageEntry[],
+  color: MarkdownColor,
+): PresentationBlock | undefined {
+  if (entries.length === 0) return undefined;
+  return {
+    type: 'tree',
+    lines: [
+      { content: `**${title}**`, color },
+      ...entries.slice(0, 10).map(entry => treeEntryLine(entry, color)),
+    ],
+  };
+}
+
 export function buildContextUsagePresentation(
   snapshot: ContextUsageSnapshot,
   options: ContextUsageRenderOptions = {},
@@ -108,53 +131,50 @@ export function buildContextUsagePresentation(
   const freeTokens = Math.max(0, snapshot.contextWindow - snapshot.usedTokens);
   const categoryLines: PresentationTreeLine[] = [
     {
-      prefix: grid(usedCells),
+      prefixSegments: grid(usedCells),
       content: `${snapshot.model}${contextWindowSuffix(snapshot.contextWindow)}`,
       color: 'text',
     },
     {
-      prefix: grid(0),
+      prefixSegments: grid(0),
       content: `${formatCompactTokens(snapshot.usedTokens)} / ${formatCompactTokens(snapshot.contextWindow)} tokens ` +
         `(${usagePercent(snapshot.usedTokens, snapshot.contextWindow)})`,
       color: 'text',
     },
-    { prefix: grid(0), content: '' },
-    { prefix: grid(0), content: '*Estimated usage by category*' },
+    { prefixSegments: grid(0), content: '' },
+    { prefixSegments: grid(0), content: '*Estimated usage by category*' },
     {
-      prefix: grid(0),
+      prefixSegments: grid(0),
       content: `${usedGlyph} System prompt: ${formatCompactTokens(snapshot.systemPromptTokens)} tokens ` +
         `(${usagePercent(snapshot.systemPromptTokens, snapshot.contextWindow)})`,
       color: 'info',
     },
     {
-      prefix: grid(0),
+      prefixSegments: grid(0),
       content: `${usedGlyph} System tools: ${formatCompactTokens(snapshot.systemToolsTokens)} tokens ` +
         `(${usagePercent(snapshot.systemToolsTokens, snapshot.contextWindow)}) · ${snapshot.systemToolCount} tools`,
       color: 'success',
     },
-    ...snapshot.systemToolEntries.slice(0, 10).map(entry => treeEntryLine(entry, 'success')),
     {
-      prefix: grid(0),
+      prefixSegments: grid(0),
       content: `${usedGlyph} MCP tools: ${formatCompactTokens(snapshot.mcpToolsTokens)} tokens ` +
         `(${usagePercent(snapshot.mcpToolsTokens, snapshot.contextWindow)}) · ${snapshot.mcpToolCount} tools`,
       color: 'warning',
     },
-    ...snapshot.mcpToolEntries.slice(0, 10).map(entry => treeEntryLine(entry, 'warning')),
     {
-      prefix: grid(0),
+      prefixSegments: grid(0),
       content: `${usedGlyph} Skills: ${formatCompactTokens(snapshot.skillsTokens)} tokens ` +
         `(${usagePercent(snapshot.skillsTokens, snapshot.contextWindow)})`,
       color: 'brand',
     },
-    ...snapshot.skillEntries.slice(0, 10).map(entry => treeEntryLine(entry, 'brand')),
     {
-      prefix: grid(0),
+      prefixSegments: grid(0),
       content: `${usedGlyph} Messages: ${formatCompactTokens(snapshot.messagesTokens)} tokens ` +
         `(${usagePercent(snapshot.messagesTokens, snapshot.contextWindow)}) · ${snapshot.messageCount} 条消息`,
       color: 'danger',
     },
     {
-      prefix: grid(0),
+      prefixSegments: grid(0),
       content: `${freeGlyph} Free space: ${formatCompactTokens(freeTokens)} tokens ` +
         `(${usagePercent(freeTokens, snapshot.contextWindow)})`,
       color: 'muted',
@@ -162,7 +182,10 @@ export function buildContextUsagePresentation(
   ];
   const blocks: PresentationBlock[] = [
     { type: 'tree', lines: categoryLines },
-  ];
+    detailSection('System tools', snapshot.systemToolEntries, 'success'),
+    detailSection('MCP tools', snapshot.mcpToolEntries, 'warning'),
+    detailSection('Skills', snapshot.skillEntries, 'brand'),
+  ].filter((block): block is PresentationBlock => block !== undefined);
   return createDocument({
     source: 'command',
     title: '上下文使用',
@@ -400,7 +423,7 @@ export function presentationToPlainText(item: PresentationItem): string {
     }
     if (block.type === 'tree') {
       lines.push(...block.lines.map(line =>
-        `${' '.repeat(line.indent ?? 0)}${line.prefix ?? ''}${line.branch ? '├ ' : ''}${line.content.replace(/~~/gu, '')}`));
+        `${' '.repeat(line.indent ?? 0)}${(line.prefixSegments?.map(segment => segment.text).join('') ?? line.prefix ?? '')}${line.branch ? '├ ' : ''}${line.content.replace(/~~/gu, '')}`));
     }
     if (block.type === 'table') {
       lines.push(block.columns.map(column => column.label).join('  '));

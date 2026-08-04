@@ -19,6 +19,7 @@ export interface PresentationTreeLine {
   indent?: number;
   branch?: boolean;
   prefix?: string;
+  prefixSegments?: readonly { text: string; color?: MarkdownColor }[];
   color?: MarkdownColor;
 }
 

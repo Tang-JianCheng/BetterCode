@@ -99,19 +99,32 @@ test('上下文 presenter 渲染动态格子和分类下嵌套明细', () => {
 
   const item = buildContextUsagePresentation(snapshot, { unicode: false });
   assert.equal(item.kind, 'document');
-  const tree = item.kind === 'document'
-    ? item.blocks.find(block => block.type === 'tree')
-    : undefined;
-  assert.ok(tree && tree.type === 'tree');
-  const byContent = (pattern: RegExp) => tree.type === 'tree'
-    ? tree.lines.find(line => pattern.test(line.content))
-    : undefined;
+  const trees = item.kind === 'document'
+    ? item.blocks.filter((block): block is Extract<typeof block, { type: 'tree' }> =>
+        block.type === 'tree')
+    : [];
+  assert.ok(trees.length >= 4);
+  const grid = trees[0];
+  const byContent = (pattern: RegExp, tree = grid) =>
+    tree.lines.find(line => pattern.test(line.content));
   assert.equal(byContent(/System prompt:/u)?.color, 'info');
   assert.equal(byContent(/System tools:/u)?.color, 'success');
   assert.equal(byContent(/MCP tools:/u)?.color, 'warning');
   assert.equal(byContent(/Skills:/u)?.color, 'brand');
   assert.equal(byContent(/Messages:/u)?.color, 'danger');
   assert.equal(byContent(/Free space:/u)?.color, 'muted');
-  assert.equal(byContent(/read_file/u)?.branch, true);
-  assert.ok((byContent(/System tools:/u)?.prefix ?? '').length > 0);
+  assert.ok((byContent(/System tools:/u)?.prefixSegments ?? []).length > 0);
+  assert.equal(grid.lines.some(line => line.branch), false);
+  const modelLine = byContent(/deepseek-v4-flash/u);
+  assert.ok(modelLine?.prefixSegments?.some(segment => segment.color === 'brand'));
+  assert.ok(modelLine?.prefixSegments?.some(segment => segment.color === 'muted'));
+
+  const detailTrees = trees.slice(1);
+  assert.ok(detailTrees.every(tree => tree.lines.some(line => line.branch)));
+  assert.ok(byContent(/^\*\*System tools\*\*$/u, detailTrees[0]));
+  assert.ok(byContent(/^\*\*MCP tools\*\*$/u, detailTrees[1]));
+  assert.ok(byContent(/^\*\*Skills\*\*$/u, detailTrees[2]));
+  const readFile = detailTrees.flatMap(tree => tree.lines)
+    .find(line => /read_file/u.test(line.content));
+  assert.equal(readFile?.branch, true);
 });

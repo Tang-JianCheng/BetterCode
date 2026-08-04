@@ -74,6 +74,7 @@ export function presentationBlocksToMarkdown(
             indent: line.indent ?? 0,
             branch: line.branch ?? false,
             ...(line.prefix ? { prefix: line.prefix } : {}),
+            ...(line.prefixSegments ? { prefixSegments: line.prefixSegments } : {}),
             ...(line.color ? { color: line.color } : {}),
           })),
         });

@@ -30,6 +30,8 @@
 - [x] T6: 增量完成分类明细嵌套展示。
 - [x] T7: 增量完成树形展开与 token 数值弱化。
 - [x] T8: 增量完成分类占用网格与分类着色。
+- [x] T9: 增量完成明细区独立列在方格下方。
+- [x] T10: 增量完成占用格子分级着色。
 
 ## T1: 上下文估算
 
@@ -103,6 +105,27 @@
 4. `/context` 改为单个 `tree` 块：顶部两行带占用/空格子，分类行带格子前缀并按类型着色，明细行与分类同色。
 
 **验证：** `pnpm test src/markdown/renderer.test.ts src/presentation/markdown.test.ts src/command/presenters.test.ts src/ui/markdown-view.test.ts src/ui/presentation-view.test.ts src/ui/app.test.ts`。
+
+## T9: 增量：明细区独立列在方格下方
+
+**文件：** `src/command/presenters.ts`、`src/command/presenters.test.ts`
+
+1. 方格 `tree` 块移除 System tools / MCP tools / Skills 的 `treeEntryLine` 明细，只保留分类汇总行。
+2. 新增 `detailSection`，按 System tools / MCP tools / Skills 顺序生成独立 `tree` 块，首行为 `**分类名**` 粗体标题，后续行为 `├` 明细。
+3. 测试断言方格区没有 `branch` 行，明细小节存在粗体标题且明细行带 `branch`。
+
+**验证：** `pnpm test src/command/presenters.test.ts src/ui/app.test.ts src/markdown/renderer.test.ts`。
+
+## T10: 增量：占用格子分级着色
+
+**文件：** `src/markdown/types.ts`、`src/presentation/types.ts`、`src/presentation/markdown.ts`、`src/markdown/renderer.ts`、`src/command/presenters.ts`、`src/command/presenters.test.ts`、`src/markdown/renderer.test.ts`、`src/presentation/markdown.test.ts`
+
+1. `MarkdownTreeLine` / `PresentationTreeLine` 增加 `prefixSegments`，转换与纯文本展示同步支持。
+2. `renderTree` 按分段渲染前缀并携带每段颜色，前缀宽度按分段合计计算。
+3. `contextGridPrefix` 返回分段：占用格按用量分级 `brand` / `warning` / `danger`，空格与分隔用 `muted`。
+4. `/context` 前缀切换为 `prefixSegments`，测试覆盖颜色与文本输出。
+
+**验证：** `pnpm test src/markdown/renderer.test.ts src/presentation/markdown.test.ts src/command/presenters.test.ts src/ui/markdown-view.test.ts src/ui/app.test.ts`。
 
 ## T5: 文档与收尾
 
