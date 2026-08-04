@@ -30,10 +30,8 @@ worktrees:
 
 # cc-switch 桌面版适配：启用后自动读取 ~/.claude/settings.json 的 env 块，
 # 把当前激活的 Claude 供应商导入为默认 Provider。改动后需重启 BetterCode。
-# cc_switch:
-#   enabled: true
-#   claude:
-#     name: cc-switch.claude
-#     model: claude-sonnet-5-20251001
-#     thinking: false
-#     context_window: 200000
+# model 不填时跟随 cc-switch 写入的 ANTHROPIC_MODEL。
+cc_switch:
+  enabled: true
+  claude:
+    name: cc-switch.claude
