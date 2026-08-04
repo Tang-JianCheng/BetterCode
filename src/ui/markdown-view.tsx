@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type {
   MarkdownAst,
+  MarkdownColor,
   MarkdownSegment,
   MarkdownSegmentStyle,
 } from '../markdown/types.js';
@@ -9,7 +10,19 @@ import { renderMarkdown } from '../markdown/renderer.js';
 import { terminalSafeText, wrapDisplay, type TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, type ThemeColor } from './theme.js';
 
-function segmentColor(style: MarkdownSegmentStyle): ThemeColor | undefined {
+const COLOR_MAP: Record<MarkdownColor, ThemeColor> = {
+  accent: BETTERCODE_THEME.accent,
+  brand: BETTERCODE_THEME.brand,
+  danger: BETTERCODE_THEME.danger,
+  info: BETTERCODE_THEME.info,
+  muted: BETTERCODE_THEME.muted,
+  success: BETTERCODE_THEME.success,
+  text: BETTERCODE_THEME.text,
+  warning: BETTERCODE_THEME.warning,
+};
+
+function segmentColor(style: MarkdownSegmentStyle, color?: MarkdownColor): ThemeColor | undefined {
+  if (color) return COLOR_MAP[color];
   switch (style) {
     case 'heading':
     case 'accent':
@@ -35,9 +48,11 @@ function SegmentText({
   colorEnabled: boolean;
   appleTerminal: boolean;
 }) {
-  const color = colorEnabled ? segmentColor(segment.style) : undefined;
+  const color = colorEnabled ? segmentColor(segment.style, segment.color) : undefined;
   const bold = colorEnabled && (segment.style === 'heading' || segment.style === 'bold');
-  const dimColor = colorEnabled && (segment.style === 'muted' || segment.style === 'dim');
+  const dimColor = colorEnabled && (
+    segment.style === 'muted' || segment.style === 'dim' || segment.color === 'muted'
+  );
   return (
     <Text bold={bold} dimColor={dimColor} color={color}>
       {terminalSafeText(segment.text, appleTerminal)}

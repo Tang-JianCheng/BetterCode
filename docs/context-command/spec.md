@@ -26,6 +26,14 @@ BetterCode 目前只能通过 `/status` 看到累计 Token 用量，用户无法
 - F12：每条明细的 `xx tokens` 数值使用弱化标记（`~~...~~`），终端彩色模式下渲染为淡色；非彩色模式保留 Markdown 删除线标记。
 - F13：明细仍最多展示前 10 项，长内容换行时继续保持在分支行缩进内。
 
+## 增量：分类占用网格与分类着色
+
+- F14：顶部改为 Claude 风格占用网格：第一行是占用格子 + 模型名（含 `[1M]` 等上下文窗口后缀），第二行是空格子 + `总占用 / 窗口 tokens (占比)`，下方再补一行空格子，然后进入 `*Estimated usage by category*`。
+- F15：每格代表约 5k Token（`contextWindow / 5_000` 取整），格子数量同时受终端列宽限制自适应，1M 窗口明显多于 128K，窄终端不撑爆单行。
+- F16：分类区每行同样带格子前缀，System prompt / System tools / MCP tools / Skills / Messages 使用占用图标 `⛁`，Free space 使用空闲图标 `⛶`（ASCII 模式回退 `#` / `.`）。
+- F17：分类行按类型着色：System prompt 信息蓝、System tools 成功绿、MCP tools 警示黄、Skills 品牌橙、Messages 危险红、Free space 弱化灰，模型与总占用行用正文白。
+- F18：树形明细继续挂在对应分类下方，明细行颜色与分类一致，`xx tokens` 数值继续弱化淡色。
+
 ## 非功能需求
 
 - N1：估算复用现有 `TokenEstimator`，不做网络请求。
@@ -50,3 +58,5 @@ BetterCode 目前只能通过 `/status` 看到累计 Token 用量，用户无法
 - AC6：MCP / System tools / Skills 明细分别出现在对应分类行下方，且不再出现 `MCP tools 明细` 独立标题。
 - AC7：Messages 分类行带消息条数，多类明细并存时顺序为 System tools → MCP tools → Skills → Messages。
 - AC8：明细以 `├` 树形缩进展示，`xx tokens` 数值在彩色终端下呈淡色。
+- AC9：顶部两行分别为占用格子 + 模型名、空格子 + 总占用与占比，网格行数量随窗口与列宽自适应。
+- AC10：各分类行带格子前缀并按类型着色，树形明细行颜色与所属分类一致。

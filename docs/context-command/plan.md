@@ -73,12 +73,12 @@ interface ContextUsageSnapshot extends ContextUsageBreakdown {
 ### command/presenters.ts 与 ui/app.tsx
 
 - 新增 `buildContextUsagePresentation(snapshot, options?)`：
-  - 格子数量 = `clamp(round(contextWindow / 32_000), 12, 64)`
+  - 格子数量 = `min(round(contextWindow / 5_000), 按终端列宽计算的上限)`，其中上限为 `max(12, floor((columns - 48) / 2))`，默认 60
   - 占用格子 = `round(used / contextWindow * 格子数)`
   - Unicode 模式用 `⛁` / `⛶`，ASCII 模式用 `#` / `.`
   - 展示模型（含 `[1M]` 等上下文后缀）、总占用、剩余空间和五类明细
   - System tools / MCP tools / Skills 的逐项明细直接缩进挂在自己的分类行下方（各最多 10 项），Messages 行附带消息条数
-- `App` 增加 `showContextUsage` 回调并接入 `CommandUIController`。
+- `App` 增加 `showContextUsage` 回调并接入 `CommandUIController`，把终端列宽通过 `capabilities.columns` 传入。
 
 ## 增量：嵌套明细渲染
 
@@ -93,6 +93,15 @@ interface ContextUsageSnapshot extends ContextUsageBreakdown {
 - `renderMarkdown` 新增 `renderTree`：分支行按 `indent` 设置行缩进，换行续行保持分支缩进；`├` 前缀与 `~~...~~` 内容都使用 `muted` 样式。
 - `/context` 的分类明细改为单个 `tree` 块：分类行 `indent=0`，明细行 `indent=5`、`branch=true`，token 数值包在 `~~...~~` 内。
 - `presentationToPlainText` 支持 `tree` 块，按缩进输出 `├` 并去掉 `~~` 标记。
+
+## 增量：分类占用网格与分类着色
+
+- 新增 `MarkdownColor` 联合类型（`accent/brand/danger/info/muted/success/text/warning`），`MarkdownTreeLine` 与 `MarkdownSegment` 增加 `color` 字段，`MarkdownTreeLine` 另增 `prefix` 字段；`presentation/types.ts` 的 `PresentationTreeLine` 同步支持。
+- `presentationBlocksToMarkdown` 转换 `tree` 块时透传 `prefix` 与 `color`；`renderMarkdown.renderTree` 先渲染 `prefix` 段再渲染 `├` 分支段，前缀宽度计入换行缩进，行级 `color` 只应用到 content 中的 `normal` 段，空 content 行也保留前缀（用于空格子行）。
+- `MarkdownView` 新增 `COLOR_MAP` 把 `MarkdownColor` 映射到主题色，`segmentColor` 优先使用行级颜色，`muted` 颜色同时触发 `dimColor`。
+- `contextGridCells(contextWindow, columns)`：目标格数 = `max(12, round(contextWindow / 5_000))`，再与按列宽计算的 `fit` 取小，保证 1M 窗口在 120 列终端约 36 格、100 列约 26 格、80 列约 16 格，不会撑爆单行。
+- `contextGridPrefix` 生成空格分隔的 `⛁/⛶` 格子串并后接 3 个空格；`/context` 整体改为单个 `tree` 块：模型行、总用量行、空格子空行、`*Estimated usage by category*`、六个分类行都带格子前缀。
+- 分类行颜色：System prompt `info`、System tools `success`、MCP tools `warning`、Skills `brand`、Messages `danger`、Free space `muted`；明细行使用与所属分类相同的颜色，`~~xx tokens~~` 弱化保持。
 
 ## 文件组织
 
@@ -116,5 +125,6 @@ README.md                     — 命令表
 | 估算位置 | ContextManager 私有 TokenEstimator | 与上下文管理使用同一近似口径 |
 | Skills 分类 | full reminder 与 base reminder 的 Token 差 | 不重复计算环境/模式等公共段 |
 | MCP 识别 | `isMcpToolName` 名称规则 | MCP 工具命名带 `mcp_..._hash`，无需维护 owner |
-| 格子数量 | `contextWindow / 32_000` 后取整并 clamp | 1M 明显多于 128K，且终端宽度可控 |
+| 格子数量 | `contextWindow / 5_000` 后取整，并受终端列宽限制 | 与 Claude 的 5k/格口径一致，避免 1M 目标 200 格撑爆单行 |
 | 渲染 | 复用命令文档 + text/list block | 保持现有 Markdown 渲染链路 |
+| 分类着色 | `tree` 行级 `color` + `MarkdownColor` 映射 | 不同分类用不同颜色，同时兼容无颜色/ASCII 模式 |

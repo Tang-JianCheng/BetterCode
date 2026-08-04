@@ -29,6 +29,7 @@
 - [x] T5: 测试、README 与文档完成。
 - [x] T6: 增量完成分类明细嵌套展示。
 - [x] T7: 增量完成树形展开与 token 数值弱化。
+- [x] T8: 增量完成分类占用网格与分类着色。
 
 ## T1: 上下文估算
 
@@ -91,6 +92,17 @@
 5. `presentationToPlainText` 支持 `tree` 块并去掉 `~~` 标记。
 
 **验证：** `pnpm test src/markdown/renderer.test.ts src/presentation/markdown.test.ts src/command/presenters.test.ts src/ui/presentation-view.test.ts`。
+
+## T8: 增量：分类占用网格与分类着色
+
+**文件：** `src/markdown/types.ts`、`src/presentation/types.ts`、`src/presentation/markdown.ts`、`src/markdown/renderer.ts`、`src/command/presenters.ts`、`src/ui/markdown-view.tsx`、`src/ui/app.tsx`
+
+1. `MarkdownColor` 增加 `accent/brand/danger/info/muted/success/text/warning`，`MarkdownTreeLine` 增加 `prefix` 与 `color`，`MarkdownSegment` 增加 `color`；Presentation 侧同步。
+2. `renderTree` 渲染 `prefix` 段并计入缩进，行级颜色应用到 content 的 `normal` 段；`MarkdownView` 用 `COLOR_MAP` 映射，`muted` 颜色启用 `dimColor`。
+3. `contextGridCells` 按 5k/格与终端列宽计算格数，`contextGridPrefix` 生成空格分隔的格子串。
+4. `/context` 改为单个 `tree` 块：顶部两行带占用/空格子，分类行带格子前缀并按类型着色，明细行与分类同色。
+
+**验证：** `pnpm test src/markdown/renderer.test.ts src/presentation/markdown.test.ts src/command/presenters.test.ts src/ui/markdown-view.test.ts src/ui/presentation-view.test.ts src/ui/app.test.ts`。
 
 ## T5: 文档与收尾
 

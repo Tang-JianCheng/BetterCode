@@ -922,8 +922,11 @@ export function App({
 
   const showContextUsage = useCallback(() => {
     const snapshot = chatManager.getContextUsage(activeProvider, agentModeRef.current);
-    appendPresentation(buildContextUsagePresentation(snapshot, { unicode: capabilities.unicode }));
-  }, [activeProvider, appendPresentation, capabilities.unicode, chatManager]);
+    appendPresentation(buildContextUsagePresentation(snapshot, {
+      unicode: capabilities.unicode,
+      columns: capabilities.columns,
+    }));
+  }, [activeProvider, appendPresentation, capabilities.columns, capabilities.unicode, chatManager]);
 
   const rewindConversation = useCallback(() => {
     const snapshots = chatManager.getSnapshots();

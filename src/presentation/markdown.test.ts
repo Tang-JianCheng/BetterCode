@@ -58,7 +58,13 @@ test('树形块转换为带缩进与分支标记的 Markdown 树', () => {
     type: 'tree',
     lines: [
       { content: 'MCP tools: 16.2k tokens (1.6%) · 2 tools' },
-      { content: 'mcp_demo: ~~421 tokens~~', indent: 5, branch: true },
+      {
+        content: 'mcp_demo: ~~421 tokens~~',
+        indent: 5,
+        branch: true,
+        prefix: '⛶ ⛶   ',
+        color: 'warning',
+      },
     ],
   }]);
   assert.equal(blocks[0].type, 'tree');
@@ -68,6 +74,8 @@ test('树形块转换为带缩进与分支标记的 Markdown 树', () => {
     assert.equal(blocks[0].lines[0].branch, false);
     assert.equal(blocks[0].lines[1].indent, 5);
     assert.equal(blocks[0].lines[1].branch, true);
+    assert.equal(blocks[0].lines[1].prefix, '⛶ ⛶   ');
+    assert.equal(blocks[0].lines[1].color, 'warning');
     assert.equal(blocks[0].lines[1].content[0].type, 'text');
     assert.equal(blocks[0].lines[1].content[1].type, 'del');
   }

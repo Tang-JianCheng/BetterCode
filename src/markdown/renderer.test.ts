@@ -124,6 +124,8 @@ test('树形块按缩进渲染分支明细并弱化 token 数值', () => {
           ],
           indent: 5,
           branch: true,
+          prefix: '⛶ ⛶   ',
+          color: 'warning',
         },
       ],
     }],
@@ -132,12 +134,16 @@ test('树形块按缩进渲染分支明细并弱化 token 数值', () => {
   assert.equal(lines[0].indent, 0);
   assert.match(markdownLineText(lines[0]), /^MCP tools:/u);
   assert.equal(lines[1].indent, 5);
-  assert.match(markdownLineText(lines[1]), /^├ mcp_demo: 421 tokens$/u);
+  assert.match(markdownLineText(lines[1]), /^⛶ ⛶   ├ mcp_demo: 421 tokens$/u);
+  assert.equal(lines[1].segments[0].text, '⛶ ⛶   ');
+  assert.equal(lines[1].segments[0].style, 'normal');
+  assert.equal(lines[1].segments[1].text, '├ ');
+  assert.equal(lines[1].segments.find(segment => segment.text === 'mcp_demo:')?.color, 'warning');
   const muted = lines[1].segments.filter(segment => segment.style === 'muted');
   const mutedText = muted.map(segment => segment.text).join('');
   assert.ok(mutedText.includes('├ '));
   assert.ok(mutedText.includes('421 tokens'));
 
   const ascii = renderMarkdown(ast, capabilities(80, false, false));
-  assert.match(markdownLineText(ascii[1]), /^\|- mcp_demo: ~~421 tokens~~$/u);
+  assert.match(markdownLineText(ascii[1]), /^⛶ ⛶   \|- mcp_demo: ~~421 tokens~~$/u);
 });

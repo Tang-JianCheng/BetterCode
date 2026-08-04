@@ -17,4 +17,9 @@
 - [x] `xx tokens` 数值在彩色终端下渲染为淡色
 - [x] 明细长内容换行保持在分支行缩进内
 - [x] `tree` 块在 Markdown 渲染器与纯文本展示中均可正常输出
+- [x] 顶部第一行是占用格子 + 模型名（含窗口后缀），第二行是空格子 + 总占用/窗口/占比
+- [x] 每格约 5k Token，格子数随窗口与终端列宽自适应，窄终端不撑爆单行
+- [x] 分类区每行带格子前缀，Free space 使用空闲图标
+- [x] System prompt / System tools / MCP tools / Skills / Messages / Free space 分类按类型着色
+- [x] 树形明细行颜色与所属分类一致，`xx tokens` 数值继续弱化淡色
 - [x] `pnpm typecheck`、`pnpm test`、`git diff --check` 通过

@@ -1,4 +1,4 @@
-import type { MarkdownAst } from '../markdown/types.js';
+import type { MarkdownAst, MarkdownColor } from '../markdown/types.js';
 
 export type PresentationTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
 
@@ -18,6 +18,8 @@ export interface PresentationTreeLine {
   content: string;
   indent?: number;
   branch?: boolean;
+  prefix?: string;
+  color?: MarkdownColor;
 }
 
 export type PresentationBlock =

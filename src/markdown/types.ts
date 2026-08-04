@@ -13,10 +13,22 @@ export interface MarkdownListItem {
   blocks: readonly MarkdownBlock[];
 }
 
+export type MarkdownColor =
+  | 'accent'
+  | 'brand'
+  | 'danger'
+  | 'info'
+  | 'muted'
+  | 'success'
+  | 'text'
+  | 'warning';
+
 export interface MarkdownTreeLine {
   content: readonly MarkdownInline[];
   indent: number;
   branch: boolean;
+  prefix?: string;
+  color?: MarkdownColor;
 }
 
 export type MarkdownBlock =
@@ -51,6 +63,7 @@ export type MarkdownSegmentStyle =
 export interface MarkdownSegment {
   text: string;
   style: MarkdownSegmentStyle;
+  color?: MarkdownColor;
 }
 
 export interface MarkdownLine {

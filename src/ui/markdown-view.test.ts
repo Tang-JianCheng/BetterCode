@@ -3,6 +3,7 @@ import test from 'node:test';
 import React from 'react';
 import { render } from 'ink-testing-library';
 import { parseMarkdown } from '../markdown/parser.js';
+import type { MarkdownAst } from '../markdown/types.js';
 import { displayWidth, type TerminalCapabilities } from './capabilities.js';
 import { MarkdownView } from './markdown-view.js';
 
@@ -77,6 +78,29 @@ test('彩色模式下标题省略 # 标记', () => {
   const frame = frameText('# 标题\n\n正文', capabilities(80, true, true));
   assert.match(frame, /标题/u);
   assert.doesNotMatch(frame, /# 标题/u);
+});
+
+test('彩色模式下树形行使用分类颜色渲染', () => {
+  const ast: MarkdownAst = {
+    blocks: [{
+      type: 'tree',
+      lines: [{
+        content: [{ type: 'text', content: '⛁ MCP tools: 16.2k tokens (1.6%)' }],
+        indent: 0,
+        branch: false,
+        prefix: '⛶ ⛶   ',
+        color: 'warning',
+      }],
+    }],
+  };
+  const view = render(React.createElement(MarkdownView, {
+    ast,
+    capabilities: capabilities(100, true, true),
+  }));
+  const frame = view.lastFrame() ?? '';
+  view.unmount();
+  assert.match(frame, /⛶ ⛶   ⛁ MCP tools:/u);
+  assert.doesNotMatch(frame, /├/u);
 });
 
 test('Apple Terminal 下正文与思考中的破折号以 ASCII 展示', () => {

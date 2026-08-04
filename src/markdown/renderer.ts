@@ -261,18 +261,26 @@ function renderTree(
   const lines: MarkdownLine[] = [];
   for (const line of block.lines) {
     const baseIndent = indent + line.indent;
-    const prefix = line.branch
+    const branchPrefix = line.branch
       ? options.unicode ? '├ ' : '|- '
       : '';
-    const prefixWidth = stringWidth(prefix);
+    const prefixWidth = stringWidth(line.prefix ?? '') + stringWidth(branchPrefix);
     const wrapped = renderParagraph(line.content, options, baseIndent + prefixWidth);
-    if (wrapped.length === 0) continue;
+    const prefixSegments: MarkdownSegment[] = [
+      ...(line.prefix ? [{ text: line.prefix, style: 'normal' as const }] : []),
+      ...(branchPrefix ? [{ text: branchPrefix, style: 'muted' as const }] : []),
+    ];
+    if (wrapped.length === 0) {
+      lines.push({ segments: prefixSegments, indent: baseIndent });
+      continue;
+    }
     const first = wrapped[0];
+    const contentSegments = line.color
+      ? first.segments.map(segment =>
+          segment.style === 'normal' ? { ...segment, color: line.color } : segment)
+      : first.segments;
     lines.push({
-      segments: [
-        ...(prefix ? [{ text: prefix, style: 'muted' as const }] : []),
-        ...first.segments,
-      ],
+      segments: [...prefixSegments, ...contentSegments],
       indent: baseIndent,
     });
     lines.push(...wrapped.slice(1));

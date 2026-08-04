@@ -73,6 +73,8 @@ export function presentationBlocksToMarkdown(
             content: parseInlineMarkdown(line.content),
             indent: line.indent ?? 0,
             branch: line.branch ?? false,
+            ...(line.prefix ? { prefix: line.prefix } : {}),
+            ...(line.color ? { color: line.color } : {}),
           })),
         });
         break;

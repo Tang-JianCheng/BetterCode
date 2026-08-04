@@ -96,4 +96,22 @@ test('上下文 presenter 渲染动态格子和分类下嵌套明细', () => {
   assert.match(text, /Free space: 947\.4k tokens \(94\.7%\)/u);
   assert.doesNotMatch(text, /MCP tools 明细/u);
   assert.match(text, /#/u);
+
+  const item = buildContextUsagePresentation(snapshot, { unicode: false });
+  assert.equal(item.kind, 'document');
+  const tree = item.kind === 'document'
+    ? item.blocks.find(block => block.type === 'tree')
+    : undefined;
+  assert.ok(tree && tree.type === 'tree');
+  const byContent = (pattern: RegExp) => tree.type === 'tree'
+    ? tree.lines.find(line => pattern.test(line.content))
+    : undefined;
+  assert.equal(byContent(/System prompt:/u)?.color, 'info');
+  assert.equal(byContent(/System tools:/u)?.color, 'success');
+  assert.equal(byContent(/MCP tools:/u)?.color, 'warning');
+  assert.equal(byContent(/Skills:/u)?.color, 'brand');
+  assert.equal(byContent(/Messages:/u)?.color, 'danger');
+  assert.equal(byContent(/Free space:/u)?.color, 'muted');
+  assert.equal(byContent(/read_file/u)?.branch, true);
+  assert.ok((byContent(/System tools:/u)?.prefix ?? '').length > 0);
 });
