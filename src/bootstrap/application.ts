@@ -1,4 +1,5 @@
 import path from 'node:path';
+import os from 'node:os';
 import { loadCcSwitchProviders } from '../cc-switch/loader.js';
 import type { CcSwitchDiagnostic } from '../cc-switch/types.js';
 import { loadConfig } from '../config/loader.js';
@@ -173,6 +174,7 @@ export async function createApplication(options: CreateApplicationOptions): Prom
   let built: BetterCodeApplication | undefined;
   try {
     const environment = options.environment ?? process.env;
+    const userHome = options.userHome ?? os.homedir();
     const bootstrapGuard = new TeamPathGuard(options.userHome);
     const bootstrapRepository = new TeamRepository(bootstrapGuard);
     const workerDescriptor = options.workerDescriptorPath
@@ -184,7 +186,7 @@ export async function createApplication(options: CreateApplicationOptions): Prom
     const ccSwitchStatus: CcSwitchDiagnostic[] = [];
     if (!workerDescriptor) {
       const imported = loadCcSwitchProviders(appConfig, {
-        userHome: options.userHome,
+        userHome,
         environment,
       });
       ccSwitchStatus.push(...imported.diagnostics);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import os, { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { AgentDefinitionManager } from '../subagent/definition-manager.js';
@@ -179,6 +179,41 @@ cc_switch:
     providerName: 'deepseek-v4',
   });
   assert.equal(application.provider.name, 'deepseek-v4');
+  assert.equal(application.ccSwitchStatus.length, 0);
+  await application.close();
+});
+
+test('createApplication 未传 userHome 时兜底用户目录并导入 cc-switch', async t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'bettercode-app-root-'));
+  const home = mkdtempSync(path.join(tmpdir(), 'bettercode-app-home-'));
+  const originalHome = os.homedir;
+  t.after(() => {
+    os.homedir = originalHome;
+    rmSync(root, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+  os.homedir = () => home;
+  mkdirSync(path.join(home, '.claude'), { recursive: true });
+  writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({
+    env: { ANTHROPIC_API_KEY: 'sk-cc', ANTHROPIC_MODEL: 'claude-sonnet' },
+  }));
+  writeFileSync(path.join(root, 'config.yaml'), `providers:
+  - name: deepseek-v4
+    protocol: openai
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+    api_key: sk-local
+    default: true
+cc_switch:
+  enabled: true
+`);
+  const application = await createApplication({
+    configPath: 'config.yaml',
+    permissionMode: 'default',
+    rootDir: root,
+  });
+  assert.equal(application.provider.name, 'cc-switch.claude');
+  assert.equal(application.provider.model, 'claude-sonnet');
   assert.equal(application.ccSwitchStatus.length, 0);
   await application.close();
 });
