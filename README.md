@@ -6,7 +6,7 @@ BetterCode 是一个用于学习和交流的终端代码 Agent。它支持流式
 
 BetterCode 启动时展示一次原创“小码”品牌区，运行期间使用轻量标记反馈模型请求、思考、工具执行、权限等待和上下文压缩状态。界面底部保持干净的输入工作区，不再常驻状态栏；模型、模式、权限、Token 和会话等运行信息通过 `/status` 按需查询。
 
-`/help`、`/status`、`/memory`、`/permission`、`/session`、`/tasks` 和 `/team` 使用结构化本地面板展示，不会伪装成模型回复。权限与回滚面板支持方向键、Enter 和 Esc；权限选择同时保留 `d/o/s/p` 快捷键。
+`/help`、`/status`、`/memory`、`/permission`、`/session`、`/model`、`/tasks` 和 `/team` 使用结构化本地面板展示，不会伪装成模型回复。权限与回滚面板支持方向键、Enter 和 Esc；权限选择同时保留 `d/o/s/p` 快捷键。
 
 界面默认面向现代 UTF-8 终端，并提供以下降级开关：
 
@@ -44,6 +44,7 @@ BetterCode 启动时展示一次原创“小码”品牌区，运行期间使用
 | `/plan` | 切换到 `[PLAN]` 只读计划模式 |
 | `/do` | 切换回 `[DEFAULT]` 执行模式 |
 | `/session [ID]` | 查看近期会话或恢复指定会话 |
+| `/model` | 打开 Provider 面板，运行中切换模型 |
 | `/memory` | 查看用户级和项目级记忆状态 |
 | `/permission [模式]` | 查看或切换权限模式 |
 | `/tasks [任务 ID]` | 查看当前会话的子 Agent 任务或单项详情 |

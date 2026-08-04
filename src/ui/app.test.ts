@@ -8,6 +8,7 @@ import type { Snapshot } from '../filehistory/filehistory.js';
 import type { LLMProvider, Message } from '../provider/types.js';
 import type { SkillManager } from '../skill/manager.js';
 import type { SessionInfo } from '../session/session.js';
+import type { ModelOption } from './model-dialog.js';
 import {
   App,
   formatContextEvent,
@@ -106,11 +107,30 @@ function createAppDependencies() {
     contextWindowIsDefault: false,
     async chat() {},
   };
+  const providers: ModelOption[] = [
+    { name: 'deepseek', model: 'deepseek-chat', base_url: 'https://api.deepseek.com' },
+    { name: 'flash', model: 'deepseek-v4-flash', base_url: 'https://api.deepseek.com' },
+  ];
+  let switchProviderCalls: string[] = [];
+  const switchProvider = (name: string): LLMProvider => {
+    switchProviderCalls = [...switchProviderCalls, name];
+    const option = providers.find(item => item.name === name) ?? providers[0];
+    return {
+      name: option.name,
+      model: option.model,
+      contextWindow: 128_000,
+      contextWindowIsDefault: false,
+      async chat() {},
+    };
+  };
   return {
     chatManager,
     skillManager,
     provider,
+    providers,
+    switchProvider,
     getClearCount: () => clearCount,
+    getSwitchProviderCalls: () => switchProviderCalls,
     setAgentStream: (stream: AsyncIterable<AgentEvent>) => {
       agentStream = stream;
     },
@@ -551,6 +571,63 @@ test('/session 选择器拒绝删除当前会话', async () => {
   const frame = view.lastFrame() ?? '';
   assert.match(frame, /不能删除当前会话/u);
   assert.match(frame, /历史会话/u);
+  view.unmount();
+});
+
+test('/model 打开交互选择器，方向键选择并切换 Provider', async () => {
+  const dependencies = createAppDependencies();
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('/model');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  let frame = view.lastFrame() ?? '';
+  assert.match(frame, /\[MODEL\] 切换模型/u);
+  assert.match(frame, /deepseek-chat/u);
+  assert.match(frame, /\[当前\]/u);
+  assert.match(frame, /deepseek-v4-flash/u);
+
+  view.stdin.write('\u001B[B');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  frame = view.lastFrame() ?? '';
+  assert.match(frame, /模型已切换/u);
+  assert.match(frame, /flash/u);
+  assert.deepEqual(dependencies.getSwitchProviderCalls(), ['flash']);
+
+  view.stdin.write('/status');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  frame = view.lastFrame() ?? '';
+  assert.match(frame, /Provider: flash/u);
+  assert.match(frame, /模型: deepseek-v4-flash/u);
+  view.unmount();
+});
+
+test('/model 只有一个 Provider 时提示而不是打开面板', async () => {
+  const dependencies = createAppDependencies();
+  const view = render(React.createElement(App, {
+    ...dependencies,
+    providers: [dependencies.providers[0]],
+  }));
+  await flushAppInput();
+  view.stdin.write('/model');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /无法切换/u);
+  assert.match(frame, /只有一个 Provider/u);
+  assert.doesNotMatch(frame, /\[MODEL\] 切换模型/u);
   view.unmount();
 });
 

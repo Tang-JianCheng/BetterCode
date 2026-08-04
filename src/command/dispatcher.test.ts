@@ -19,6 +19,7 @@ function fakeUi(messages: string[]): CommandUIController {
     async clearConversation() {},
     async compactConversation() {},
     async showOrResumeSession() {},
+    showOrSwitchModel() {},
     showMemoryStatus() {},
     showOrSetPermission() {},
     showStatus() {},

@@ -42,6 +42,7 @@ import { MessageList, type DisplayMessage } from './message-list.js';
 import { PermissionPrompt } from './permission-prompt.js';
 import { RewindDialog, type RewindAction } from './rewind-dialog.js';
 import { SessionDialog } from './session-dialog.js';
+import { ModelDialog, type ModelOption } from './model-dialog.js';
 import { detectTerminalCapabilities, terminalEnvironmentFromProcess } from './capabilities.js';
 import { StartupBrand } from './mascot.js';
 import {
@@ -122,6 +123,8 @@ interface Props {
   mcpStatus?: McpStartupStatus;
   agentDiagnostics?: readonly AgentDefinitionDiagnostic[];
   ccSwitchStatus?: readonly CcSwitchDiagnostic[];
+  providers: readonly ModelOption[];
+  switchProvider(name: string): LLMProvider;
 }
 
 export function formatContextWindowNotice(provider: LLMProvider): string | undefined {
@@ -268,6 +271,8 @@ export function App({
   mcpStatus,
   agentDiagnostics = [],
   ccSwitchStatus = [],
+  providers,
+  switchProvider,
 }: Props) {
   const { exit } = useApp();
   const { stdout } = useStdout();
@@ -326,6 +331,8 @@ export function App({
   const [rewindDialogActive, setRewindDialogActive] = useState(false);
   const [sessionDialogActive, setSessionDialogActive] = useState(false);
   const [sessionDialogSessions, setSessionDialogSessions] = useState<SessionInfo[]>([]);
+  const [activeProvider, setActiveProvider] = useState(provider);
+  const [modelDialogActive, setModelDialogActive] = useState(false);
   const [skillRevision, setSkillRevision] = useState(() => skillManager.getSnapshot().revision);
 
   const commandRegistry = useMemo(() => {
@@ -659,17 +666,17 @@ export function App({
 
   const sendAgentMessage = useCallback(async (content: string, displayText = content) => {
     const controller = new AbortController();
-    await consumeAgentStream(chatManager.run(content, provider, {
+    await consumeAgentStream(chatManager.run(content, activeProvider, {
       mode: agentModeRef.current,
       signal: controller.signal,
       permissionDecider,
     }), displayText, controller);
-  }, [chatManager, consumeAgentStream, permissionDecider, provider]);
+  }, [activeProvider, chatManager, consumeAgentStream, permissionDecider]);
 
   const runSkill = useCallback(async (name: string, args: string, displayText: string) => {
     const controller = new AbortController();
     try {
-      await consumeAgentStream(chatManager.runSkill(name, args, displayText, provider, {
+      await consumeAgentStream(chatManager.runSkill(name, args, displayText, activeProvider, {
         mode: agentModeRef.current,
         signal: controller.signal,
         permissionDecider,
@@ -677,7 +684,7 @@ export function App({
     } catch (error) {
       appendAssistant(error instanceof Error ? error.message : String(error));
     }
-  }, [appendAssistant, chatManager, consumeAgentStream, permissionDecider, provider]);
+  }, [activeProvider, appendAssistant, chatManager, consumeAgentStream, permissionDecider]);
 
   const clearConversation = useCallback(async () => {
     await chatManager.clear();
@@ -694,7 +701,7 @@ export function App({
     setIsStreaming(true);
     setActivity({ stage: 'compacting_context', label: '准备压缩上下文', startedAt: Date.now() });
     try {
-      for await (const event of chatManager.compact(provider, controller.signal)) {
+      for await (const event of chatManager.compact(activeProvider, controller.signal)) {
         if (event.type === 'context_progress' || event.type === 'context_offloaded') {
           setActivity({
             stage: 'compacting_context',
@@ -717,7 +724,7 @@ export function App({
       setIsStreaming(false);
       setActivity(undefined);
     }
-  }, [appendNotice, chatManager, provider]);
+  }, [activeProvider, appendNotice, chatManager]);
 
   const resumeSessionAndRender = useCallback(async (sessionId: string) => {
     try {
@@ -816,13 +823,36 @@ export function App({
     appendNotice('权限模式已切换', mode, 'success');
   }, [appendNotice, appendPresentation, chatManager]);
 
+  const showOrSwitchModel = useCallback(() => {
+    if (providers.length <= 1) {
+      appendNotice('无法切换', '当前只有一个 Provider，无需切换模型。', 'warning');
+      return;
+    }
+    setModelDialogActive(true);
+  }, [appendNotice, providers.length]);
+
+  const handleModelSelect = useCallback((name: string) => {
+    setModelDialogActive(false);
+    try {
+      const next = switchProvider(name);
+      setActiveProvider(next);
+      appendNotice('模型已切换', `${next.name}（${next.model}）`, 'success');
+    } catch (error) {
+      appendNotice(
+        '切换失败',
+        error instanceof Error ? error.message : String(error),
+        'danger',
+      );
+    }
+  }, [appendNotice, switchProvider]);
+
   const showStatus = useCallback(() => {
     const tasks = chatManager.listSubAgentTasks();
     const teamStatus = chatManager.getTeamStatus();
     const teamRecord = teamStatus.team as { name?: string } | undefined;
     const coordinator = teamStatus.coordinator as { active?: boolean } | undefined;
     appendPresentation(buildStatusPresentation({
-      provider,
+      provider: activeProvider,
       agentMode: agentModeRef.current,
       permissionMode: chatManager.getPermissionStatus().mode,
       sessionId: chatManager.getSessionId(),
@@ -846,7 +876,7 @@ export function App({
         },
       } : {}),
     }));
-  }, [appendPresentation, chatManager, provider, skillManager, usage]);
+  }, [activeProvider, appendPresentation, chatManager, skillManager, usage]);
 
   const rewindConversation = useCallback(() => {
     const snapshots = chatManager.getSnapshots();
@@ -886,6 +916,7 @@ export function App({
     clearConversation,
     compactConversation,
     showOrResumeSession,
+    showOrSwitchModel,
     showMemoryStatus,
     showOrSetPermission,
     showStatus,
@@ -905,6 +936,7 @@ export function App({
     setAgentMode,
     showMemoryStatus,
     showOrResumeSession,
+    showOrSwitchModel,
     showOrSetPermission,
     showStatus,
     showSubAgentTasks,
@@ -931,7 +963,15 @@ export function App({
         capabilities={capabilities}
       />
 
-      {sessionDialogActive ? (
+      {modelDialogActive ? (
+        <ModelDialog
+          providers={providers}
+          currentProviderName={activeProvider.name}
+          onSelect={handleModelSelect}
+          onCancel={() => setModelDialogActive(false)}
+          capabilities={capabilities}
+        />
+      ) : sessionDialogActive ? (
         <SessionDialog
           sessions={sessionDialogSessions}
           currentSessionId={chatManager.getSessionId()}

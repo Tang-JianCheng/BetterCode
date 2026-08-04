@@ -73,6 +73,10 @@ function definitions(): CommandDefinition[] {
       handler: ({ args, ui }) => ui.showOrResumeSession(args || undefined),
     },
     {
+      name: 'model', aliases: [], description: '切换当前模型', usage: '/model',
+      type: 'ui', handler: ({ ui }) => ui.showOrSwitchModel(),
+    },
+    {
       name: 'memory', aliases: ['m'], description: '查看长期记忆状态', usage: '/memory',
       type: 'local', handler: invocation => {
         if (!noArguments(invocation)) return;

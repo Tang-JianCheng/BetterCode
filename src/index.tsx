@@ -55,6 +55,8 @@ async function main(): Promise<void> {
         mcpStatus: application.mcpStatus,
         agentDiagnostics: application.agentDiagnostics,
         ccSwitchStatus: application.ccSwitchStatus,
+        providers: application.providers,
+        switchProvider: application.switchProvider,
       }),
       { exitOnCtrlC: false },
     );

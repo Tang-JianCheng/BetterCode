@@ -150,6 +150,43 @@ cc_switch:
   await application.close();
 });
 
+test('createApplication 暴露 Provider 摘要并支持运行时切换', async t => {
+  const root = mkdtempSync(path.join(tmpdir(), 'bettercode-app-root-'));
+  const home = mkdtempSync(path.join(tmpdir(), 'bettercode-app-home-'));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+  writeFileSync(path.join(root, 'config.yaml'), `providers:
+  - name: flash
+    protocol: openai
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+    api_key: sk-local
+    default: true
+  - name: pro
+    protocol: openai
+    model: deepseek-v4-pro
+    base_url: https://api.deepseek.com
+    api_key: sk-local
+`);
+  const application = await createApplication({
+    configPath: 'config.yaml',
+    permissionMode: 'default',
+    rootDir: root,
+    userHome: home,
+  });
+  assert.deepEqual(application.providers.map(item => item.name), ['flash', 'pro']);
+  assert.equal(application.providers[0].model, 'deepseek-v4-flash');
+  assert.equal(application.providers[0].base_url, 'https://api.deepseek.com');
+  assert.equal(Object.hasOwn(application.providers[0], 'api_key'), false);
+  const switched = application.switchProvider('pro');
+  assert.equal(switched.name, 'pro');
+  assert.equal(switched.model, 'deepseek-v4-pro');
+  assert.throws(() => application.switchProvider('missing'), /未找到 Provider 配置/);
+  await application.close();
+});
+
 test('createApplication 显式 --provider 优先于 cc-switch 导入', async t => {
   const root = mkdtempSync(path.join(tmpdir(), 'bettercode-app-root-'));
   const home = mkdtempSync(path.join(tmpdir(), 'bettercode-app-home-'));

@@ -84,6 +84,8 @@ export interface BetterCodeApplication {
   readonly mcpStatus: McpStartupStatus;
   readonly agentDiagnostics: ReturnType<AgentDefinitionManager['getSnapshot']>['diagnostics'];
   readonly ccSwitchStatus: readonly CcSwitchDiagnostic[];
+  readonly providers: readonly ProviderSummary[];
+  switchProvider(name: string): LLMProvider;
   readonly workerHost?: TeamWorkerHost;
   readonly workerDescriptor?: TeamWorkerDescriptor;
   close(): Promise<void>;
@@ -93,6 +95,13 @@ export interface CreateApplicationOptions extends ApplicationArguments {
   rootDir?: string;
   userHome?: string;
   environment?: NodeJS.ProcessEnv;
+}
+
+/** 提供给 UI 展示的 Provider 摘要，不包含 API key。 */
+export interface ProviderSummary {
+  name: string;
+  model: string;
+  base_url: string;
 }
 
 type CloseAction = () => void | Promise<void>;
@@ -196,6 +205,7 @@ export async function createApplication(options: CreateApplicationOptions): Prom
       : await resolveProvider(appConfig, options.providerName);
     const provider = createProvider(selectedConfig);
     const providerCache = new Map<string, LLMProvider>([[selectedConfig.name, provider]]);
+    let activeProvider: LLMProvider = provider;
     const providerResolver = {
       has: (name: string) => appConfig.providers.some(item => item.name === name),
       resolve: (name: string) => {
@@ -207,6 +217,13 @@ export async function createApplication(options: CreateApplicationOptions): Prom
         providerCache.set(name, created);
         return created;
       },
+    };
+    const switchProvider = (name: string): LLMProvider => {
+      if (!appConfig.providers.some(item => item.name === name)) {
+        throw new Error(`未找到 Provider 配置: ${name}`);
+      }
+      activeProvider = providerResolver.resolve(name);
+      return activeProvider;
     };
 
     const toolRegistry = createCoreToolRegistry(rootDir);
@@ -401,7 +418,7 @@ export async function createApplication(options: CreateApplicationOptions): Prom
         taskManager,
         resultInbox,
         resolvedSubagents,
-        { defaultProvider: () => provider },
+        { defaultProvider: () => activeProvider },
       );
       lifecycle.add(() => subAgentCoordinator?.close());
       const loadedHooks = new HookConfigLoader(rootDir, { userHome: options.userHome }).load();
@@ -449,6 +466,12 @@ export async function createApplication(options: CreateApplicationOptions): Prom
       mcpStatus,
       agentDiagnostics: agentSnapshot.diagnostics,
       ccSwitchStatus,
+      providers: appConfig.providers.map(item => ({
+        name: item.name,
+        model: item.model,
+        base_url: item.base_url,
+      })),
+      switchProvider,
       workerHost,
       workerDescriptor,
       close: () => lifecycle.close(error => {

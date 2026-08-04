@@ -18,6 +18,7 @@ export interface CommandUIController {
   clearConversation(): Promise<void>;
   compactConversation(): Promise<void>;
   showOrResumeSession(sessionId?: string): Promise<void>;
+  showOrSwitchModel(): void;
   showMemoryStatus(): void;
   showOrSetPermission(mode?: PermissionMode): void;
   showStatus(): void;
