@@ -716,6 +716,9 @@ test('estimateContextUsage 统计系统工具、MCP 工具与技能', t => {
   assert.equal(usage.providerName, 'fake');
   assert.equal(usage.contextWindow, 128_000);
   assert.equal(usage.mcpToolCount, 1);
+  assert.equal(usage.skillEntries.length, 1);
+  assert.equal(usage.skillEntries[0].name, 'review');
+  assert.equal(usage.messageCount, 1);
   assert.ok(usage.systemToolCount > 0);
   assert.ok(usage.skillsTokens > 0);
   assert.equal(

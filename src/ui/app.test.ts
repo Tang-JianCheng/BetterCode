@@ -78,7 +78,10 @@ function createAppDependencies() {
       messagesTokens: 10_000,
       systemToolCount: 6,
       mcpToolCount: 0,
+      systemToolEntries: [],
       mcpToolEntries: [],
+      skillEntries: [],
+      messageCount: 0,
       usedTokens: 20_000,
     }),
     getMemoryStatus: () => ({

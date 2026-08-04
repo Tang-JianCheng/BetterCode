@@ -1,6 +1,6 @@
 import type { AgentMode } from '../agent/types.js';
 import type { MemoryStatus } from '../chat/manager.js';
-import type { ContextUsageSnapshot } from '../context/types.js';
+import type { ContextUsageEntry, ContextUsageSnapshot } from '../context/types.js';
 import type { PermissionMode, PermissionStatus } from '../permission/types.js';
 import type { TokenUsage } from '../provider/types.js';
 import type { SessionInfo } from '../session/session.js';
@@ -65,6 +65,10 @@ function usagePercent(tokens: number, contextWindow: number): string {
   return `${((tokens / contextWindow) * 100).toFixed(1)}%`;
 }
 
+function nestedEntryLines(entries: readonly ContextUsageEntry[]): string[] {
+  return entries.slice(0, 10).map(entry => `  • ${entry.name}: ${formatCompactTokens(entry.tokens)} tokens`);
+}
+
 export function buildContextUsagePresentation(
   snapshot: ContextUsageSnapshot,
   options: ContextUsageRenderOptions = {},
@@ -89,12 +93,15 @@ export function buildContextUsagePresentation(
       `(${usagePercent(snapshot.systemPromptTokens, snapshot.contextWindow)})`,
     `System tools: ${formatCompactTokens(snapshot.systemToolsTokens)} tokens ` +
       `(${usagePercent(snapshot.systemToolsTokens, snapshot.contextWindow)}) · ${snapshot.systemToolCount} tools`,
+    ...nestedEntryLines(snapshot.systemToolEntries),
     `MCP tools: ${formatCompactTokens(snapshot.mcpToolsTokens)} tokens ` +
       `(${usagePercent(snapshot.mcpToolsTokens, snapshot.contextWindow)}) · ${snapshot.mcpToolCount} tools`,
+    ...nestedEntryLines(snapshot.mcpToolEntries),
     `Skills: ${formatCompactTokens(snapshot.skillsTokens)} tokens ` +
       `(${usagePercent(snapshot.skillsTokens, snapshot.contextWindow)})`,
+    ...nestedEntryLines(snapshot.skillEntries),
     `Messages: ${formatCompactTokens(snapshot.messagesTokens)} tokens ` +
-      `(${usagePercent(snapshot.messagesTokens, snapshot.contextWindow)})`,
+      `(${usagePercent(snapshot.messagesTokens, snapshot.contextWindow)}) · ${snapshot.messageCount} 条消息`,
     `Free space: ${formatCompactTokens(freeTokens)} tokens ` +
       `(${usagePercent(freeTokens, snapshot.contextWindow)})`,
   ];
@@ -103,14 +110,6 @@ export function buildContextUsagePresentation(
     { type: 'divider' },
     { type: 'text', content: categoryLines.join('\n') },
   ];
-  const mcpEntries = snapshot.mcpToolEntries
-    .slice(0, 10)
-    .map(entry => `${entry.name}: ${formatCompactTokens(entry.tokens)} tokens`);
-  if (mcpEntries.length > 0) {
-    blocks.push({ type: 'divider' });
-    blocks.push({ type: 'text', content: 'MCP tools 明细', heading: true });
-    blocks.push({ type: 'list', items: mcpEntries });
-  }
   return createDocument({
     source: 'command',
     title: '上下文使用',

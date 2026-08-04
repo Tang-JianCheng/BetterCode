@@ -38,9 +38,15 @@ export interface ContextUsageBreakdownInput {
   systemPrompt: string;
   systemTools: readonly ToolDefinition[];
   mcpTools: readonly ToolDefinition[];
+  skillEntries: ReadonlyArray<{ name: string; content: string }>;
   fullReminder: string;
   baseReminder: string;
   messages: readonly Message[];
+}
+
+export interface ContextUsageEntry {
+  name: string;
+  tokens: number;
 }
 
 export interface ContextUsageBreakdown {
@@ -51,7 +57,10 @@ export interface ContextUsageBreakdown {
   messagesTokens: number;
   systemToolCount: number;
   mcpToolCount: number;
-  mcpToolEntries: ReadonlyArray<{ name: string; tokens: number }>;
+  systemToolEntries: ReadonlyArray<ContextUsageEntry>;
+  mcpToolEntries: ReadonlyArray<ContextUsageEntry>;
+  skillEntries: ReadonlyArray<ContextUsageEntry>;
+  messageCount: number;
   usedTokens: number;
 }
 

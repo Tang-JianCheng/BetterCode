@@ -9,4 +9,8 @@
 - [x] MCP 工具非空时展示前 10 个工具明细
 - [x] Unicode 不可用时回退 ASCII 格子
 - [x] 展示内容不包含 API key
+- [x] System tools / MCP tools / Skills 明细缩进挂在自己的分类行下方
+- [x] 不再出现独立的 `MCP tools 明细` 标题块
+- [x] Messages 分类行展示消息条数
+- [x] 明细顺序稳定：System tools → MCP tools → Skills → Messages
 - [x] `pnpm typecheck`、`pnpm test`、`git diff --check` 通过

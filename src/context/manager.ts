@@ -66,9 +66,17 @@ export class ContextManager {
       (sum, message) => sum + this.estimator.estimateMessage(message),
       0,
     ) + (input.baseReminder ? baseReminderTokens + 4 : 0) + 12;
+    const systemToolEntries = input.systemTools.map(tool => ({
+      name: tool.name,
+      tokens: this.estimateTools([tool]),
+    }));
     const mcpToolEntries = input.mcpTools.map(tool => ({
       name: tool.name,
       tokens: this.estimateTools([tool]),
+    }));
+    const skillEntries = input.skillEntries.map(skill => ({
+      name: skill.name,
+      tokens: this.estimator.estimateText(skill.content),
     }));
     return {
       systemPromptTokens,
@@ -78,7 +86,10 @@ export class ContextManager {
       messagesTokens,
       systemToolCount: input.systemTools.length,
       mcpToolCount: input.mcpTools.length,
+      systemToolEntries,
       mcpToolEntries,
+      skillEntries,
+      messageCount: input.messages.length,
       usedTokens: systemPromptTokens + systemToolsTokens + mcpToolsTokens +
         skillsTokens + messagesTokens,
     };

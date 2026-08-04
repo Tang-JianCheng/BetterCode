@@ -27,6 +27,7 @@
 - [x] T3: ChatManager 完成，`getContextUsage` 转发历史与模式。
 - [x] T4: 命令与 UI 完成，`/context` 打开展示面板。
 - [x] T5: 测试、README 与文档完成。
+- [x] T6: 增量完成分类明细嵌套展示。
 
 ## T1: 上下文估算
 
@@ -66,6 +67,17 @@
 4. `App` 接入 `showContextUsage`，传入当前 Provider、模式与终端能力。
 
 **验证：** `pnpm test src/command/builtins.test.ts src/command/dispatcher.test.ts src/command/presenters.test.ts`。
+
+## T6: 增量：分类明细嵌套展示
+
+**文件：** `src/context/types.ts`、`src/context/manager.ts`、`src/agent/loop.ts`、`src/command/presenters.ts`
+
+1. `ContextUsageBreakdown` 增加 `systemToolEntries`、`skillEntries`、`messageCount`，输入增加 `skillEntries`。
+2. `estimateUsageBreakdown` 计算系统工具逐项、MCP 逐项、Skill 逐项估算与消息条数。
+3. `estimateContextUsage` 把 `activeSkills`（名称 + 正文）传入估算层。
+4. `buildContextUsagePresentation` 把 System tools / MCP tools / Skills 明细缩进挂在对应分类行下方，Messages 行带消息条数，移除 `MCP tools 明细` 独立块。
+
+**验证：** `pnpm test src/context/manager.test.ts src/agent/loop.test.ts src/command/presenters.test.ts src/ui/app.test.ts`。
 
 ## T5: 文档与收尾
 

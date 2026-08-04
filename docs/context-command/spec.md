@@ -13,6 +13,13 @@ BetterCode 目前只能通过 `/status` 看到累计 Token 用量，用户无法
 - F5：MCP 工具非空时展示每个 MCP 工具的估算 Token（最多 10 个），名称来自实际注册的工具。
 - F6：命令是纯本地展示，不调用模型、不执行工具、不修改会话状态。
 
+## 增量：分类明细挂载到对应分类下方
+
+- F7：MCP 工具明细不再单独成块，而是直接挂在 `MCP tools` 分类行下方，缩进展示为 `工具名: 估算 Token`（最多 10 个）。
+- F8：System tools 与 Skills 同样展示逐项明细并挂在自己的分类行下方；Skills 明细按已激活 Skill 逐项估算。
+- F9：Messages 分类行展示消息条数（`· N 条消息`），不逐条展示避免面板过长。
+- F10：明细与分类行保持同一文本块，渲染顺序稳定，不再出现单独的 `MCP tools 明细` 标题。
+
 ## 非功能需求
 
 - N1：估算复用现有 `TokenEstimator`，不做网络请求。
@@ -34,3 +41,5 @@ BetterCode 目前只能通过 `/status` 看到累计 Token 用量，用户无法
 - AC3：五类 Token 之和等于总占用，剩余空间等于 `context_window - usedTokens`。
 - AC4：注册 MCP 工具后，MCP tools 分类与工具明细随之出现。
 - AC5：展示内容中不出现任何 API key。
+- AC6：MCP / System tools / Skills 明细分别出现在对应分类行下方，且不再出现 `MCP tools 明细` 独立标题。
+- AC7：Messages 分类行带消息条数，多类明细并存时顺序为 System tools → MCP tools → Skills → Messages。

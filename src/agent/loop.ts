@@ -405,6 +405,7 @@ export class AgentLoop {
       systemPrompt: this.systemPrompt,
       systemTools,
       mcpTools,
+      skillEntries: supplemental.activeSkills ?? [],
       fullReminder,
       baseReminder,
       messages: history,

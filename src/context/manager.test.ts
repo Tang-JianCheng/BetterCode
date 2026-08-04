@@ -191,13 +191,20 @@ test('estimateUsageBreakdown 按类别估算并汇总', async t => {
     systemPrompt: '系统提示',
     systemTools: [tool('read_file')],
     mcpTools: [tool('mcp_demo_tool_12345678')],
+    skillEntries: [{ name: 'review', content: '检查事实' }],
     fullReminder: '<system-reminder>\n## 已激活的 Skill\n### review\n检查事实\n## 环境信息\nroot\n</system-reminder>',
     baseReminder: '<system-reminder>\n## 环境信息\nroot\n</system-reminder>',
     messages: [{ role: 'user', content: '你好' }],
   });
   assert.equal(breakdown.systemToolCount, 1);
   assert.equal(breakdown.mcpToolCount, 1);
+  assert.equal(breakdown.systemToolEntries.length, 1);
+  assert.equal(breakdown.systemToolEntries[0].name, 'read_file');
   assert.equal(breakdown.mcpToolEntries.length, 1);
+  assert.equal(breakdown.mcpToolEntries[0].name, 'mcp_demo_tool_12345678');
+  assert.equal(breakdown.skillEntries.length, 1);
+  assert.equal(breakdown.skillEntries[0].name, 'review');
+  assert.equal(breakdown.messageCount, 1);
   assert.equal(breakdown.skillsTokens > 0, true);
   assert.equal(
     breakdown.usedTokens,

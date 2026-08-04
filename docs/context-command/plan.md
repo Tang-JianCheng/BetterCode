@@ -26,7 +26,10 @@ interface ContextUsageBreakdown {
   messagesTokens: number;
   systemToolCount: number;
   mcpToolCount: number;
+  systemToolEntries: ReadonlyArray<{ name: string; tokens: number }>;
   mcpToolEntries: ReadonlyArray<{ name: string; tokens: number }>;
+  skillEntries: ReadonlyArray<{ name: string; tokens: number }>;
+  messageCount: number;
   usedTokens: number;
 }
 
@@ -48,6 +51,7 @@ interface ContextUsageSnapshot extends ContextUsageBreakdown {
   - skills：完整 reminder 与去掉 Skill 段的 base reminder 的 Token 差
   - messages：历史消息 + base reminder + 固定开销
 - 返回 `usedTokens = 五类之和`。
+- 增量：`estimateUsageBreakdown` 额外输出 `systemToolEntries`、`skillEntries` 与 `messageCount`；每个工具条目按单个工具定义估算，Skill 条目按 Skill 正文估算。
 
 ### agent/loop.ts
 
@@ -73,8 +77,14 @@ interface ContextUsageSnapshot extends ContextUsageBreakdown {
   - 占用格子 = `round(used / contextWindow * 格子数)`
   - Unicode 模式用 `⛁` / `⛶`，ASCII 模式用 `#` / `.`
   - 展示模型（含 `[1M]` 等上下文后缀）、总占用、剩余空间和五类明细
-  - MCP 工具非空时展示前 10 个工具明细
+  - System tools / MCP tools / Skills 的逐项明细直接缩进挂在自己的分类行下方（各最多 10 项），Messages 行附带消息条数
 - `App` 增加 `showContextUsage` 回调并接入 `CommandUIController`。
+
+## 增量：嵌套明细渲染
+
+- 数据源：`AgentLoop.estimateContextUsage` 把 `currentSupplemental().activeSkills`（`name` + `content`）传给 `estimateUsageBreakdown`，系统工具与 MCP 工具沿用可见工具集合。
+- 渲染：`buildContextUsagePresentation` 把分类行与明细放在同一个文本块，明细缩进两格并带 `•`；旧的独立 `MCP tools 明细` 标题与 list block 删除。
+- 截断：每个分类明细最多展示前 10 项，超出部分不展示，避免长工具列表撑爆面板。
 
 ## 文件组织
 
