@@ -5,7 +5,7 @@ providers:
     model: deepseek-v4-flash
     context_window: 128000
     base_url: https://api.deepseek.com
-    api_key: sk-d2d51cbfd6e24d89a311e534b5350063
+    api_key: ${DEEPSEEK_API_KEY}
     default: true
 
   - name: claude-sonnet
