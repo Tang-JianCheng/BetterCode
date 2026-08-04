@@ -9,6 +9,7 @@ export interface TerminalCapabilities {
   color: boolean;
   unicode: boolean;
   motion: boolean;
+  appleTerminal?: boolean;
 }
 
 export interface TerminalEnvironment {
@@ -16,6 +17,7 @@ export interface TerminalEnvironment {
   rows?: number;
   isTTY?: boolean;
   term?: string;
+  termProgram?: string;
   noColor?: boolean;
   forceAscii?: boolean;
   reduceMotion?: boolean;
@@ -41,6 +43,8 @@ export function detectTerminalCapabilities(
     ?? process.env.BETTERCODE_REDUCE_MOTION === '1';
   const ci = environment.ci ?? Boolean(process.env.CI);
   const isTTY = environment.isTTY ?? process.stdout.isTTY === true;
+  const termProgram = environment.termProgram ?? process.env.TERM_PROGRAM;
+  const appleTerminal = termProgram === 'Apple_Terminal';
   return {
     columns,
     ...(rows ? { rows } : {}),
@@ -48,7 +52,19 @@ export function detectTerminalCapabilities(
     color: isTTY && !noColor && !dumb,
     unicode: !forceAscii && !dumb,
     motion: isTTY && !reduceMotion && !ci && !dumb,
+    ...(appleTerminal ? { appleTerminal: true } : {}),
   };
+}
+
+/**
+ * macOS 自带 Terminal 的文本视图在流式重绘含 U+2014 等字符时可能崩溃。
+ * 这里只在渲染到该终端前把破折号替换为 ASCII，会话与文档数据保持原样。
+ */
+export function terminalSafeText(value: string, appleTerminal: boolean): string {
+  if (!appleTerminal) return value;
+  return value
+    .replace(/\u2014/gu, '--')
+    .replace(/\u2013/gu, '-');
 }
 
 export function displayWidth(value: string): number {
@@ -115,6 +131,7 @@ export function terminalEnvironmentFromProcess(): TerminalEnvironment {
     rows: process.stdout.rows,
     isTTY: process.stdout.isTTY,
     term: process.env.TERM,
+    termProgram: process.env.TERM_PROGRAM,
     noColor: Object.hasOwn(process.env, 'NO_COLOR'),
     forceAscii: process.env.BETTERCODE_ASCII === '1',
     reduceMotion: process.env.BETTERCODE_REDUCE_MOTION === '1',

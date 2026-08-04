@@ -273,3 +273,24 @@ FIGfont 与 ANSI Shadow 都以独立字母排版为前提，即使通过删字�
 - AC32：最终帧可直接辨认为 `BETTERCODE`，宽屏内容宽度为 80 列，九个边界全部存在真实连接，完整图形只有一个四向连通分量。
 - AC33：Logo 保持橘黄明暗层次与圆角收边，没有贯穿整词的纯横梁，120 列终端居中展示不换行。
 - AC34：ASCII、80 列、55 列窄屏与低动态环境继续按既有规则降级，动画、状态延迟展示和 Ctrl+C 光标恢复无回归。
+
+## 增量：终端崩溃加固与 Apple Terminal 安全渲染
+
+### 变更背景
+
+macOS 自带 Terminal 的文本视图在流式重绘含 U+2014 破折号的 UTF-8 内容时，其内置分词器（CoreNLP/MeCab）可能出现递归后 SIGBUS，导致整个终端进程崩溃。BetterCode 侧需要降低重绘频率，并在该终端上把高风险字符转换为 ASCII 后再送显示层，同时保留会话与文档的原始内容。
+
+### 变更内容
+
+- 流式输出改为固定 60ms 合帧刷新，`text_delta` 与 `thinking_delta` 不再逐 token 触发整屏重绘；活动指示器动画频率从 100ms 降为 250ms，降低长回复与等待期间的终端重绘压力。
+- `TerminalCapabilities` 新增可选 `appleTerminal`，从 `TERM_PROGRAM=Apple_Terminal` 检测；`TerminalEnvironment` 新增 `termProgram` 可注入字段。
+- 新增 `terminalSafeText`：仅在 `appleTerminal` 为真时，把显示层文本中的 U+2014 替换为 `--`、U+2013 替换为 `-`；普通终端原样返回。会话存档、Markdown AST 与工具结果数据不做修改。
+- 安全替换覆盖 Markdown 正文与思考、纯文本对话、通知标题、输入框显示文本、命令候选标签与描述、交互面板（权限确认、回滚检查点）的详情与选项。
+- 未处理的 Promise 拒绝记录到 `.bettercode/logs/runtime-errors.log` 后继续运行；未捕获异常记录后退出，避免后台异步错误直接把 Agent 会话关掉。
+
+### 验收补充
+
+- AC35：流式回复按合帧刷新，长文本不逐 token 整屏重绘；动画在低动态与 CI 环境继续降级。
+- AC36：`TERM_PROGRAM=Apple_Terminal` 时所有显示出口的 U+2014/U+2013 均以 ASCII 展示，非 Apple 终端保持原文。
+- AC37：安全替换只影响显示层，会话文件与 Markdown 解析结果保持原始破折号。
+- AC38：后台异步错误只记录日志不退出进程；未捕获异常按固定格式记录后退出，不产生不可诊断的静默消失。

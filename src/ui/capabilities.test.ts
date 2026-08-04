@@ -5,6 +5,7 @@ import {
   detectTerminalCapabilities,
   displayWidth,
   padDisplay,
+  terminalSafeText,
   truncateDisplay,
   truncateStart,
 } from './capabilities.js';
@@ -53,4 +54,20 @@ test('从左侧截断保留右缘并带省略号', () => {
   assert.equal(truncateStart('模型deepseek', 6), '…pseek');
   assert.ok(displayWidth(truncateStart('启动功能、模块或系统性优化', 10)) <= 10);
   assert.equal(truncateStart('abc', 0), '');
+});
+
+test('识别 Apple Terminal 并把破折号替换为 ASCII 显示', () => {
+  const caps = detectTerminalCapabilities({
+    columns: 100, isTTY: true, term: 'xterm-256color', termProgram: 'Apple_Terminal',
+    noColor: false, ci: false, reduceMotion: false,
+  });
+  assert.equal(caps.appleTerminal, true);
+  assert.deepEqual(detectTerminalCapabilities({
+    columns: 100, isTTY: true, term: 'xterm-256color', termProgram: 'iTerm.app',
+    noColor: false, ci: false, reduceMotion: false,
+  }), {
+    columns: 100, density: 'full', color: true, unicode: true, motion: true,
+  });
+  assert.equal(terminalSafeText('a—b–c', false), 'a—b–c');
+  assert.equal(terminalSafeText('a—b–c', true), 'a--b-c');
 });

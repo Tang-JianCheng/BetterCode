@@ -327,3 +327,37 @@ test('ASCII 模式光标使用下划线', async () => {
   assert.doesNotMatch(frame, /█/u);
   view.unmount();
 });
+
+test('Apple Terminal 下输入内容与候选描述中的破折号以 ASCII 展示', async () => {
+  const view = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    complete,
+    capabilities: { ...capabilities(120), appleTerminal: true },
+  }));
+  await flushInput();
+  view.stdin.write('你好—世界');
+  await flushInput();
+  let frame = view.lastFrame() ?? '';
+  assert.doesNotMatch(frame, /—/u);
+  assert.match(frame, /你好--世界/u);
+  view.unmount();
+
+  const dashCandidate: CommandCompletion = {
+    name: 'dash', aliases: [], value: '/dash ', label: '/dash 测试',
+    description: '包含—破折号的说明',
+  };
+  const panel = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    complete: input => input.startsWith('/d') ? [dashCandidate] : [],
+    capabilities: { ...capabilities(120), appleTerminal: true },
+  }));
+  await flushInput();
+  panel.stdin.write('/d');
+  await flushInput();
+  frame = panel.lastFrame() ?? '';
+  assert.doesNotMatch(frame, /—/u);
+  assert.match(frame, /包含--破折号的说明/u);
+  panel.unmount();
+});

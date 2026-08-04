@@ -55,6 +55,10 @@ export const HELP_TEXT = formatCommandHelp(COMMAND_REGISTRY);
 
 let presentationSequence = 0;
 
+// 流式输出按固定间隔合帧，避免每个 token 都触发一次整屏重绘，
+// 降低高刷终端（如 macOS 自带 Terminal）在长回复时因连续替换文本视图崩溃的概率。
+const STREAMING_FLUSH_INTERVAL_MS = 60;
+
 function conversationText(value: string): string {
   try {
     return String(value);
@@ -296,12 +300,24 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
   const textRef = useRef('');
   const thinkingRef = useRef('');
   const hasThinkingRef = useRef(false);
+  const streamingFlushTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
+  const thinkingStageShownRef = useRef(false);
   const abortRef = useRef<AbortController | undefined>();
   const agentModeRef = useRef<AgentMode>('act');
   const permissionResolverRef = useRef<{
     requestId: string;
     resolve: (choice: PermissionChoice) => void;
   }>();
+
+  const scheduleStreamingFlush = useCallback(() => {
+    if (streamingFlushTimerRef.current !== undefined) return;
+    streamingFlushTimerRef.current = setTimeout(() => {
+      streamingFlushTimerRef.current = undefined;
+      setCurrentStreaming(textRef.current);
+      setCurrentThinking(thinkingRef.current);
+      setIsThinking(hasThinkingRef.current);
+    }, STREAMING_FLUSH_INTERVAL_MS);
+  }, []);
 
   useInput((input, key) => {
     if (!key.ctrl) return;
@@ -452,6 +468,11 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     textRef.current = '';
     thinkingRef.current = '';
     hasThinkingRef.current = false;
+    thinkingStageShownRef.current = false;
+    if (streamingFlushTimerRef.current !== undefined) {
+      clearTimeout(streamingFlushTimerRef.current);
+      streamingFlushTimerRef.current = undefined;
+    }
     abortRef.current = controller;
     setIsStreaming(true);
     setCurrentStreaming('');
@@ -471,18 +492,19 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
           case 'text_delta':
             textRef.current += event.content;
             hasThinkingRef.current = false;
-            setIsThinking(false);
-            setCurrentStreaming(previous => previous + event.content);
+            scheduleStreamingFlush();
             break;
           case 'thinking_delta':
             thinkingRef.current += event.content;
             hasThinkingRef.current = true;
-            setIsThinking(true);
-            setCurrentThinking(previous => previous + event.content);
-            setActivity({
-              stage: 'thinking', label: '正在整理思路', iteration: event.iteration,
-              startedAt: Date.now(),
-            });
+            if (!thinkingStageShownRef.current) {
+              thinkingStageShownRef.current = true;
+              setActivity({
+                stage: 'thinking', label: '正在整理思路', iteration: event.iteration,
+                startedAt: Date.now(),
+              });
+            }
+            scheduleStreamingFlush();
             break;
           case 'tool_call':
             setActivity({
@@ -574,6 +596,11 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
         setMessages(previous => [...previous, ...completedMessages]);
       }
 
+      if (streamingFlushTimerRef.current !== undefined) {
+        clearTimeout(streamingFlushTimerRef.current);
+        streamingFlushTimerRef.current = undefined;
+      }
+
       abortRef.current = undefined;
       permissionResolverRef.current = undefined;
       setPermissionRequest(undefined);
@@ -586,7 +613,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
       setIsStreaming(false);
       setActivity(undefined);
     }
-  }, [updateProgress]);
+  }, [scheduleStreamingFlush, updateProgress]);
 
   const sendAgentMessage = useCallback(async (content: string, displayText = content) => {
     const controller = new AbortController();

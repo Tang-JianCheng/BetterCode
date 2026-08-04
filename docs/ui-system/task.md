@@ -630,6 +630,24 @@ T5、T6 和 T8 在各自依赖满足后可并行；T15 与 T17 共享交互和�
 
 **验证：** 19 项 UI 专项测试、`pnpm check`、`git diff --check` 与真实 TUI 启动。
 
+## T38：终端崩溃加固与 Apple Terminal 安全渲染
+
+**文件：** `src/index.tsx`、`src/ui/app.tsx`、`src/ui/activity-indicator.tsx`、`src/ui/capabilities.ts`、`src/ui/markdown-view.tsx`、`src/ui/presentation-view.tsx`、`src/ui/input-box.tsx`、`src/ui/interaction-panel.tsx` 及对应测试、`docs/ui-system/spec.md`、`docs/ui-system/plan.md`、`docs/ui-system/task.md`、`docs/ui-system/checklist.md`
+
+**依赖：** T37
+
+**步骤：**
+
+1. 流式文本与 thinking 改为 60ms 合帧刷新，活动指示器动画频率降为 250ms。
+2. `detectTerminalCapabilities` 增加 `TERM_PROGRAM` 检测与可选 `appleTerminal` 字段。
+3. 新增 `terminalSafeText`，在 Apple Terminal 下把 U+2014/U+2013 替换为 ASCII。
+4. 在 Markdown、对话、通知、输入框、命令候选与交互面板的显示出口接入安全替换，保持会话与 AST 原始数据不变。
+5. `src/index.tsx` 注册未处理 Promise 拒绝与未捕获异常日志，写入 `.bettercode/logs/runtime-errors.log`。
+6. 为能力检测、Markdown、对话、输入框与交互面板补充 Apple Terminal 安全渲染测试。
+7. 运行全量检查，并在真实 Apple Terminal 中连续多轮复跑此前崩溃场景。
+
+**验证：** UI 专项测试、`pnpm check`、`git diff --check` 与真实 Apple Terminal 多轮回归。
+
 ## T37：恢复整体连通横幅
 
 **文件：** `src/ui/startup-banner.tsx`、`src/ui/mascot.test.ts`、`docs/ui-system/spec.md`、`docs/ui-system/plan.md`、`docs/ui-system/task.md`、`docs/ui-system/checklist.md`

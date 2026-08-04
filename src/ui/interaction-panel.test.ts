@@ -30,3 +30,21 @@ test('无颜色 ASCII 交互面板仍明确显示选中项与帮助', () => {
   assert.match(frame, /Enter 确认/u);
   view.unmount();
 });
+
+test('Apple Terminal 下详情与选项中的破折号以 ASCII 展示', () => {
+  const view = render(React.createElement(InteractionPanel, {
+    title: '权限确认', tone: 'warning',
+    capabilities: { ...capabilities, appleTerminal: true },
+    selectedIndex: 0,
+    details: ['目标—路径'],
+    options: [
+      { value: 'deny', label: '拒绝—重试', shortcut: 'd' },
+    ],
+    footer: '上下键选择',
+  }));
+  const frame = view.lastFrame() ?? '';
+  assert.doesNotMatch(frame, /—/u);
+  assert.match(frame, /目标--路径/u);
+  assert.match(frame, /拒绝--重试/u);
+  view.unmount();
+});

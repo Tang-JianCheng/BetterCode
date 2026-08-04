@@ -6,7 +6,7 @@ import type {
   MarkdownSegmentStyle,
 } from '../markdown/types.js';
 import { renderMarkdown } from '../markdown/renderer.js';
-import type { TerminalCapabilities } from './capabilities.js';
+import { terminalSafeText, type TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, type ThemeColor } from './theme.js';
 
 function segmentColor(style: MarkdownSegmentStyle): ThemeColor | undefined {
@@ -29,16 +29,18 @@ function segmentColor(style: MarkdownSegmentStyle): ThemeColor | undefined {
 function SegmentText({
   segment,
   colorEnabled,
+  appleTerminal,
 }: {
   segment: MarkdownSegment;
   colorEnabled: boolean;
+  appleTerminal: boolean;
 }) {
   const color = colorEnabled ? segmentColor(segment.style) : undefined;
   const bold = colorEnabled && (segment.style === 'heading' || segment.style === 'bold');
   const dimColor = colorEnabled && (segment.style === 'muted' || segment.style === 'dim');
   return (
     <Text bold={bold} dimColor={dimColor} color={color}>
-      {segment.text}
+      {terminalSafeText(segment.text, appleTerminal)}
     </Text>
   );
 }
@@ -51,6 +53,7 @@ export interface MarkdownViewProps {
 
 /** 把已解析的 Markdown 行片段映射为 Ink 组件 */
 export function MarkdownView({ ast, capabilities, thinking }: MarkdownViewProps) {
+  const appleTerminal = capabilities.appleTerminal === true;
   const lines = useMemo(() => renderMarkdown(ast, {
     columns: Math.max(20, capabilities.columns - 2),
     unicode: capabilities.unicode,
@@ -65,7 +68,7 @@ export function MarkdownView({ ast, capabilities, thinking }: MarkdownViewProps)
             {capabilities.unicode ? '┊ ' : ': '}
           </Text>
           <Text dimColor color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-            {thinking}
+            {terminalSafeText(thinking, appleTerminal)}
           </Text>
         </Box>
       ) : undefined}
@@ -77,6 +80,7 @@ export function MarkdownView({ ast, capabilities, thinking }: MarkdownViewProps)
                 key={`${lineIndex}-${segmentIndex}`}
                 segment={segment}
                 colorEnabled={capabilities.color}
+                appleTerminal={appleTerminal}
               />
             ))}
           </Text>

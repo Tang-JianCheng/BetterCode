@@ -17,7 +17,6 @@ export function bannerLines(capabilities: TerminalCapabilities): readonly string
     center: true,
     animation: false,
     unicode: capabilities.unicode,
-    scaleX: capabilities.unicode && availableWidth >= 100 ? 2 : 1,
   }).render('BETTERCODE');
 }
 

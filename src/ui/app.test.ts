@@ -119,6 +119,23 @@ async function flushAppInput(): Promise<void> {
   await new Promise(resolve => setImmediate(resolve));
 }
 
+async function waitForFrame(
+  view: ReturnType<typeof render>,
+  pattern: RegExp,
+  timeoutMs = 400,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const frame = view.lastFrame() ?? '';
+    if (pattern.test(frame)) return;
+    if (Date.now() >= deadline) {
+      assert.match(frame, pattern);
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+}
+
 test('MCP 启动状态成功或未配置时不增加聊天消息', () => {
   assert.equal(formatMcpStartupStatus({
     configuredServers: 0,
@@ -336,8 +353,8 @@ test('流式期间保持纯文本，流结束后最终回复渲染 Markdown', as
   await flushAppInput();
   await flushAppInput();
 
+  await waitForFrame(view, /\[链接\]\(https:\/\/example\.com\)/u);
   const streamingFrame = view.lastFrame() ?? '';
-  assert.match(streamingFrame, /\[链接\]\(https:\/\/example\.com\)/u);
   assert.doesNotMatch(streamingFrame, /链接 \(https:\/\/example\.com\)/u);
 
   releaseStream();

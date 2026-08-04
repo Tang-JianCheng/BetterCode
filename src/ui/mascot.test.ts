@@ -10,56 +10,14 @@ const modern = {
   columns: 120, density: 'full' as const, color: false, unicode: true, motion: false,
 };
 
-function connectedComponentCount(lines: readonly string[]): number {
-  const width = Math.max(...lines.map(line => [...line].length));
-  const grid = lines.map(line => [...line.padEnd(width)]);
-  const visited = new Set<string>();
-  let components = 0;
-  for (let row = 0; row < grid.length; row += 1) {
-    for (let column = 0; column < width; column += 1) {
-      const key = `${column}:${row}`;
-      if (grid[row][column] === ' ' || visited.has(key)) continue;
-      components += 1;
-      const pending: Array<[number, number]> = [[column, row]];
-      while (pending.length > 0) {
-        const [currentColumn, currentRow] = pending.pop()!;
-        const currentKey = `${currentColumn}:${currentRow}`;
-        if (
-          currentRow < 0
-          || currentRow >= grid.length
-          || currentColumn < 0
-          || currentColumn >= width
-          || grid[currentRow][currentColumn] === ' '
-          || visited.has(currentKey)
-        ) continue;
-        visited.add(currentKey);
-        pending.push(
-          [currentColumn - 1, currentRow],
-          [currentColumn + 1, currentRow],
-          [currentColumn, currentRow - 1],
-          [currentColumn, currentRow + 1],
-        );
-      }
-    }
-  }
-  return components;
-}
-
-test('自定义像素模板形成整体连通的 BETTERCODE Logo', () => {
+test('启动横幅按用户指定模板原样输出 BETTERCODE', () => {
   const renderer = new LogoRenderer({ center: false, animation: false });
   const connected = renderer.layout('BETTERCODE');
-  assert.equal(connected.lines.length, 7);
+  assert.equal(connected.lines.length, 6);
   assert.deepEqual(connected.lines, BETTERCODE_LOGO_TEMPLATE);
-  assert.equal(connected.contentWidth, 80);
-  assert.equal(connected.lines.every(line => /^[ █▓▒░▄▀╭╮╰╯]*$/u.test(line)), true);
-  assert.equal(connected.joins.length, 9);
-  for (const join of connected.joins) {
-    const row = [...connected.lines[join.row]];
-    assert.equal(row[join.leftColumn], '▒');
-    assert.equal(row[join.rightColumn], '░');
-  }
-  assert.equal(connectedComponentCount(connected.lines), 1);
-  assert.equal(connected.lines.some(line => /^[█▓▒░]+$/u.test(line.trim())), false);
+  assert.equal(connected.contentWidth, 84);
+  assert.equal(connected.lines.every(line => /^[ █╗╔╚╝═║]*$/u.test(line)), true);
+  assert.equal(connected.joins.length, 0);
   assert.throws(() => renderer.render('BETTER CODE'), /不支持的 Logo 文字/u);
 });
 
@@ -100,24 +58,24 @@ test('LogoRenderer 支持居中、逐行动画和 ANSI 差量帧', () => {
   });
   const lines = renderer.render();
   assert.equal(lines.every(line => displayWidth(line) <= 120), true);
-  assert.equal(lines[0].match(/^ */u)?.[0].length, 20);
+  assert.equal(lines[0].match(/^ */u)?.[0].length, 18);
   const frames = renderer.animationFrames();
-  assert.equal(frames.length, 15);
+  assert.equal(frames.length, 13);
   assert.equal(frames[0].every(line => line.trim() === ''), true);
   assert.deepEqual(frames.at(-1), lines);
-  assert.equal(frames.every(frame => frame.length === 7), true);
+  assert.equal(frames.every(frame => frame.length === 6), true);
   const ansi = renderer.ansiFrames();
   assert.equal(ansi.length, frames.length);
   assert.match(ansi[0].content, /\u001B\[\?25l/u);
-  assert.match(ansi[1].content, /^\u001B\[6A\r/u);
+  assert.match(ansi[1].content, /^\u001B\[5A\r/u);
   assert.match(ansi.at(-1)!.content, /\u001B\[\?25h/u);
-  assert.equal(ansi.every(frame => frame.delayMs === 50), true);
+  assert.equal(ansi.every(frame => frame.delayMs === 58), true);
 });
 
 test('启动品牌按终端宽度降级并展示商业 CLI 状态', () => {
-  assert.equal(bannerLines(modern).length, 7);
+  assert.equal(bannerLines(modern).length, 6);
   assert.equal(bannerLines({ ...modern, columns: 55, density: 'narrow' }).length, 7);
-  assert.equal(bannerLines({ ...modern, columns: 90, density: 'compact' }).length, 7);
+  assert.equal(bannerLines({ ...modern, columns: 90, density: 'compact' }).length, 6);
   assert.equal(bannerLines({ ...modern, columns: 80, density: 'compact' }).length, 7);
   assert.equal(bannerLines(modern).every(line => displayWidth(line) <= 118), true);
   assert.equal(bannerLines({ ...modern, columns: 55, density: 'narrow' })
@@ -133,8 +91,8 @@ test('启动品牌按终端宽度降级并展示商业 CLI 状态', () => {
   assert.match(frame, /⚡ AI Coding Assistant/u);
   assert.match(frame, /◉ Model: DeepSeek/u);
   assert.match(frame, /◉ Ready/u);
-  assert.match(frame, /[█▓▒░]/u);
-  assert.doesNotMatch(frame, /小码准备好了|把目标交给我|\/_____|╗|╔/u);
+  assert.match(frame, /[█╗╔╚╝═║]/u);
+  assert.doesNotMatch(frame, /小码准备好了|把目标交给我|\/_____|▓|▒|░/u);
   view.unmount();
 });
 

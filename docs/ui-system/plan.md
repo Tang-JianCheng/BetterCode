@@ -620,3 +620,24 @@ src/
 - 结构测试锁定 80 列宽度、九处边界共享列、单连通分量、无纯横梁、固定 7 行与居中位置。
 - 在 120 列真彩 TTY 中确认最终字样为 `BETTERCODE`、颜色为橘黄四档、字母整体连通且动画与光标恢复正常。
 - 运行 `pnpm check` 与 `git diff --check` 完成回归。
+
+## 增量：终端崩溃加固与 Apple Terminal 安全渲染
+
+### 渲染频率与运行时保护
+
+- `App` 内维护 `textRef`/`thinkingRef` 与 `STREAMING_FLUSH_INTERVAL_MS=60` 的合帧定时器：增量事件只写 ref，定时器到点才统一 `setState`；一轮结束与重启时清空定时器，保证最终帧不丢。
+- `thinking_delta` 只触发一次“正在整理思路”活动态切换，避免每个 thinking token 都更新活动面板。
+- `ActivityIndicator` 帧间隔 100ms 改为 250ms，低动态与 CI 保持静态标记。
+- `src/index.tsx` 注册 `unhandledRejection`（记录后继续）与 `uncaughtException`（记录后退出），日志写入 `.bettercode/logs/runtime-errors.log`。
+
+### 能力检测与显示安全
+
+- `detectTerminalCapabilities` 读取 `TERM_PROGRAM`，仅在 `Apple_Terminal` 时返回 `appleTerminal: true`；普通终端不返回该字段，避免既有能力断言变化。
+- `terminalSafeText` 是纯函数：非 Apple 终端原样返回，Apple 终端替换 `—`（U+2014）为 `--`、`–`（U+2013）为 `-`。
+- 在 `MarkdownView`、`PresentationView`、`InputBox`、`InteractionPanel` 的显示文本出口统一调用；所有替换发生在渲染层，`renderMarkdown` 的 AST、会话 JSONL 与工具结果保持不变。
+
+### 验证
+
+- 能力检测测试覆盖 Apple Terminal 识别、非 Apple 终端不返回字段以及安全替换的正反向断言。
+- Markdown、对话、输入框与交互面板专项测试验证破折号替换只发生在 Apple Terminal 能力下。
+- 运行 UI 专项测试、`pnpm check` 与 `git diff --check`；在真实 Apple Terminal 中复跑此前触发崩溃的“你好”等回复，观察连续多轮不再关闭终端。

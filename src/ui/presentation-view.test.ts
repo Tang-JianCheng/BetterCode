@@ -113,3 +113,17 @@ test('命令表格在超宽终端限制为 88 列', () => {
     assert.equal(displayWidth(line) <= 88, true, `行超过 88 列: ${line}`);
   }
 });
+
+test('Apple Terminal 下用户消息与思考内容中的破折号被替换', () => {
+  const user = renderItem(createConversation({ role: 'user', content: '你好—世界' }), {
+    ...capabilities(100), appleTerminal: true,
+  });
+  assert.doesNotMatch(user, /—/u);
+  assert.match(user, /你好--世界/u);
+
+  const thinking = renderItem(createConversation({
+    role: 'assistant', content: '正文', thinking: '思考—草稿',
+  }), { ...capabilities(100), appleTerminal: true });
+  assert.doesNotMatch(thinking, /—/u);
+  assert.match(thinking, /思考--草稿/u);
+});

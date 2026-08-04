@@ -78,3 +78,22 @@ test('彩色模式下标题省略 # 标记', () => {
   assert.match(frame, /标题/u);
   assert.doesNotMatch(frame, /# 标题/u);
 });
+
+test('Apple Terminal 下正文与思考中的破折号以 ASCII 展示', () => {
+  const safe = frameText('正文——带破折号', { ...capabilities(80), appleTerminal: true });
+  assert.doesNotMatch(safe, /—/u);
+  assert.match(safe, /----/u);
+
+  const normal = frameText('正文——带破折号', capabilities(80));
+  assert.match(normal, /——/u);
+
+  const view = render(React.createElement(MarkdownView, {
+    ast: parseMarkdown('正文'),
+    capabilities: { ...capabilities(80), appleTerminal: true },
+    thinking: '思路—草稿',
+  }));
+  const thinkingFrame = view.lastFrame() ?? '';
+  view.unmount();
+  assert.doesNotMatch(thinkingFrame, /—/u);
+  assert.match(thinkingFrame, /思路--草稿/u);
+});

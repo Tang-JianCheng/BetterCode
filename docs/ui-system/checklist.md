@@ -392,3 +392,23 @@
 - 专项：mascot、App 与受控终端共 19 项测试通过。
 - 全量：`pnpm check` 退出码 0，共 478 项测试通过；`git diff --check` 通过。
 - 手工：120 列真彩终端确认最终字样为 `BETTERCODE`，80 列整体连通、橘黄四档明暗、动画与光标恢复正常。
+
+## 增量：终端崩溃加固与 Apple Terminal 安全渲染
+
+- [x] **C87：流式合帧与低动画重绘**
+  流式文本与 thinking 按 60ms 合帧刷新，活动指示器动画频率为 250ms；低动态与 CI 环境继续使用静态标记。（验证：App 合帧测试与 ActivityIndicator 测试；覆盖 AC35）
+
+- [x] **C88：Apple Terminal 能力检测**
+  `TERM_PROGRAM=Apple_Terminal` 时 `appleTerminal` 为 true，非 Apple 终端不返回该字段。（验证：能力检测测试；覆盖 AC36）
+
+- [x] **C89：显示层破折号安全替换**
+  Markdown 正文与思考、纯文本对话、通知标题、输入框、命令候选与交互面板在 Apple Terminal 下均不输出 U+2014/U+2013，普通终端保持原文。（验证：Markdown、对话、输入框与交互面板专项测试；覆盖 AC36）
+
+- [x] **C90：数据保真与运行时保护**
+  安全替换只作用于显示层，会话存档与 Markdown AST 保留原始破折号；未处理 Promise 拒绝记录日志后继续，未捕获异常记录后退出。（验证：显示测试与 `src/index.tsx` 日志路径；覆盖 AC37-AC38）
+
+**验收记录：**
+
+- 专项：能力检测、Markdown、对话、输入框与交互面板安全渲染测试通过。
+- 全量：`pnpm check` 退出码 0，全量测试通过；`git diff --check` 通过。
+- 手工：真实 Apple Terminal 中连续多轮回复不再关闭终端；Apple Terminal 之外的环境显示无变化。

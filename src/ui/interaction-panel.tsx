@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { PresentationTone } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
-import { truncateDisplay } from './capabilities.js';
+import { terminalSafeText, truncateDisplay } from './capabilities.js';
 import { BETTERCODE_THEME, TONE_LABELS, toneColor } from './theme.js';
 
 export interface InteractionOption<T extends string = string> {
@@ -43,6 +43,7 @@ export function InteractionPanel<T extends string>({
   capabilities,
 }: InteractionPanelProps<T>) {
   const border = capabilities.unicode ? '─' : '-';
+  const appleTerminal = capabilities.appleTerminal === true;
   return (
     <Box flexDirection="column" marginY={1}>
       <Box>
@@ -50,11 +51,11 @@ export function InteractionPanel<T extends string>({
           {capabilities.unicode ? '╭─' : '+-'}
         </Text>
         <Text bold color={capabilities.color ? toneColor(tone) : undefined}>
-          {' '}[{TONE_LABELS[tone]}] {title}
+          {' '}[{TONE_LABELS[tone]}] {terminalSafeText(title, appleTerminal)}
         </Text>
       </Box>
       {details.map((detail, index) => (
-        <Text key={`${index}-${detail}`}>  {truncateDisplay(detail, Math.max(10, capabilities.columns - 4))}</Text>
+        <Text key={`${index}-${detail}`}>  {truncateDisplay(terminalSafeText(detail, appleTerminal), Math.max(10, capabilities.columns - 4))}</Text>
       ))}
       <Text color={capabilities.color ? BETTERCODE_THEME.border : undefined}>
         {'  '}{border.repeat(Math.max(8, Math.min(capabilities.columns - 4, 28)))}
@@ -62,6 +63,10 @@ export function InteractionPanel<T extends string>({
       {options.map((option, index) => {
         const selected = index === selectedIndex;
         const marker = selected ? (capabilities.unicode ? '❯' : '>') : ' ';
+        const label = terminalSafeText(option.label, appleTerminal);
+        const description = option.description
+          ? ` · ${terminalSafeText(option.description, appleTerminal)}`
+          : '';
         return (
           <Text
             key={option.value}
@@ -69,8 +74,7 @@ export function InteractionPanel<T extends string>({
             inverse={selected && capabilities.color}
             color={selected && capabilities.color ? BETTERCODE_THEME.selected : undefined}
           >
-            {' '}{marker} {option.shortcut ? `[${option.shortcut}] ` : ''}{option.label}
-            {option.description ? ` · ${option.description}` : ''}
+            {' '}{marker} {option.shortcut ? `[${option.shortcut}] ` : ''}{label}{description}
           </Text>
         );
       })}

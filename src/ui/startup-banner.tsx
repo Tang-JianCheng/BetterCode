@@ -4,11 +4,9 @@ import type { TerminalCapabilities } from './capabilities.js';
 import { displayWidth } from './capabilities.js';
 import { BETTERCODE_THEME, type ThemeColor } from './theme.js';
 
-const GLYPH_WIDTH = 5;
-const GLYPH_STEP = 4;
-const GLYPH_HEIGHT = 7;
 const BETTERCODE = 'BETTERCODE';
 
+// 紧凑回退字模：窄屏或 ASCII 环境使用，保持可读且不越界。
 const PIXEL_GLYPHS: Record<string, readonly string[]> = {
   B: ['11110', '10001', '10001', '11110', '10001', '10001', '11110'],
   E: ['11110', '10000', '10000', '11110', '10000', '10000', '11110'],
@@ -18,9 +16,19 @@ const PIXEL_GLYPHS: Record<string, readonly string[]> = {
   O: ['01110', '11011', '10001', '10001', '10001', '11011', '01110'],
   D: ['11110', '10001', '10001', '10001', '10001', '10001', '11110'],
 };
+const PIXEL_GLYPH_WIDTH = 5;
+const PIXEL_GLYPH_STEP = 4;
+const PIXEL_GLYPH_HEIGHT = 7;
 
-// 连接高度刻意错开，避免任何一行变成贯穿整词的辅助横梁。
-const BETTERCODE_JOIN_ROWS = [1, 6, 4, 2, 3, 1, 3, 2, 4] as const;
+// 用户指定的 BETTERCODE 像素横幅：原样输出，不做连接或字符替换。
+export const BETTERCODE_LOGO_TEMPLATE = [
+  '██████╗ ███████╗████████╗████████╗███████╗██████╗   ██████╗ ██████╗ ██████╗ ███████╗',
+  '██╔══██╗██╔════╝╚══██╔══╝╚══██╔══╝██╔════╝██╔══██╗ ██╔════╝██╔═══██╗██╔══██╗██╔════╝',
+  '██████╔╝█████╗     ██║      ██║   █████╗  ██████╔╝ ██║     ██║   ██║██║  ██║█████╗',
+  '██╔══██╗██╔══╝     ██║      ██║   ██╔══╝  ██╔══██╗ ██║     ██║   ██║██║  ██║██╔══╝',
+  '██████╔╝███████╗   ██║      ██║   ███████╗██║  ██║ ╚██████╗╚██████╔╝██████╔╝███████╗',
+  '╚═════╝ ╚══════╝   ╚═╝      ╚═╝   ╚══════╝╚═╝  ╚═╝  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝',
+] as const;
 
 export interface LogoRendererOptions {
   width?: number;
@@ -28,7 +36,6 @@ export interface LogoRendererOptions {
   animation?: boolean;
   animationDuration?: number;
   unicode?: boolean;
-  scaleX?: 1 | 2;
 }
 
 export interface LogoJoin {
@@ -51,7 +58,6 @@ export interface AnsiLogoFrame {
 function colorForCharacter(character: string): ThemeColor {
   if (character === '░') return BETTERCODE_THEME.brandGhost;
   if (character === '▒') return BETTERCODE_THEME.brandShadow;
-  if (character === '▓' || /[╭╮╰╯]/u.test(character)) return BETTERCODE_THEME.brandHighlight;
   return BETTERCODE_THEME.brand;
 }
 
@@ -79,102 +85,65 @@ export class LogoRenderer {
 
   constructor(options: LogoRendererOptions = {}) {
     this.options = {
-      width: options.width ?? 100,
+      width: options.width ?? 120,
       center: options.center ?? false,
       animation: options.animation ?? true,
       animationDuration: Math.max(0, options.animationDuration ?? 720),
       unicode: options.unicode ?? true,
-      scaleX: options.scaleX ?? 2,
     };
   }
 
   layout(text = BETTERCODE): LogoLayout {
     const normalized = text.trim().toUpperCase();
-    if (!normalized || [...normalized].some(character => !PIXEL_GLYPHS[character])) {
+    if (!normalized) {
       throw new Error(`不支持的 Logo 文字: ${text}`);
     }
 
+    if (this.options.unicode && normalized === BETTERCODE) {
+      const contentWidth = Math.max(...BETTERCODE_LOGO_TEMPLATE.map(displayWidth));
+      if (contentWidth <= this.options.width) {
+        const centerOffset = this.options.center
+          ? Math.max(0, Math.floor((this.options.width - contentWidth) / 2))
+          : 0;
+        return {
+          lines: BETTERCODE_LOGO_TEMPLATE.map(line => (
+            this.options.center ? `${' '.repeat(centerOffset)}${line}` : line
+          )),
+          joins: [],
+          contentWidth,
+        };
+      }
+    }
+
     const characters = [...normalized];
-    const logicalWidth = GLYPH_WIDTH + (characters.length - 1) * GLYPH_STEP;
-    const rawWidth = logicalWidth * this.options.scaleX;
+    if (characters.some(character => !PIXEL_GLYPHS[character])) {
+      throw new Error(`不支持的 Logo 文字: ${text}`);
+    }
+    return this.compactLayout(characters);
+  }
+
+  private compactLayout(characters: readonly string[]): LogoLayout {
+    const rawWidth = PIXEL_GLYPH_WIDTH + (characters.length - 1) * PIXEL_GLYPH_STEP;
     const pixels = Array.from(
-      { length: GLYPH_HEIGHT },
+      { length: PIXEL_GLYPH_HEIGHT },
       () => Array.from({ length: rawWidth }, () => false),
     );
     characters.forEach((character, characterIndex) => {
       PIXEL_GLYPHS[character].forEach((row, rowIndex) => {
         [...row].forEach((pixel, pixelIndex) => {
-          if (pixel !== '1') return;
-          const start = (characterIndex * GLYPH_STEP + pixelIndex) * this.options.scaleX;
-          for (let offset = 0; offset < this.options.scaleX; offset += 1) {
-            pixels[rowIndex][start + offset] = true;
-          }
+          if (pixel === '1') pixels[rowIndex][characterIndex * PIXEL_GLYPH_STEP + pixelIndex] = true;
         });
       });
     });
-    const joins = characters.slice(0, -1).map((_, index) => {
-      const row = normalized === BETTERCODE
-        ? BETTERCODE_JOIN_ROWS[index]
-        : (index * 2 + 3) % GLYPH_HEIGHT;
-      const leftColumn = (index + 1) * GLYPH_STEP * this.options.scaleX;
-      const rightColumn = leftColumn + this.options.scaleX - 1;
-      const leftPixel = PIXEL_GLYPHS[characters[index]][row].lastIndexOf('1');
-      const rightPixel = PIXEL_GLYPHS[characters[index + 1]][row].indexOf('1');
-      if (leftPixel < 0 || rightPixel < 0) {
-        throw new Error(`无法连接 Logo 字符边界: ${index}`);
-      }
-      const leftStroke = (index * GLYPH_STEP + leftPixel + 1) * this.options.scaleX - 1;
-      const rightStroke = ((index + 1) * GLYPH_STEP + rightPixel) * this.options.scaleX;
-      const bridgeStart = Math.min(leftStroke, rightStroke);
-      const bridgeEnd = Math.max(leftStroke, rightStroke);
-      for (let column = bridgeStart; column <= bridgeEnd; column += 1) pixels[row][column] = true;
-      return { row, leftColumn, rightColumn };
-    });
-
-    const isFilled = (row: number, column: number): boolean => pixels[row]?.[column] ?? false;
-    const sharedColumns = new Map<number, string>();
-    joins.forEach(({ leftColumn, rightColumn }) => {
-      sharedColumns.set(leftColumn, this.options.unicode ? '▒' : '#');
-      sharedColumns.set(rightColumn, this.options.unicode ? '░' : '#');
-    });
-
-    const rawLines = pixels.map((row, rowIndex) => row.map((filled, columnIndex) => {
-      if (!filled) return ' ';
-      if (!this.options.unicode) return '#';
-      const sharedEdge = sharedColumns.get(columnIndex);
-      if (sharedEdge) return sharedEdge;
-      const topExposed = !isFilled(rowIndex - 1, columnIndex);
-      const bottomExposed = !isFilled(rowIndex + 1, columnIndex);
-      const rightExposed = !isFilled(rowIndex, columnIndex + 1);
-      if (topExposed) return '▓';
-      if (bottomExposed) return '▒';
-      if (rightExposed) return '░';
-      return '█';
-    }).join('').trimEnd()).map((line, rowIndex) => {
-      if (!this.options.unicode || (rowIndex !== 0 && rowIndex !== GLYPH_HEIGHT - 1)) return line;
-      const characters = [...line];
-      const first = characters.findIndex(character => character !== ' ');
-      let last = characters.length - 1;
-      while (last >= 0 && characters[last] === ' ') last -= 1;
-      if (first >= 0) characters[first] = rowIndex === 0 ? '╭' : '╰';
-      if (last >= 0) characters[last] = rowIndex === 0 ? '╮' : '╯';
-      return characters.join('');
-    });
-
+    const block = this.options.unicode ? '█' : '#';
+    const rawLines = pixels.map(row => row.map(filled => (filled ? block : ' ')).join('').trimEnd());
     const contentWidth = Math.max(...rawLines.map(displayWidth));
-    const lines = this.options.center
-      ? rawLines.map(line => `${' '.repeat(Math.max(0, Math.floor((this.options.width - displayWidth(line)) / 2)))}${line}`)
-      : rawLines;
     const centerOffset = this.options.center
       ? Math.max(0, Math.floor((this.options.width - contentWidth) / 2))
       : 0;
     return {
-      lines,
-      joins: joins.map(join => ({
-        ...join,
-        leftColumn: join.leftColumn + centerOffset,
-        rightColumn: join.rightColumn + centerOffset,
-      })),
+      lines: rawLines.map(line => (this.options.center ? `${' '.repeat(centerOffset)}${line}` : line)),
+      joins: [],
       contentWidth,
     };
   }
@@ -206,13 +175,6 @@ export class LogoRenderer {
   }
 }
 
-export const BETTERCODE_LOGO_TEMPLATE = new LogoRenderer({
-  center: false,
-  animation: false,
-  unicode: true,
-  scaleX: 2,
-}).render(BETTERCODE);
-
 export interface PixelLogoProps {
   capabilities: TerminalCapabilities;
   text?: string;
@@ -231,15 +193,13 @@ export function PixelLogo({
   onAnimationComplete,
 }: PixelLogoProps) {
   const availableWidth = Math.max(20, capabilities.columns - 2);
-  const scaleX = capabilities.unicode && availableWidth >= 100 ? 2 : 1;
   const renderer = useMemo(() => new LogoRenderer({
     width: availableWidth,
     center,
     animation,
     animationDuration,
     unicode: capabilities.unicode,
-    scaleX,
-  }), [animation, animationDuration, availableWidth, capabilities.unicode, center, scaleX]);
+  }), [animation, animationDuration, availableWidth, capabilities.unicode, center]);
   const frames = useMemo(() => renderer.animationFrames(text), [renderer, text]);
   const [frameIndex, setFrameIndex] = useState(animation && frames.length > 1 ? 0 : frames.length - 1);
   const completionNotified = useRef(false);

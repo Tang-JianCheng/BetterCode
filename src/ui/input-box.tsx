@@ -3,7 +3,14 @@ import { Box, Text } from 'ink';
 import { useInput } from 'ink';
 import type { CommandCompletion } from '../command/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
-import { detectTerminalCapabilities, displayWidth, padDisplay, truncateDisplay, truncateStart } from './capabilities.js';
+import {
+  detectTerminalCapabilities,
+  displayWidth,
+  padDisplay,
+  terminalSafeText,
+  truncateDisplay,
+  truncateStart,
+} from './capabilities.js';
 import { BETTERCODE_THEME } from './theme.js';
 
 interface Props {
@@ -218,6 +225,7 @@ export function InputBox({
   );
   const cursorChar = capabilities.unicode ? '█' : '_';
   const showCursor = !disabled && focused;
+  const appleTerminal = capabilities.appleTerminal === true;
   return (
     <Box flexDirection="column">
       <Text color={capabilities.color ? BETTERCODE_THEME.border : undefined}>
@@ -227,7 +235,7 @@ export function InputBox({
         <Text bold color={capabilities.color ? BETTERCODE_THEME.accent : undefined}>
           {capabilities.unicode ? '❯' : '>'}{' '}
         </Text>
-        <Text dimColor={disabled}>{disabled ? '等待当前操作完成…' : input}</Text>
+        <Text dimColor={disabled}>{disabled ? '等待当前操作完成…' : terminalSafeText(input, appleTerminal)}</Text>
         {showCursor ? (
           <Text bold color={capabilities.color ? BETTERCODE_THEME.accent : undefined}>
             {cursorChar}
@@ -239,16 +247,18 @@ export function InputBox({
       </Text>
       {visibleCompletionItems.map((item, index) => {
         const selected = completionIndex - pageStart === index;
+        const label = terminalSafeText(item.label, appleTerminal);
+        const descriptionSource = terminalSafeText(item.description, appleTerminal);
         // 聚焦行让描述在右侧原地展开；超长时保留右缘并从左侧截断，避免挤掉命令名。
         const description = selected
-          ? truncateStart(item.description, descriptionColumnWidth, ellipsis)
-          : truncateDisplay(item.description, descriptionColumnWidth, ellipsis);
+          ? truncateStart(descriptionSource, descriptionColumnWidth, ellipsis)
+          : truncateDisplay(descriptionSource, descriptionColumnWidth, ellipsis);
         const paddedDescription = `${' '.repeat(
           Math.max(0, descriptionColumnWidth - displayWidth(description)),
         )}${description}`;
         const rowText = [
           selected ? marker : '  ',
-          padDisplay(item.label, labelColumnWidth, ellipsis),
+          padDisplay(label, labelColumnWidth, ellipsis),
           ' '.repeat(commandGap),
           paddedDescription,
         ].join('');

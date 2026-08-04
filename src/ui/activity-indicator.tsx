@@ -42,7 +42,8 @@ export function ActivityIndicator({ activity, capabilities }: ActivityIndicatorP
   const [frameIndex, setFrameIndex] = useState(0);
   useEffect(() => {
     if (!capabilities.motion) return undefined;
-    const timer = setInterval(() => setFrameIndex(index => index + 1), 100);
+    // 降低动画重绘频率，避免长等待期间对终端持续高刷。
+    const timer = setInterval(() => setFrameIndex(index => index + 1), 250);
     return () => clearInterval(timer);
   }, [capabilities.motion]);
 

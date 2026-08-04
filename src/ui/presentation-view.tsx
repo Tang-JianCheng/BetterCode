@@ -7,6 +7,7 @@ import type {
   PresentationItem,
 } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
+import { terminalSafeText } from './capabilities.js';
 import { MarkdownView } from './markdown-view.js';
 import { MascotMark } from './mascot.js';
 import { BETTERCODE_THEME, TONE_LABELS, toneColor } from './theme.js';
@@ -18,6 +19,7 @@ function ConversationView({
   item: Extract<PresentationItem, { kind: 'conversation' }>;
   capabilities: TerminalCapabilities;
 }) {
+  const appleTerminal = capabilities.appleTerminal === true;
   if (item.role === 'assistant' && item.markdown) {
     return (
       <Box flexDirection="column" marginBottom={1}>
@@ -33,7 +35,7 @@ function ConversationView({
             {capabilities.unicode ? '┊ ' : ': '}
           </Text>
           <Text dimColor color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-            {item.thinking}
+            {terminalSafeText(item.thinking, appleTerminal)}
           </Text>
         </Box>
       ) : undefined}
@@ -43,7 +45,7 @@ function ConversationView({
             {capabilities.unicode ? '❯ ' : '> '}
           </Text>
         ) : undefined}
-        <Text>{item.content}</Text>
+        <Text>{terminalSafeText(item.content, appleTerminal)}</Text>
       </Box>
     </Box>
   );
@@ -71,13 +73,14 @@ function NoticeView({
   item: NoticePresentation;
   capabilities: TerminalCapabilities;
 }) {
+  const appleTerminal = capabilities.appleTerminal === true;
   const markdown = item.markdown ?? presentationNoticeMarkdown(item);
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
         <MascotMark tone={item.tone} capabilities={capabilities} />
         <Text bold color={capabilities.color ? toneColor(item.tone) : undefined}>
-          {' '}{TONE_LABELS[item.tone]} · {item.title}
+          {' '}{TONE_LABELS[item.tone]} · {terminalSafeText(item.title, appleTerminal)}
         </Text>
       </Box>
       {markdown ? (
