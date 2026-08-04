@@ -232,7 +232,7 @@ Hook 命令与 HTTP 是用户主动安装的本地自动化代码，不经过 Ag
 
 ## cc-switch 适配
 
-BetterCode 可以跟随 cc-switch 桌面版当前激活的 Claude Code 供应商。启动时读取 `~/.claude/settings.json` 的 `env` 块（`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`），转换为 Anthropic Provider；`ANTHROPIC_AUTH_TOKEN` 存在时走 Bearer 认证，否则走 `x-api-key`，`base_url` 已含 `/v1` 时会自动归一化。
+BetterCode 启动时读取 cc-switch 桌面版维护的 `~/.cc-switch/cc-switch.db`（仅 Claude Code 线），把所有 Claude 供应商导入为可用 Provider，当前激活项标为默认；`/model` 可在会话内直接切换这些供应商。数据库或 Node 内置 SQLite 不可用时，回退读取 `~/.claude/settings.json` 的当前激活 `env` 块（`ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` / `ANTHROPIC_MODEL`）。`ANTHROPIC_AUTH_TOKEN` 存在时走 Bearer 认证，否则走 `x-api-key`，`base_url` 已含 `/v1` 时会自动归一化。
 
 在 `config.yaml` 启用：
 
@@ -240,13 +240,14 @@ BetterCode 可以跟随 cc-switch 桌面版当前激活的 Claude Code 供应商
 cc_switch:
   enabled: true
   claude:
+    # name 只在数据库不可用的回退路径生效，正常时展示 cc-switch 原名
     name: cc-switch.claude
     model: claude-sonnet-5-20251001
     thinking: false
     context_window: 200000
 ```
 
-供应商选择优先级：`--provider` 命令行 > cc-switch 导入的默认供应商 > `config.yaml` 原 `default: true` > 交互选择。只读取 Claude Code 线，不读取 Codex、Gemini 等其他 cc-switch 来源，也不写回 cc-switch 文件。文件缺失、解析失败或 key/model 缺失时启动不崩溃，会在界面显示诊断并回退到原配置；诊断不会包含 API key。cc-switch 中切换供应商后需要重启 BetterCode 生效。
+供应商选择优先级：`--provider` 命令行 > cc-switch 当前激活的默认供应商 > `config.yaml` 原 `default: true` > 交互选择。只读取 Claude Code 线，不读取 Codex、Gemini 等其他 cc-switch 来源，也不写回 cc-switch 文件。文件缺失、解析失败或 key/model 缺失时启动不崩溃，会在界面显示诊断并回退到原配置；诊断不会包含 API key。cc-switch 中新增或删除供应商后需要重启 BetterCode 生效，已导入的供应商可随时用 `/model` 切换。
 
 ## 记忆系统
 

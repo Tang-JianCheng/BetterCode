@@ -6,6 +6,8 @@
 
 - [x] `cc_switch` 配置块可解析，非法字段与非法类型报错（验证：`pnpm test src/config/loader.test.ts`）
 - [x] Claude 线读取 `~/.claude/settings.json` 生成 Anthropic Provider（验证：claude 专项测试）
+- [x] Claude 线优先读取 `~/.cc-switch/cc-switch.db` 的全部供应商，数据库不可用时回退 settings.json（验证：database/loader 专项测试）
+- [x] 同名供应商自动去重，名称唯一且可读（验证：loader 专项测试）
 - [x] 文件缺失、key 缺失、model 缺失都产生诊断且不崩溃（验证：loader 专项测试）
 - [x] Codex 等其它 cc-switch 来源完全不读取（验证：无相关依赖与读取代码，专项测试覆盖）
 
@@ -13,6 +15,7 @@
 
 - [x] `cc_switch.enabled: true` 且文件可用时，启动使用导入供应商，`/status` 展示导入 base_url 与模型（验证：集成测试 + 手工 `/status`）
 - [x] `--provider cc-switch.claude` 可显式选择 Claude 线（验证：集成测试）
+- [x] 数据库导入后 `/model` 面板列出全部 cc-switch 供应商，当前激活项标为默认（验证：应用集成测试）
 - [x] 导入失败时回退到 config.yaml 原 default provider（验证：集成测试）
 
 ## Anthropic 兼容
@@ -32,3 +35,4 @@
 - [ ] 场景 1：cc-switch 中激活一个 Claude 供应商 → 重启 BetterCode → 自动使用该供应商，`/status` 显示对应 base_url 与模型
 - [ ] 场景 2：`~/.claude/settings.json` 缺失或 key 缺失 → BetterCode 正常启动，显示诊断并回退 config.yaml 默认供应商
 - [ ] 场景 3：`--provider deepseek-v4` 显式指定时，即使 cc-switch 已启用也使用指定供应商
+- [ ] 场景 4：cc-switch 中配置多个 Claude 供应商 → 重启 BetterCode → `/model` 可见全部并可切换，当前激活项带标记

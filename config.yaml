@@ -28,10 +28,8 @@ worktrees:
   retention_days: 7
   cleanup_interval_ms: 3600000
 
-# cc-switch 桌面版适配：启用后自动读取 ~/.claude/settings.json 的 env 块，
-# 把当前激活的 Claude 供应商导入为默认 Provider。改动后需重启 BetterCode。
-# model 不填时跟随 cc-switch 写入的 ANTHROPIC_MODEL。
+# cc-switch 桌面版适配：启用后读取 ~/.cc-switch/cc-switch.db 的 Claude 线，
+# 把全部 Claude 供应商导入可用 Provider，当前激活项作为默认。改动后需重启 BetterCode。
+# 数据库不可用时回退读取 ~/.claude/settings.json 的当前激活 env。
 cc_switch:
   enabled: true
-  claude:
-    name: cc-switch.claude

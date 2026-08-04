@@ -5,8 +5,9 @@
 新增 `src/cc-switch/` 模块，作为 BetterCode 配置层的可选外部供应商来源。`bootstrap/application.ts` 在 `loadConfig()` 之后、`resolveProvider()` 之前调用 cc-switch 加载器，把导入成功的 Provider 合并进 `appConfig.providers`，并把结构化诊断传给 UI 展示。
 
 - `types.ts`：`CcSwitchConfig`、诊断与导入结果类型。
-- `claude.ts`：读取 `~/.claude/settings.json`，构建 Anthropic Provider。
-- `loader.ts`：统一入口，负责导入 Provider、标记默认、生成诊断。
+- `claude.ts`：读取 `~/.claude/settings.json` 或复用 env 块，构建 Anthropic Provider。
+- `database.ts`：用 Node 内置 SQLite 读取 `~/.cc-switch/cc-switch.db` 的全部 Claude 供应商。
+- `loader.ts`：统一入口，优先数据库导入、回退 settings.json，负责导入 Provider、标记默认、生成诊断。
 - `config/loader.ts`：解析并校验 `cc_switch` 配置块。
 - `provider/anthropic.ts`：新增 Bearer 认证与 `/v1` 归一化。
 - `ui/app.tsx`：新增 cc-switch 启动诊断展示。
@@ -52,27 +53,36 @@ interface CcSwitchImportResult {
 
 ### claude.ts
 
-**职责：** 读取 Claude Code 的 cc-switch 配置并生成 Anthropic Provider。
+**职责：** 把 cc-switch 的 env 块转换成 Anthropic Provider。
 
-**读取内容：**
+**输入：**
 
-- 路径：`<userHome>/.claude/settings.json`
 - `env.ANTHROPIC_BASE_URL`：缺省 `https://api.anthropic.com`
 - `env.ANTHROPIC_API_KEY` 或 `env.ANTHROPIC_AUTH_TOKEN`：二者至少一个，否则诊断并跳过
 - `env.ANTHROPIC_MODEL`：存在则作为模型；否则使用 `cc_switch.claude.model`；两者都没有则诊断并跳过
 - 认证方式：`ANTHROPIC_AUTH_TOKEN` 存在时 `authMode: 'bearer'`，否则 `'api-key'`
 - `context_window` 与 `thinking` 来自配置覆盖或默认值
 
-**Provider 命名：** 默认 `cc-switch.claude`，与现有 providers 冲突时诊断并跳过。
+`readClaudeProvider` 读取 `<userHome>/.claude/settings.json` 后复用同一转换；`buildClaudeProviderFromEnv` 供数据库路径按行调用。
+
+### database.ts
+
+**职责：** 读取 cc-switch 桌面版 SQLite 数据库。
+
+- 路径：`<userHome>/.cc-switch/cc-switch.db`
+- 查询 `app_type = 'claude'` 的 providers 行，解析 `settings_config.env`
+- env 值支持 `${VAR}` 展开；`is_current` 与 `~/.cc-switch/settings.json` 的 `currentProviderClaude` 用于确定当前激活项
+- 数据库缺失、Node 不支持 SQLite 或表结构异常时返回空列表，不抛异常
 
 ### loader.ts
 
-**职责：** 单来源导入与默认标记。
+**职责：** 多供应商导入与默认标记。
 
 1. `cc_switch` 未配置或 `enabled: false` 时直接返回空结果。
-2. 读取 Claude 线，收集 Provider 与诊断。
-3. 导入成功时把 Provider 合并进 providers，并标记为 `default: true`。
-4. 返回 `provider` 与 `diagnostics`。
+2. 优先读取 `database.ts`；有可用供应商时逐行构建 Provider，按 cc-switch 原名去重命名。
+3. 当前激活项标记 `default: true`，其余导入项保持非默认；导入前清空原 config.yaml 默认标记。
+4. 数据库不可用或没有任何可用供应商时，回退读取 `~/.claude/settings.json` 的单供应商路径。
+5. 返回当前激活 Provider 与诊断。
 
 ### config/loader.ts
 
@@ -96,10 +106,10 @@ interface CcSwitchImportResult {
 ```
 createApplication()
   → loadConfig()                     // 解析 config.yaml，含 cc_switch
-  → loadCcSwitchProviders(config)    // 读 ~/.claude/settings.json，产 Provider + 诊断
-  → appConfig.providers.push(imported)
-  → 标记 imported.default = true
-  → resolveProvider(appConfig, providerName)   // --provider > imported > 原 default
+  → loadCcSwitchProviders(config)    // 读 cc-switch.db 全部 Claude 供应商，回退 settings.json
+  → appConfig.providers.push(...imported)
+  → 标记 current.active.default = true
+  → resolveProvider(appConfig, providerName)   // --provider > cc-switch 当前激活 > 原 default
   → createProvider(selected)
   → App(ccSwitchStatus=diagnostics)
 ```
@@ -110,6 +120,7 @@ createApplication()
 src/cc-switch/
 ├── types.ts
 ├── claude.ts
+├── database.ts
 └── loader.ts
 src/config/types.ts      — AppConfig.cc_switch
 src/config/loader.ts     — 解析校验 cc_switch
@@ -127,8 +138,9 @@ docs/cc-switch/*.md      — 本四份文档
 | 决策点 | 选择 | 理由 |
 |--------|------|------|
 | 读取来源 | 仅 Claude 线 | 用户确认只适配 Claude，避免双线选择歧义 |
-| 配置格式 | 不新增解析依赖 | settings.json 是标准 JSON，避免引入 TOML 解析器 |
-| 命名冲突 | 诊断并跳过 | 避免 provider 名重复导致启动校验失败 |
+| 主数据源 | `~/.cc-switch/cc-switch.db` | cc-switch 全部供应商的权威存储；Node 内置 SQLite，不新增依赖 |
+| 回退路径 | `~/.claude/settings.json` env 块 | 数据库缺失或不可用时仍可跟随当前激活供应商 |
+| 命名冲突 | 按 cc-switch 原名去重 | 同名供应商追加短 ID，保证 `/model` 可区分且不重复 |
 | 失败策略 | fail-open | 外部工具文件不可用不影响 BetterCode 正常启动 |
 | 认证优先级 | AUTH_TOKEN 存在用 Bearer，否则 x-api-key | 与 Claude Code 实际读取顺序一致 |
 

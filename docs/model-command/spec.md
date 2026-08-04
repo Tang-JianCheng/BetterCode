@@ -4,6 +4,8 @@
 
 BetterCode 的 Provider 目前只在启动时确定，运行中想换模型只能退出重启或改 `config.yaml`。`/session` 已经验证了动态交互选择器的体验，`/model` 复用同一套交互模式，让用户在会话内直接切换模型。
 
+面板来源为启动时合并完成的 `appConfig.providers`，包含 `config.yaml` 配置与 cc-switch 数据库导入的全部 Claude 供应商，因此 `/model` 会跟随 cc-switch 的供应商列表。
+
 ## 目标
 
 - F1：输入 `/model` 打开动态选择面板，列出所有可用 Provider（名称、模型、base_url）。

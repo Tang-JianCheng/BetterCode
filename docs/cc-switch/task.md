@@ -6,7 +6,9 @@
 |------|------|------|
 | 新建 | `src/cc-switch/types.ts` | 配置、诊断、导入结果类型 |
 | 新建 | `src/cc-switch/claude.ts` | Claude 线读取 |
+| 新建 | `src/cc-switch/database.ts` | cc-switch SQLite 数据库读取 |
 | 新建 | `src/cc-switch/loader.ts` | 统一入口与默认标记 |
+| 新建 | `src/cc-switch/database.test.ts` | 数据库读取专项测试 |
 | 修改 | `src/config/types.ts` | `AppConfig.cc_switch` 与 `authMode` |
 | 修改 | `src/config/loader.ts` | 解析校验 `cc_switch` |
 | 修改 | `src/provider/anthropic.ts` | Bearer 认证与 `/v1` 归一化 |
@@ -90,10 +92,34 @@
 
 **验证：** 文档 diff 无遗留 TODO；`pnpm check` 与 `git diff --check` 通过。
 
+## T7: 全部 Claude 供应商导入
+
+**文件：** `src/cc-switch/database.ts`、`src/cc-switch/claude.ts`、`src/cc-switch/loader.ts`
+**依赖：** T2、T3
+
+1. 新增 `readClaudeProviderRows`：用 Node 内置 SQLite 读取 `~/.cc-switch/cc-switch.db` 的 `app_type='claude'` 供应商，解析 `settings_config.env` 并展开 `${VAR}`。
+2. `claude.ts` 抽出 `buildClaudeProviderFromEnv`，settings.json 与数据库路径共用同一转换。
+3. `loader.ts` 优先数据库导入全部 Claude 供应商，当前激活项（`currentProviderClaude` / `is_current`）标为默认，同名供应商自动去重。
+4. 数据库不可用或没有可用供应商时回退原 settings.json 单供应商路径。
+5. 补充测试：数据库行解析、缺失回退、多供应商导入、同名去重、应用集成。
+
+**验证：** `pnpm test src/cc-switch/database.test.ts src/cc-switch/loader.test.ts src/bootstrap/application.test.ts` 通过。
+
+## T8: 数据库导入文档收尾
+
+**文件：** `config.yaml`、`README.md`、`docs/cc-switch/*.md`
+**依赖：** T7
+
+1. `config.yaml` 注释改为数据库导入说明，移除只在回退路径生效的 `name` 示例。
+2. README 更新读取来源、`/model` 切换与重启生效说明。
+3. spec/plan/task/checklist 按增量方式补充数据库导入内容。
+
+**验证：** `pnpm check` 与 `git diff --check` 通过。
+
 ## 执行顺序
 
 ```
-T1 → T2 → T3 → T4 → T5 → T6
+T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8
 ```
 
 ## 完成状态
@@ -104,3 +130,5 @@ T1 → T2 → T3 → T4 → T5 → T6
 - T4 Anthropic Provider 认证与归一化：已完成，Bearer / x-api-key / `/v1` 测试覆盖。
 - T5 应用集成与 UI 诊断：已完成，`createApplication` 集成测试与启动 Notice 渲染测试。
 - T6 配置示例与文档收尾：已完成，`config.yaml` 注释示例、README 章节与本套文档。
+- T7 全部 Claude 供应商导入：已完成，`database.ts` 读取 cc-switch.db，loader 优先导入全部并回退 settings.json。
+- T8 数据库导入文档收尾：已完成，config.yaml、README 与本套文档按增量补充。

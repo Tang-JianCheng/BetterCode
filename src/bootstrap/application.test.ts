@@ -14,6 +14,13 @@ import {
   resolveWorkerProvider,
 } from './application.js';
 
+let DatabaseSync: typeof import('node:sqlite').DatabaseSync | undefined;
+try {
+  ({ DatabaseSync } = await import('node:sqlite'));
+} catch {
+  DatabaseSync = undefined;
+}
+
 test('启动参数区分普通模式与隐藏 Worker 模式', () => {
   assert.deepEqual(parseApplicationArguments([]), {
     configPath: './config.yaml',
@@ -147,6 +154,79 @@ cc_switch:
   });
   assert.equal(application.provider.name, 'deepseek-v4');
   assert.ok(application.ccSwitchStatus.length > 0);
+  await application.close();
+});
+
+test('createApplication 从 cc-switch 数据库导入全部 Claude 供应商', async t => {
+  if (!DatabaseSync) return t.skip('node:sqlite 不可用');
+  const root = mkdtempSync(path.join(tmpdir(), 'bettercode-app-root-'));
+  const home = mkdtempSync(path.join(tmpdir(), 'bettercode-app-home-'));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(home, { recursive: true, force: true });
+  });
+  mkdirSync(path.join(home, '.cc-switch'), { recursive: true });
+  const db = new DatabaseSync(path.join(home, '.cc-switch', 'cc-switch.db'));
+  db.exec(`CREATE TABLE providers (
+    id TEXT NOT NULL,
+    app_type TEXT NOT NULL,
+    name TEXT NOT NULL,
+    settings_config TEXT NOT NULL,
+    is_current BOOLEAN NOT NULL DEFAULT 0,
+    sort_index INTEGER,
+    created_at INTEGER
+  )`);
+  const insert = db.prepare(
+    `INSERT INTO providers (id, app_type, name, settings_config, is_current, sort_index, created_at)
+     VALUES (?, 'claude', ?, ?, ?, ?, ?)`,
+  );
+  insert.run(
+    'p1-11111111',
+    'DeepSeek',
+    JSON.stringify({ env: { ANTHROPIC_API_KEY: 'sk-a', ANTHROPIC_MODEL: 'deepseek-chat' } }),
+    0,
+    0,
+    Date.now(),
+  );
+  insert.run(
+    'p2-22222222',
+    'PackyCode-Deepseek',
+    JSON.stringify({
+      env: {
+        ANTHROPIC_AUTH_TOKEN: 'tok-b',
+        ANTHROPIC_BASE_URL: 'https://gateway.example',
+        ANTHROPIC_MODEL: 'claude-sonnet',
+      },
+    }),
+    1,
+    1,
+    Date.now(),
+  );
+  db.close();
+
+  writeFileSync(path.join(root, 'config.yaml'), `providers:
+  - name: deepseek-v4
+    protocol: openai
+    model: deepseek-v4-flash
+    base_url: https://api.deepseek.com
+    api_key: sk-local
+    default: true
+cc_switch:
+  enabled: true
+`);
+  const application = await createApplication({
+    configPath: 'config.yaml',
+    permissionMode: 'default',
+    rootDir: root,
+    userHome: home,
+  });
+  assert.equal(application.provider.name, 'PackyCode-Deepseek');
+  assert.deepEqual(application.providers.map(item => item.name), [
+    'deepseek-v4',
+    'DeepSeek',
+    'PackyCode-Deepseek',
+  ]);
+  assert.equal(application.providers.some(item => Object.hasOwn(item, 'api_key')), false);
   await application.close();
 });
 
