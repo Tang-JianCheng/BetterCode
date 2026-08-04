@@ -182,6 +182,14 @@ export function resolveWorkerProvider(config: AppConfig, requestedName?: string)
   throw new Error('Worker 模式不能交互选择 Provider，请在配置中设置唯一 default Provider');
 }
 
+function createProviderForConfig(config: ProviderConfig): LLMProvider {
+  const tierContextWindow = config.model_tiers?.[config.active_tier ?? 'sonnet']?.context_window;
+  return createProvider({
+    ...config,
+    ...(tierContextWindow === undefined ? {} : { context_window: tierContextWindow }),
+  });
+}
+
 export function registerTeamDispatchTools(registry: ToolRegistry, handler: TeamToolHandler): void {
   for (const tool of createTeamTools(handler)) registry.register(tool);
 }
@@ -211,7 +219,7 @@ export async function createApplication(options: CreateApplicationOptions): Prom
     const selectedConfig = workerDescriptor
       ? resolveWorkerProvider(appConfig, options.providerName)
       : await resolveProvider(appConfig, options.providerName);
-    const provider = createProvider(selectedConfig);
+    const provider = createProviderForConfig(selectedConfig);
     const providerCache = new Map<string, LLMProvider>([[selectedConfig.name, provider]]);
     let activeProvider: LLMProvider = provider;
     let activeTier: ClaudeModelTier | undefined = selectedConfig.active_tier;
@@ -222,7 +230,7 @@ export async function createApplication(options: CreateApplicationOptions): Prom
         if (cached) return cached;
         const config = appConfig.providers.find(item => item.name === name);
         if (!config) throw new Error(`未找到角色指定的 Provider 配置: ${name}`);
-        const created = createProvider(config);
+        const created = createProviderForConfig(config);
         providerCache.set(name, created);
         return created;
       },

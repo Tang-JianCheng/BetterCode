@@ -228,6 +228,8 @@ cc_switch:
     userHome: home,
   });
   assert.equal(application.provider.name, 'PackyCode-Deepseek');
+  assert.equal(application.provider.contextWindow, 1_000_000);
+  assert.equal(application.provider.contextWindowIsDefault, false);
   assert.deepEqual(application.providers.map(item => item.name), [
     'deepseek-v4',
     'DeepSeek',
@@ -240,6 +242,10 @@ cc_switch:
   const switched = application.switchModelTier('opus');
   assert.equal(switched.model, 'deepseek-v4-flash');
   assert.equal(switched.contextWindow, 1_000_000);
+  const haiku = application.switchModelTier('haiku');
+  assert.equal(haiku.model, 'deepseek-v4-flash');
+  assert.equal(haiku.contextWindow, 128_000);
+  assert.equal(haiku.contextWindowIsDefault, true);
   assert.throws(() => application.switchModelTier('fable'), /未配置/);
   await application.close();
 });

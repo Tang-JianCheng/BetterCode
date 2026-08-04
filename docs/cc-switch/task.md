@@ -149,7 +149,8 @@ T1 → T2 → T3 → T4 → T5 → T6 → T7 → T8 → T9
 1. `ProviderConfig` 增加 `model_tiers`、`active_tier`，`database.ts` 解析 `ANTHROPIC_DEFAULT_*_MODEL` / `_NAME` 与 `[1M]` 上下文标记。
 2. `buildClaudeProviderFromEnv` 接收档位与激活档位并写入 Provider。
 3. `createApplication` 增加 `switchModelTier(tier)`，用档位模型与上下文重建 Provider，未配置档位时报错。
-4. `ModelDialog` 支持档位模式，`/model` 对带档位映射的 Provider 展示 Sonnet/Opus/Fable/Haiku 与上下文窗口。
-5. 补充测试：tier 解析、应用切换、档位面板与 `/model` 全流程。
+4. 初始 Provider 与按名解析使用激活档位（缺省 Sonnet）的 `context_window`，不再出现默认 128K 启动提示。
+5. `ModelDialog` 支持档位模式，`/model` 对带档位映射的 Provider 展示 Sonnet/Opus/Fable/Haiku 与上下文窗口。
+6. 补充测试：tier 解析、应用切换（含无 1M 档位回退默认窗口）、档位面板与 `/model` 全流程。
 
 **验证：** `pnpm test src/cc-switch/database.test.ts src/cc-switch/loader.test.ts src/bootstrap/application.test.ts src/ui/model-dialog.test.ts src/ui/app.test.ts` 通过。

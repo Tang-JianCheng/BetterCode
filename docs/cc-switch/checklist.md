@@ -21,6 +21,7 @@
 - [x] `settings_config.model` 为档位名时正确记录激活档位（验证：database 专项测试）
 - [x] `/model` 对带档位的 cc-switch Provider 展示 Sonnet/Opus/Fable/Haiku 与上下文窗口（验证：model-dialog / app 测试）
 - [x] 档位切换后 `/status` 与后续请求使用新档位模型，未配置档位时报错不崩溃（验证：应用集成测试）
+- [x] 带档位 Provider 启动时按激活档位取上下文窗口，不出现默认 128K 提示（验证：应用集成测试）
 
 ## Anthropic 兼容
 

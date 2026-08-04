@@ -159,6 +159,7 @@ cc-switch 桌面版新版供应商的 `settings_config.env` 会带 `ANTHROPIC_DE
 - `ProviderSummary` 增加 `model_tiers`、`active_tier`（不含密钥）。
 - 新增 `switchModelTier(tier: ClaudeModelTier): LLMProvider`：用 `model_tiers[tier].model` 与 `context_window` 重建 Provider，更新 `active_tier`；档位缺失时报结构化错误。
 - 切换 Provider 时同步更新 `active_tier` 为所选 Provider 的档位。
+- 初始 Provider 与按名解析都按激活档位（缺省 Sonnet）取 `context_window`，避免启动时误报 128K 默认值；档位未标记上下文时仍回退默认窗口。
 
 ### ui/model-dialog.tsx 与 ui/app.tsx 增量
 
