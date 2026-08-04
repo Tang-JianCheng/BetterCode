@@ -103,10 +103,10 @@ interface ContextUsageSnapshot extends ContextUsageBreakdown {
 - `contextGridPrefix` 生成空格分隔的 `⛁/⛶` 格子串并后接 3 个空格；`/context` 整体改为单个 `tree` 块：模型行、总用量行、空格子空行、`*Estimated usage by category*`、六个分类行都带格子前缀。
 - 分类行颜色：System prompt `info`、System tools `success`、MCP tools `warning`、Skills `brand`、Messages `danger`、Free space `muted`；明细行使用与所属分类相同的颜色，`~~xx tokens~~` 弱化保持。
 
-## 增量：占用格子分级着色
+## 增量：占用格子按图例分类着色
 
 - `MarkdownTreeLine` / `PresentationTreeLine` 增加 `prefixSegments`（`{ text, color }[]`），`renderTree` 优先按分段渲染前缀，每段可带独立颜色，前缀宽度按分段文本合计计算；`presentationBlocksToMarkdown` 与 `presentationToPlainText` 同步透传/拼接。
-- `contextGridPrefix` 改为返回分段结果：占用格子按用量分级着色（`<50%` 用 `brand`、`50%-80%` 用 `warning`、`>80%` 用 `danger`），空格子、格子间分隔与尾部缩进统一用 `muted`。
+- `contextGridPrefix` 改为返回分段结果：占用格子按五类 Token 占比分配图例颜色（System prompt `info`、System tools `success`、MCP tools `warning`、Skills `brand`、Messages `danger`），相邻同色格子合并为一段，空格子、格子间分隔与尾部缩进统一用 `muted`。
 - `/context` 所有前缀字段由 `prefix` 字符串切换为 `prefixSegments`，无颜色/ASCII 模式文本内容不变，仅颜色表现增强。
 
 ## 增量：明细区独立列在方格下方
@@ -141,4 +141,4 @@ README.md                     — 命令表
 | 渲染 | 复用命令文档 + text/list block | 保持现有 Markdown 渲染链路 |
 | 分类着色 | `tree` 行级 `color` + `MarkdownColor` 映射 | 不同分类用不同颜色，同时兼容无颜色/ASCII 模式 |
 | 明细位置 | 方格区之外独立 tree 块 | 方格只承载汇总网格，明细按分类重新列出，避免方格行内夹带分支 |
-| 格子颜色 | 前缀分段 `prefixSegments` | 占用格按用量橙/黄/红，空格统一弱化灰，颜色语义直观 |
+| 格子颜色 | 前缀分段 `prefixSegments` | 占用格按右侧图例分类着色，空格统一弱化灰，颜色语义直观 |

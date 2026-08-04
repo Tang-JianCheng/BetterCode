@@ -53,18 +53,46 @@ function contextGridPrefix(
   usedCells: number,
   usedGlyph: string,
   freeGlyph: string,
+  shares: readonly { color: MarkdownColor; tokens: number }[],
 ): readonly { text: string; color?: MarkdownColor }[] {
-  const usedColor = usedCells >= cellCount * 0.8
-    ? 'danger'
-    : usedCells >= cellCount * 0.5 ? 'warning' : 'brand';
-  const used = Array.from({ length: usedCells }, () => usedGlyph).join(' ');
-  const free = Array.from({ length: Math.max(0, cellCount - usedCells) }, () => freeGlyph).join(' ');
-  return [
-    ...(used ? [{ text: used, color: usedColor as MarkdownColor }] : []),
-    ...(used && free ? [{ text: ' ', color: 'muted' as const }] : []),
-    ...(free ? [{ text: free, color: 'muted' as const }] : []),
-    { text: '   ', color: 'muted' as const },
-  ];
+  const usedTokens = shares.reduce((sum, share) => sum + share.tokens, 0);
+  const cellColors: MarkdownColor[] = [];
+  if (usedTokens > 0) {
+    const boundaries = shares.map(share => share.tokens / usedTokens * usedCells);
+    let cumulative = 0;
+    let categoryIndex = 0;
+    for (let index = 0; index < usedCells; index += 1) {
+      while (categoryIndex < shares.length - 1 && index + 1 > cumulative + boundaries[categoryIndex]) {
+        cumulative += boundaries[categoryIndex];
+        categoryIndex += 1;
+      }
+      cellColors.push(shares[categoryIndex].color);
+    }
+  }
+  const segments: { text: string; color?: MarkdownColor }[] = [];
+  let start = 0;
+  while (start < cellColors.length) {
+    const color = cellColors[start];
+    let end = start + 1;
+    while (end < cellColors.length && cellColors[end] === color) end += 1;
+    if (segments.length > 0) segments.push({ text: ' ', color: 'muted' });
+    segments.push({
+      text: Array.from({ length: end - start }, () => usedGlyph).join(' '),
+      color,
+    });
+    start = end;
+  }
+  if (cellColors.length > 0 && usedCells < cellCount) {
+    segments.push({ text: ' ', color: 'muted' });
+  }
+  if (usedCells < cellCount) {
+    segments.push({
+      text: Array.from({ length: cellCount - usedCells }, () => freeGlyph).join(' '),
+      color: 'muted',
+    });
+  }
+  segments.push({ text: '   ', color: 'muted' });
+  return segments;
 }
 
 function formatCompactTokens(value: number): string {
@@ -127,7 +155,20 @@ export function buildContextUsagePresentation(
   ));
   const usedGlyph = options.unicode === false ? '#' : '⛁';
   const freeGlyph = options.unicode === false ? '.' : '⛶';
-  const grid = (filled: number) => contextGridPrefix(cellCount, filled, usedGlyph, freeGlyph);
+  const categoryShares = [
+    { color: 'info' as MarkdownColor, tokens: snapshot.systemPromptTokens },
+    { color: 'success' as MarkdownColor, tokens: snapshot.systemToolsTokens },
+    { color: 'warning' as MarkdownColor, tokens: snapshot.mcpToolsTokens },
+    { color: 'brand' as MarkdownColor, tokens: snapshot.skillsTokens },
+    { color: 'danger' as MarkdownColor, tokens: snapshot.messagesTokens },
+  ];
+  const grid = (filled: number) => contextGridPrefix(
+    cellCount,
+    filled,
+    usedGlyph,
+    freeGlyph,
+    categoryShares,
+  );
   const freeTokens = Math.max(0, snapshot.contextWindow - snapshot.usedTokens);
   const categoryLines: PresentationTreeLine[] = [
     {

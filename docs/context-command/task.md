@@ -31,7 +31,7 @@
 - [x] T7: 增量完成树形展开与 token 数值弱化。
 - [x] T8: 增量完成分类占用网格与分类着色。
 - [x] T9: 增量完成明细区独立列在方格下方。
-- [x] T10: 增量完成占用格子分级着色。
+- [x] T10: 增量完成占用格子按图例分类着色。
 
 ## T1: 上下文估算
 
@@ -116,14 +116,14 @@
 
 **验证：** `pnpm test src/command/presenters.test.ts src/ui/app.test.ts src/markdown/renderer.test.ts`。
 
-## T10: 增量：占用格子分级着色
+## T10: 增量：占用格子按图例分类着色
 
 **文件：** `src/markdown/types.ts`、`src/presentation/types.ts`、`src/presentation/markdown.ts`、`src/markdown/renderer.ts`、`src/command/presenters.ts`、`src/command/presenters.test.ts`、`src/markdown/renderer.test.ts`、`src/presentation/markdown.test.ts`
 
 1. `MarkdownTreeLine` / `PresentationTreeLine` 增加 `prefixSegments`，转换与纯文本展示同步支持。
 2. `renderTree` 按分段渲染前缀并携带每段颜色，前缀宽度按分段合计计算。
-3. `contextGridPrefix` 返回分段：占用格按用量分级 `brand` / `warning` / `danger`，空格与分隔用 `muted`。
-4. `/context` 前缀切换为 `prefixSegments`，测试覆盖颜色与文本输出。
+3. `contextGridPrefix` 返回分段：占用格按五类 Token 占比分配图例颜色（System prompt `info`、System tools `success`、MCP tools `warning`、Skills `brand`、Messages `danger`），相邻同色格子合并为一段，空格与分隔用 `muted`。
+4. `/context` 前缀切换为 `prefixSegments`，测试覆盖各分类颜色顺序与文本输出。
 
 **验证：** `pnpm test src/markdown/renderer.test.ts src/presentation/markdown.test.ts src/command/presenters.test.ts src/ui/markdown-view.test.ts src/ui/app.test.ts`。
 

@@ -116,8 +116,27 @@ test('上下文 presenter 渲染动态格子和分类下嵌套明细', () => {
   assert.ok((byContent(/System tools:/u)?.prefixSegments ?? []).length > 0);
   assert.equal(grid.lines.some(line => line.branch), false);
   const modelLine = byContent(/deepseek-v4-flash/u);
-  assert.ok(modelLine?.prefixSegments?.some(segment => segment.color === 'brand'));
+  assert.ok(modelLine?.prefixSegments?.some(segment =>
+    ['info', 'success', 'warning', 'brand', 'danger'].includes(segment.color ?? '')));
   assert.ok(modelLine?.prefixSegments?.some(segment => segment.color === 'muted'));
+
+  const colored = buildContextUsagePresentation({
+    ...snapshot,
+    systemPromptTokens: 120_000,
+    systemToolsTokens: 120_000,
+    mcpToolsTokens: 120_000,
+    skillsTokens: 120_000,
+    messagesTokens: 120_000,
+    usedTokens: 600_000,
+  }, { unicode: false });
+  const coloredGrid = colored.kind === 'document'
+    ? colored.blocks.find((block): block is Extract<typeof block, { type: 'tree' }> =>
+        block.type === 'tree')
+    : undefined;
+  const coloredCells = coloredGrid?.lines[0].prefixSegments?.filter(segment =>
+    ['info', 'success', 'warning', 'brand', 'danger'].includes(segment.color ?? ''))
+    .map(segment => segment.color) ?? [];
+  assert.deepEqual(coloredCells, ['info', 'success', 'warning', 'brand', 'danger']);
 
   const detailTrees = trees.slice(1);
   assert.ok(detailTrees.every(tree => tree.lines.some(line => line.branch)));

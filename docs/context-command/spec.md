@@ -33,7 +33,7 @@ BetterCode 目前只能通过 `/status` 看到累计 Token 用量，用户无法
 - F16：分类区每行同样带格子前缀，System prompt / System tools / MCP tools / Skills / Messages 使用占用图标 `⛁`，Free space 使用空闲图标 `⛶`（ASCII 模式回退 `#` / `.`）。
 - F17：分类行按类型着色：System prompt 信息蓝、System tools 成功绿、MCP tools 警示黄、Skills 品牌橙、Messages 危险红、Free space 弱化灰，模型与总占用行用正文白。
 - F18：方格区只保留分类汇总行，不再夹带树状明细。
-- F22：占用格子按用量分级着色：占用不足 50% 用品牌橙 `brand`、50%-80% 用警示黄 `warning`、超过 80% 用危险红 `danger`；空格子与格子间分隔统一用弱化灰 `muted`。
+- F22：占用格子按右侧图例分类着色：占用格按五类 Token 占比分配图例颜色（System prompt `info`、System tools `success`、MCP tools `warning`、Skills `brand`、Messages `danger`），相邻同色格子合并成段；空格子与格子间分隔统一用弱化灰 `muted`。
 
 ## 增量：明细区独立列在方格下方
 
@@ -69,4 +69,4 @@ BetterCode 目前只能通过 `/status` 看到累计 Token 用量，用户无法
 - AC10：各分类行带格子前缀并按类型着色，树形明细行颜色与所属分类一致。
 - AC11：方格区没有任何 `├` 分支行，明细区在 Free space 行之后按分类独立列出。
 - AC12：明细小节先显示粗体标题（如 `**MCP tools**`）再显示 `├` 明细，`xx tokens` 数值保持淡色。
-- AC13：占用格子与空格子颜色可区分，用量从低到高呈现橙 → 黄 → 红的变化。
+- AC13：占用格子颜色与右侧图例分类一致，空格子与格子间分隔统一弱化灰，占用与空闲可区分。
