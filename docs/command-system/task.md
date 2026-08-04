@@ -132,3 +132,20 @@ T1 -> T2 -> T3 -> T4 -> T5
                   \-> T6
 T5 + T6 -> T7 -> T8 -> T9
 ```
+
+## T10：/session 交互选择器与会话摘要
+
+**文件：** `src/session/session.ts`、`src/session/summarizer.ts`、`src/chat/manager.ts`、`src/command/presenters.ts`、`src/ui/session-dialog.tsx`、`src/ui/app.tsx` 及对应测试、`docs/command-system/spec.md`、`docs/command-system/plan.md`、`docs/command-system/task.md`、`docs/command-system/checklist.md`
+
+**依赖：** T9
+
+**步骤：**
+
+1. `session.ts` 增加 `session_summary` 记录类型、`saveSessionSummary` 替换写入与 `deleteSession`；`SessionInfo` 的 `firstMessage` 改为 `summary`。
+2. 新增 `SessionSummarizer`，用流式 LLM 调用生成一句中文摘要，禁止工具且失败静默。
+3. `ChatManager` 在自然完成与独立 Skill 结束时延迟调度摘要，增加 `deleteSession` 并拒绝删除当前会话。
+4. `buildSessionPresentation` 改为摘要列；App 的无参数 `/session` 打开新的 `SessionDialog`。
+5. `SessionDialog` 支持方向键、Enter、Esc、Delete/Backspace、翻页与当前会话标记。
+6. 更新 session、manager、dialog 与 App 集成测试，运行全量检查。
+
+**验证：** `pnpm check`、`git diff --check` 与选择器手工验收（恢复、退出、删除、摘要展示）。

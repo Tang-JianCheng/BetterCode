@@ -412,3 +412,23 @@
 - 专项：能力检测、Markdown、对话、输入框与交互面板安全渲染测试通过。
 - 全量：`pnpm check` 退出码 0，全量测试通过；`git diff --check` 通过。
 - 手工：真实 Apple Terminal 中连续多轮回复不再关闭终端；Apple Terminal 之外的环境显示无变化。
+
+## 增量：Apple Terminal 再次加固
+
+- [x] **C91：长文本硬换行**
+  流式文本、纯文本对话、用户消息与 thinking 按显示宽度硬换行，任意长度内容不会在终端里形成超长单行。（验证：`wrapDisplay` 边界测试与 PresentationView/MarkdownView 越界测试；覆盖 AC39）
+
+- [x] **C92：破折号族全替换**
+  Apple Terminal 下 U+2014/U+2015/U+2E3A/U+2E3B 输出 `--`，U+2012/U+2013/U+2212/U+FE58/U+FE63 输出 `-`；普通终端保持原文。（验证：能力测试；覆盖 AC40）
+
+- [x] **C93：Apple Terminal 低重绘**
+  Apple Terminal 下流式合帧间隔为 120ms、活动动画为 500ms，其他终端维持 60ms / 250ms。（验证：App 与 ActivityIndicator 实现及回归测试；覆盖 AC41）
+
+- [x] **C94：会话数据不受显示加固影响**
+  硬换行与字符替换只作用于显示层，会话 JSONL、消息内容与 Markdown AST 保持原始数据。（验证：既有数据保真测试与全量回归）
+
+**验收记录：**
+
+- 专项：`wrapDisplay`、破折号族替换、长文本与长 thinking 越界测试通过。
+- 全量：`pnpm check` 退出码 0，全量 498 项测试通过；`git diff --check` 通过。
+- 手工：真实 Apple Terminal 复跑流式长回复与 `/session` 交互，连续使用未再出现终端进程关闭；其他终端显示无变化。

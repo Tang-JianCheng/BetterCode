@@ -8,11 +8,13 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 
 export const COMPACT_BOUNDARY = 'compact_boundary';
 export const SUBAGENT_RESULT = 'subagent_result';
+export const SESSION_SUMMARY = 'session_summary';
 export const SESSION_EXPIRY_DAYS = 30;
 const SESSION_DIRECTORY = '.bettercode/sessions';
 const SESSION_ID_PATTERN = /^[a-z0-9]+-[a-f0-9]{8}$/u;
@@ -21,7 +23,7 @@ export interface SessionMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: string;
-  type?: typeof COMPACT_BOUNDARY | typeof SUBAGENT_RESULT;
+  type?: typeof COMPACT_BOUNDARY | typeof SUBAGENT_RESULT | typeof SESSION_SUMMARY;
   toolUseId?: string;
 }
 
@@ -35,9 +37,13 @@ export interface CompactBoundaryPayload {
   keep: KeptMessage[];
 }
 
+export interface SessionSummaryPayload {
+  summary: string;
+}
+
 export interface SessionInfo {
   id: string;
-  firstMessage: string;
+  summary: string;
   messageCount: number;
   size: number;
   modTime: Date;
@@ -104,6 +110,41 @@ export function saveSubAgentResult(
   });
 }
 
+export function saveSessionSummary(
+  workDir: string,
+  sessionId: string,
+  summary: string,
+): void {
+  const content = summary.trim();
+  if (!content) return;
+  const file = getSessionFilePath(workDir, sessionId);
+  const directory = path.dirname(file);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  chmodSync(directory, 0o700);
+  const lines = existsSync(file)
+    ? readFileSync(file, 'utf8').split(/\r?\n/u).filter(Boolean)
+    : [];
+  const remaining = lines.filter(line => {
+    const message = parseMessage(line);
+    return message?.type !== SESSION_SUMMARY;
+  });
+  remaining.push(JSON.stringify({
+    role: 'system',
+    content: JSON.stringify({ summary: content } satisfies SessionSummaryPayload),
+    timestamp: new Date().toISOString(),
+    type: SESSION_SUMMARY,
+  }));
+  writeFileSync(file, `${remaining.join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
+  chmodSync(file, 0o600);
+}
+
+export function deleteSession(workDir: string, sessionId: string): boolean {
+  const file = getSessionFilePath(workDir, sessionId);
+  if (!existsSync(file)) return false;
+  rmSync(file, { force: true });
+  return true;
+}
+
 function parseMessage(line: string): SessionMessage | undefined {
   try {
     const value = JSON.parse(line) as Partial<SessionMessage>;
@@ -111,11 +152,26 @@ function parseMessage(line: string): SessionMessage | undefined {
     if (typeof value.content !== 'string' || value.content.length === 0) return undefined;
     if (typeof value.timestamp !== 'string' || !value.timestamp) return undefined;
     if (value.role === 'system') {
-      if (value.type !== COMPACT_BOUNDARY && value.type !== SUBAGENT_RESULT) return undefined;
+      if (
+        value.type !== COMPACT_BOUNDARY
+        && value.type !== SUBAGENT_RESULT
+        && value.type !== SESSION_SUMMARY
+      ) return undefined;
     } else if (value.type !== undefined) {
       return undefined;
     }
     return value as SessionMessage;
+  } catch {
+    return undefined;
+  }
+}
+
+function parseSessionSummary(message: SessionMessage): string | undefined {
+  if (message.type !== SESSION_SUMMARY) return undefined;
+  try {
+    const value = JSON.parse(message.content) as Partial<SessionSummaryPayload>;
+    const summary = typeof value.summary === 'string' ? value.summary.trim() : '';
+    return summary || undefined;
   } catch {
     return undefined;
   }
@@ -208,11 +264,15 @@ export function listSessions(workDir: string): SessionInfo[] {
           const file = path.join(directory, name);
           const stat = statSync(file);
           const messages = loadSession(workDir, id);
-          const firstMessage = messages.find(message =>
-            message.role === 'user' && message.content.trim())?.content.slice(0, 100) ?? '';
+          const summaryRecord = [...messages].reverse().find(parseSessionSummary);
+          const recentUser = [...messages].reverse().find(message =>
+            message.role === 'user' && message.content.trim())?.content.trim() ?? '';
+          const summary = summaryRecord
+            ? parseSessionSummary(summaryRecord)!
+            : recentUser.slice(0, 100);
           return [{
             id,
-            firstMessage,
+            summary,
             messageCount: messages.length,
             size: stat.size,
             modTime: stat.mtime,

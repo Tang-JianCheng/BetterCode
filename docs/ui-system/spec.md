@@ -294,3 +294,21 @@ macOS 自带 Terminal 的文本视图在流式重绘含 U+2014 破折号的 UTF-
 - AC36：`TERM_PROGRAM=Apple_Terminal` 时所有显示出口的 U+2014/U+2013 均以 ASCII 展示，非 Apple 终端保持原文。
 - AC37：安全替换只影响显示层，会话文件与 Markdown 解析结果保持原始破折号。
 - AC38：后台异步错误只记录日志不退出进程；未捕获异常按固定格式记录后退出，不产生不可诊断的静默消失。
+
+## 增量：Apple Terminal 再次加固
+
+### 变更背景
+
+上一轮破折号替换后，macOS 自带 Terminal 仍在流式长回复与 `/session` 交互期间出现多次进程级崩溃。崩溃报告显示均为 Terminal 自身在 attributed string 绘制/中文输入法事件里的堆内存损坏（`BUG IN CLIENT OF LIBMALLOC: memory corruption of free block`），其中一次系统文本分析器（CoreNLP/MeCab）直接读取了含 U+2014/U+2015 的 UTF-8 字节。BetterCode 侧继续做三层降低触发概率的加固。
+
+### 变更内容
+
+- 新增 `wrapDisplay`：按显示宽度硬换行，流式文本、纯文本对话、thinking 与用户消息不再以超长单行写进终端，避免 Terminal 文本视图对大范围 attributed string 做高频替换。
+- `terminalSafeText` 的替换范围扩展为破折号族：U+2014/U+2015/U+2E3A/U+2E3B 替换为 `--`，U+2012/U+2013/U+2212/U+FE58/U+FE63 替换为 `-`，覆盖 macOS 文本分析器崩溃涉及的字符。
+- Apple Terminal 下流式合帧间隔由 60ms 放慢到 120ms，活动指示器动画由 250ms 放慢到 500ms；其他终端维持原频率。
+
+### 验收补充
+
+- AC39：任意长度的流式文本与 thinking 在显示层都被硬换行，单行显示宽度不超过终端列宽。
+- AC40：Apple Terminal 下所有破折号族字符均以 ASCII 展示，普通终端保持原文。
+- AC41：非 Apple 终端渲染频率与动画频率保持不变。

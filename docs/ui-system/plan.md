@@ -641,3 +641,27 @@ src/
 - 能力检测测试覆盖 Apple Terminal 识别、非 Apple 终端不返回字段以及安全替换的正反向断言。
 - Markdown、对话、输入框与交互面板专项测试验证破折号替换只发生在 Apple Terminal 能力下。
 - 运行 UI 专项测试、`pnpm check` 与 `git diff --check`；在真实 Apple Terminal 中复跑此前触发崩溃的“你好”等回复，观察连续多轮不再关闭终端。
+
+## 增量：Apple Terminal 再次加固
+
+### 长行硬换行
+
+- `capabilities.ts` 新增 `wrapDisplay(value, width)`：按 `Intl.Segmenter` 字素与 `string-width` 显示宽度做贪心换行，保留原换行语义，超宽单字素单独成行。
+- `PresentationView` 的纯文本对话与 thinking、`MarkdownView` 的 thinking 都先经 `wrapDisplay` 拆成多行再渲染，行宽分别为 `columns - 2` 与 `columns - 4`（给前缀留边）。
+- 硬换行只影响显示层，消息内容、会话存档与 Markdown AST 均不写入换行。
+
+### 破折号族替换
+
+- `terminalSafeText` 改为按 `DASH_LIKE_PATTERN` 统一处理：U+2014/U+2015/U+2E3A/U+2E3B 输出 `--`，U+2012/U+2013/U+2212/U+FE58/U+FE63 输出 `-`。
+- 替换仍只在 `appleTerminal` 为真时发生，覆盖既有全部显示出口。
+
+### 频率分级
+
+- `App` 的合帧间隔改为按终端分级：Apple Terminal 120ms，其他终端 60ms；通过 `streamingFlushIntervalRef` 固定首帧读取，避免每次渲染重建定时器。
+- `ActivityIndicator` 帧间隔按 `capabilities.appleTerminal` 分级：500ms / 250ms，低动态与 CI 仍为静态标记。
+
+### 验证
+
+- 新增 `wrapDisplay` 边界测试（ASCII、CJK、保留换行、超宽与空输入）与破折号族替换测试。
+- PresentationView / MarkdownView 新增“长文本与长 thinking 每行不越界”测试，并断言内容不丢失。
+- 运行 UI 专项测试、`pnpm check` 与 `git diff --check`；真实 Apple Terminal 复跑流式长回复与 `/session` 交互。

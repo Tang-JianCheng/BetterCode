@@ -42,10 +42,11 @@ export function ActivityIndicator({ activity, capabilities }: ActivityIndicatorP
   const [frameIndex, setFrameIndex] = useState(0);
   useEffect(() => {
     if (!capabilities.motion) return undefined;
-    // 降低动画重绘频率，避免长等待期间对终端持续高刷。
-    const timer = setInterval(() => setFrameIndex(index => index + 1), 250);
+    // 降低动画重绘频率，避免长等待期间对终端持续高刷；Apple Terminal 再放慢一档。
+    const intervalMs = capabilities.appleTerminal === true ? 500 : 250;
+    const timer = setInterval(() => setFrameIndex(index => index + 1), intervalMs);
     return () => clearInterval(timer);
-  }, [capabilities.motion]);
+  }, [capabilities.appleTerminal, capabilities.motion]);
 
   const iteration = activity.iteration === undefined
     ? ''

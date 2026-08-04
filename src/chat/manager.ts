@@ -18,14 +18,17 @@ import { FileHistory, type Snapshot } from '../filehistory/filehistory.js';
 import * as promptHistory from '../history/history.js';
 import { MemoryExtractor } from '../memory/extractor.js';
 import { MemoryManager } from '../memory/manager.js';
+import { SessionSummarizer } from '../session/summarizer.js';
 import {
   cleanExpiredSessions,
+  deleteSession as removeSessionFile,
   listSessions,
   loadSession,
   newSessionId,
   rebuildFromSession,
   saveCompactBoundary,
   saveMessage,
+  saveSessionSummary,
   saveSubAgentResult,
   type CompactBoundaryPayload,
   type RestoredMessage,
@@ -44,6 +47,7 @@ import { resolveVisibleTools } from '../tool/visibility.js';
 
 export interface ChatManagerMemoryOptions {
   autoExtract?: boolean;
+  sessionSummaries?: boolean;
   userHome?: string;
   sessionPersistence?: boolean;
 }
@@ -97,7 +101,9 @@ export class ChatManager {
   private readonly rootDir: string;
   private readonly memoryManager: MemoryManager;
   private memoryExtractor: MemoryExtractor;
+  private readonly sessionSummarizer = new SessionSummarizer();
   private readonly autoExtract: boolean;
+  private readonly sessionSummaries: boolean;
   private readonly sessionPersistence: boolean;
   private readonly memorySavedListeners = new Set<MemorySavedListener>();
   private readonly backgroundTasks = new Set<Promise<void>>();
@@ -121,6 +127,7 @@ export class ChatManager {
   ) {
     this.rootDir = toolRegistry.rootDir;
     this.autoExtract = memoryOptions.autoExtract ?? false;
+    this.sessionSummaries = memoryOptions.sessionSummaries ?? true;
     this.sessionPersistence = memoryOptions.sessionPersistence ?? true;
     this.memoryManager = new MemoryManager(this.rootDir, { userHome: memoryOptions.userHome });
     this.memoryExtractor = new MemoryExtractor(this.memoryManager);
@@ -134,7 +141,10 @@ export class ChatManager {
       this.contextManager,
       {
         beforeToolExecution: call => this.trackToolEdit(call),
-        onLoopComplete: (history, provider) => this.scheduleMemoryExtraction(history, provider),
+        onLoopComplete: (history, provider) => {
+          this.scheduleMemoryExtraction(history, provider);
+          this.scheduleSessionSummary(history, provider);
+        },
       },
       {
         hooks: hookManager,
@@ -296,6 +306,7 @@ export class ChatManager {
           this.history.push({ role: 'assistant', content: summary });
           this.persistMessage('assistant', summary);
         }
+        this.scheduleSessionSummary([...this.history], provider);
       } catch (error) {
         emit({
           type: 'error',
@@ -395,6 +406,15 @@ export class ChatManager {
 
   listSessions(): SessionInfo[] {
     return listSessions(this.rootDir);
+  }
+
+  deleteSession(sessionId: string): boolean {
+    if (this.closed) throw new Error('ChatManager 已关闭');
+    if (this.active) throw new Error('Agent 运行期间不能删除会话');
+    if (sessionId === this.sessionId) throw new Error('不能删除当前会话');
+    const removed = removeSessionFile(this.rootDir, sessionId);
+    if (!removed) throw new Error(`会话不存在: ${sessionId}`);
+    return true;
   }
 
   async resumeSession(sessionId: string): Promise<RestoredMessage[]> {
@@ -713,6 +733,36 @@ export class ChatManager {
       .catch(() => {})
       .finally(() => this.backgroundTasks.delete(task));
     this.backgroundTasks.add(task);
+  }
+
+  private scheduleSessionSummary(history: readonly Message[], provider: LLMProvider): void {
+    if (!this.sessionPersistence || !this.sessionSummaries || this.closed) return;
+    const context = this.buildSummaryContext(history);
+    if (!context.trim()) return;
+    const generation = this.memoryGeneration;
+    let task: Promise<void>;
+    // 延迟到宏任务再发起模型调用，避免同步占用主流程并干扰测试中的调用计数。
+    task = new Promise(resolve => setTimeout(resolve, 0))
+      .then(() => this.sessionSummarizer.summarize(context, provider))
+      .then(summary => {
+        if (generation !== this.memoryGeneration) return;
+        if (!summary.trim()) return;
+        saveSessionSummary(this.rootDir, this.sessionId, summary);
+      })
+      .catch(() => {})
+      .finally(() => this.backgroundTasks.delete(task));
+    this.backgroundTasks.add(task);
+  }
+
+  private buildSummaryContext(history: readonly Message[]): string {
+    const lines = history.slice(-40).flatMap(message => {
+      if (message.role === 'instruction') return [];
+      const content = message.content.trim();
+      if (!content) return [];
+      const role = message.role === 'tool' ? `tool:${message.toolName}` : message.role;
+      return [`[${role}] ${content}`];
+    });
+    return lines.join('\n').slice(-24_000);
   }
 
   private buildExtractionContext(history: readonly Message[]): string {

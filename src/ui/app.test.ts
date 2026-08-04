@@ -7,6 +7,7 @@ import type { ChatManager } from '../chat/manager.js';
 import type { Snapshot } from '../filehistory/filehistory.js';
 import type { LLMProvider, Message } from '../provider/types.js';
 import type { SkillManager } from '../skill/manager.js';
+import type { SessionInfo } from '../session/session.js';
 import {
   App,
   formatContextEvent,
@@ -34,6 +35,8 @@ function createAppDependencies() {
   let agentStream: AsyncIterable<AgentEvent> = emptyAgentStream();
   let resumedMessages: Message[] = [];
   let snapshots: Snapshot[] = [];
+  let sessionList: SessionInfo[] = [];
+  let deletedSessionIds: string[] = [];
   let rewindResult: {
     snapshot: Snapshot;
     changedFiles: string[];
@@ -47,6 +50,14 @@ function createAppDependencies() {
       diagnostics: [],
     }),
     getPromptHistory: () => [...promptHistory],
+    listSessions: () => [...sessionList],
+    deleteSession: (sessionId: string) => {
+      if (sessionId === 'session-12345678') throw new Error('不能删除当前会话');
+      if (!sessionList.some(item => item.id === sessionId)) throw new Error(`会话不存在: ${sessionId}`);
+      deletedSessionIds = [...deletedSessionIds, sessionId];
+      sessionList = sessionList.filter(item => item.id !== sessionId);
+      return true;
+    },
     getSnapshots: () => snapshots,
     subscribeMemorySaved: () => unsubscribe,
     subscribeSubAgent: () => unsubscribe,
@@ -105,6 +116,10 @@ function createAppDependencies() {
     setResumedMessages: (messages: Message[]) => {
       resumedMessages = messages;
     },
+    setSessionList: (value: SessionInfo[]) => {
+      sessionList = value;
+    },
+    getDeletedSessionIds: () => deletedSessionIds,
     setSnapshots: (value: Snapshot[]) => {
       snapshots = value;
     },
@@ -230,7 +245,7 @@ test('会话列表与记忆状态使用可执行的命令提示', () => {
   assert.equal(formatSessionList([]), '没有可恢复的历史会话。');
   assert.match(formatSessionList([{
     id: 'abc-12345678',
-    firstMessage: '修复解析器',
+    summary: '修复解析器',
     messageCount: 4,
     size: 100,
     modTime: new Date(),
@@ -417,6 +432,98 @@ test('恢复会话时助手消息渲染 Markdown，用户消息保持纯文本',
   assert.match(frame, /链接 \(https:\/\/example\.com\)/u);
   assert.match(frame, /\[链接\]\(https:\/\/example\.com\)/u);
   assert.match(frame, /会话已恢复/u);
+  view.unmount();
+});
+
+test('/session 打开交互选择器，方向键选择并恢复选中会话', async () => {
+  const dependencies = createAppDependencies();
+  dependencies.setSessionList([
+    { id: 'aaa-11111111', summary: '修复解析器', messageCount: 4, size: 100, modTime: new Date('2026-08-03T10:00:00Z') },
+    { id: 'bbb-22222222', summary: '优化 UI 面板', messageCount: 8, size: 200, modTime: new Date('2026-08-04T10:00:00Z') },
+  ]);
+  dependencies.setResumedMessages([
+    { role: 'user', content: '优化 UI 面板' },
+    { role: 'assistant', content: '已完成' },
+  ]);
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('/session');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  let frame = view.lastFrame() ?? '';
+  assert.match(frame, /历史会话/u);
+  assert.match(frame, /修复解析器/u);
+  assert.match(frame, /优化 UI 面板/u);
+  assert.doesNotMatch(frame, /首条任务/u);
+
+  view.stdin.write('\u001B[B');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  frame = view.lastFrame() ?? '';
+  assert.match(frame, /会话已恢复/u);
+  assert.match(frame, /优化 UI 面板/u);
+  view.unmount();
+});
+
+test('/session 选择器 Esc 退出，Delete 删除非当前会话并刷新列表', async () => {
+  const dependencies = createAppDependencies();
+  dependencies.setSessionList([
+    { id: 'aaa-11111111', summary: '修复解析器', messageCount: 4, size: 100, modTime: new Date('2026-08-03T10:00:00Z') },
+    { id: 'bbb-22222222', summary: '优化 UI 面板', messageCount: 8, size: 200, modTime: new Date('2026-08-04T10:00:00Z') },
+  ]);
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('/session');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /历史会话/u);
+
+  view.stdin.write('\u001B[B');
+  await flushAppInput();
+  view.stdin.write('\u007F');
+  await flushAppInput();
+  await flushAppInput();
+  let frame = view.lastFrame() ?? '';
+  assert.match(frame, /会话已删除/u);
+  assert.doesNotMatch(frame, /优化 UI 面板/u);
+  assert.deepEqual(dependencies.getDeletedSessionIds(), ['bbb-22222222']);
+
+  view.stdin.write('\u001B');
+  await flushAppInput();
+  await flushAppInput();
+  frame = view.lastFrame() ?? '';
+  assert.doesNotMatch(frame, /历史会话/u);
+  assert.match(frame, /❯ |> /u);
+  view.unmount();
+});
+
+test('/session 选择器拒绝删除当前会话', async () => {
+  const dependencies = createAppDependencies();
+  dependencies.setSessionList([
+    { id: 'session-12345678', summary: '当前会话', messageCount: 2, size: 50, modTime: new Date('2026-08-04T10:00:00Z') },
+  ]);
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('/session');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /\[当前\]/u);
+
+  view.stdin.write('\u007F');
+  await flushAppInput();
+  await flushAppInput();
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /不能删除当前会话/u);
+  assert.match(frame, /历史会话/u);
   view.unmount();
 });
 

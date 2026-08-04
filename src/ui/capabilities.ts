@@ -56,15 +56,50 @@ export function detectTerminalCapabilities(
   };
 }
 
+const DASH_LIKE_PATTERN = /[\u2012\u2013\u2014\u2015\u2212\u2E3A\u2E3B\uFE58\uFE63]/gu;
+
 /**
- * macOS 自带 Terminal 的文本视图在流式重绘含 U+2014 等字符时可能崩溃。
- * 这里只在渲染到该终端前把破折号替换为 ASCII，会话与文档数据保持原样。
+ * macOS 自带 Terminal 的文本视图在流式重绘含 U+2014/U+2015 等字符时可能崩溃，
+ * 其系统文本分析器也会因长串破折号崩溃。这里只在渲染到该终端前把破折号族
+ * 替换为 ASCII，会话与文档数据保持原样。
  */
 export function terminalSafeText(value: string, appleTerminal: boolean): string {
   if (!appleTerminal) return value;
-  return value
-    .replace(/\u2014/gu, '--')
-    .replace(/\u2013/gu, '-');
+  return value.replace(DASH_LIKE_PATTERN, dash => (
+    dash === '\u2014' || dash === '\u2015' || dash === '\u2E3A' || dash === '\u2E3B'
+      ? '--'
+      : '-'
+  ));
+}
+
+/**
+ * 按显示宽度硬换行，保证流式文本与纯文本消息不会在终端里形成超长单行，
+ * 降低 Apple Terminal 文本视图对大范围 attributed string 替换的内存损坏风险。
+ */
+export function wrapDisplay(value: string, width: number): string[] {
+  if (width <= 0) return [];
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+  const lines: string[] = [];
+  for (const paragraph of value.split('\n')) {
+    if (!paragraph) {
+      lines.push('');
+      continue;
+    }
+    let current = '';
+    let currentWidth = 0;
+    for (const { segment } of segmenter.segment(paragraph)) {
+      const segmentWidth = displayWidth(segment);
+      if (currentWidth > 0 && currentWidth + segmentWidth > width) {
+        lines.push(current);
+        current = '';
+        currentWidth = 0;
+      }
+      current += segment;
+      currentWidth += segmentWidth;
+    }
+    lines.push(current);
+  }
+  return lines;
 }
 
 export function displayWidth(value: string): number {

@@ -344,6 +344,43 @@ test('ChatManager 持久化会话、恢复后沿用原 ID 追加', async t => {
   assert.equal(readFileSync(getSessionFilePath(root, sessionId), 'utf8').trim().split('\n').length, 4);
 });
 
+test('ChatManager 自然完成后后台生成会话摘要', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const provider = new FakeProvider([
+    [{ type: 'text_delta', content: '回答' }, done()],
+    [{ type: 'text_delta', content: '完成了聊天记录恢复功能' }, done()],
+  ]);
+  const manager = makeManager(root);
+  await collect(manager.run('实现聊天记录恢复', provider));
+  await manager.close();
+  const summaries = loadSession(root, manager.getSessionId())
+    .filter(message => message.type === 'session_summary');
+  assert.equal(summaries.length, 1);
+  const payload = JSON.parse(summaries[0].content) as { summary: string };
+  assert.match(payload.summary, /聊天记录恢复/u);
+});
+
+test('ChatManager 删除其他会话并拒绝删除当前会话', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const first = makeManager(root);
+  await collect(first.run('第一条问题', new FakeProvider([[
+    { type: 'text_delta', content: '回答一' }, done(),
+  ]])));
+  const firstId = first.getSessionId();
+  await first.close();
+
+  const second = makeManager(root);
+  await collect(second.run('第二条问题', new FakeProvider([[
+    { type: 'text_delta', content: '回答二' }, done(),
+  ]])));
+  assert.equal(second.deleteSession(firstId), true);
+  assert.deepEqual(loadSession(root, firstId), []);
+  assert.throws(() => second.deleteSession(second.getSessionId()), /不能删除当前会话/u);
+  assert.throws(() => second.deleteSession(firstId), /会话不存在/u);
+});
+
 test('ChatManager 在写文件前建立快照并支持代码与对话一起回滚', async t => {
   const root = makeRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -401,6 +438,7 @@ test('ChatManager 新增内容不足两条时暂不触发记忆提取', async t 
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const manager = makeManager(root, {}, {}, {
     autoExtract: true,
+    sessionSummaries: false,
     userHome: path.join(root, '.home'),
   });
   const empty = new FakeProvider([[done()]]);

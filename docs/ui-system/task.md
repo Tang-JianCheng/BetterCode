@@ -630,6 +630,22 @@ T5、T6 和 T8 在各自依赖满足后可并行；T15 与 T17 共享交互和�
 
 **验证：** 19 项 UI 专项测试、`pnpm check`、`git diff --check` 与真实 TUI 启动。
 
+## T39：Apple Terminal 再次加固
+
+**文件：** `src/ui/capabilities.ts`、`src/ui/presentation-view.tsx`、`src/ui/markdown-view.tsx`、`src/ui/app.tsx`、`src/ui/activity-indicator.tsx`、对应测试、`docs/ui-system/spec.md`、`docs/ui-system/plan.md`、`docs/ui-system/task.md`、`docs/ui-system/checklist.md`
+
+**依赖：** T38
+
+**步骤：**
+
+1. 在 `capabilities.ts` 新增 `wrapDisplay`，按显示宽度硬换行并保留原换行；扩展 `terminalSafeText` 覆盖全部破折号族字符。
+2. `PresentationView` 与 `MarkdownView` 的纯文本/thinking 显示出口接入 `wrapDisplay`，保证流式长文本不形成超长单行。
+3. `App` 流式合帧间隔按 Apple Terminal 分级为 120ms（其他终端 60ms）；`ActivityIndicator` 动画间隔分级为 500ms / 250ms。
+4. 补充 `wrapDisplay` 边界、破折号族替换、长文本与长 thinking 不越界的专项测试。
+5. 运行全量检查，并在真实 Apple Terminal 中复跑流式长回复与 `/session` 交互。
+
+**验证：** UI 专项测试、`pnpm check`、`git diff --check` 与真实 Apple Terminal 回归。
+
 ## T38：终端崩溃加固与 Apple Terminal 安全渲染
 
 **文件：** `src/index.tsx`、`src/ui/app.tsx`、`src/ui/activity-indicator.tsx`、`src/ui/capabilities.ts`、`src/ui/markdown-view.tsx`、`src/ui/presentation-view.tsx`、`src/ui/input-box.tsx`、`src/ui/interaction-panel.tsx` 及对应测试、`docs/ui-system/spec.md`、`docs/ui-system/plan.md`、`docs/ui-system/task.md`、`docs/ui-system/checklist.md`

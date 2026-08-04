@@ -7,7 +7,7 @@ import type {
   PresentationItem,
 } from '../presentation/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
-import { terminalSafeText } from './capabilities.js';
+import { terminalSafeText, wrapDisplay } from './capabilities.js';
 import { MarkdownView } from './markdown-view.js';
 import { MascotMark } from './mascot.js';
 import { BETTERCODE_THEME, TONE_LABELS, toneColor } from './theme.js';
@@ -20,6 +20,14 @@ function ConversationView({
   capabilities: TerminalCapabilities;
 }) {
   const appleTerminal = capabilities.appleTerminal === true;
+  const thinkingLines = wrapDisplay(
+    terminalSafeText(item.thinking ?? '', appleTerminal),
+    Math.max(8, capabilities.columns - 4),
+  );
+  const contentLines = wrapDisplay(
+    terminalSafeText(item.content, appleTerminal),
+    Math.max(8, capabilities.columns - 2),
+  );
   if (item.role === 'assistant' && item.markdown) {
     return (
       <Box flexDirection="column" marginBottom={1}>
@@ -29,24 +37,26 @@ function ConversationView({
   }
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {item.thinking ? (
-        <Box>
+      {item.thinking ? thinkingLines.map((line, lineIndex) => (
+        <Box key={`thinking-${lineIndex}`}>
           <Text color={capabilities.color ? BETTERCODE_THEME.border : undefined}>
             {capabilities.unicode ? '┊ ' : ': '}
           </Text>
           <Text dimColor color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-            {terminalSafeText(item.thinking, appleTerminal)}
+            {line}
           </Text>
         </Box>
-      ) : undefined}
-      <Box>
-        {item.role === 'user' ? (
-          <Text bold color={capabilities.color ? BETTERCODE_THEME.accent : undefined}>
-            {capabilities.unicode ? '❯ ' : '> '}
-          </Text>
-        ) : undefined}
-        <Text>{terminalSafeText(item.content, appleTerminal)}</Text>
-      </Box>
+      )) : undefined}
+      {contentLines.map((line, lineIndex) => (
+        <Box key={`content-${lineIndex}`}>
+          {item.role === 'user' && lineIndex === 0 ? (
+            <Text bold color={capabilities.color ? BETTERCODE_THEME.accent : undefined}>
+              {capabilities.unicode ? '❯ ' : '> '}
+            </Text>
+          ) : undefined}
+          <Text>{line}</Text>
+        </Box>
+      ))}
     </Box>
   );
 }

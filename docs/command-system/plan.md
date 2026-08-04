@@ -170,3 +170,41 @@ src/ui/
 ## Spec 覆盖
 
 F1-F4 由 registry/parser/dispatcher 覆盖；F5-F7 由类型、控制器和 App 分流覆盖；F8 由 registry 与 InputBox 覆盖；F9-F15 由 builtins 与 App 控制器覆盖。不存在未归属需求。
+
+## 增量：/session 交互选择器与会话摘要
+
+### 交互流程
+
+```text
+InputBox Enter: /session
+  -> App.showOrResumeSession()
+     -> chatManager.listSessions()
+        -> 无会话: 显示“没有可恢复的历史会话”
+        -> 有会话: 打开 SessionDialog
+
+SessionDialog
+  上/下方向键 -> 移动选中并滚动窗口
+  Enter       -> onSelect(id) -> chatManager.resumeSession(id) -> 渲染恢复历史
+  Esc         -> onCancel() -> 关闭选择器
+  Delete/BS   -> onDelete(id)
+                 -> 当前会话: 拒绝并提示
+                 -> 其他会话: chatManager.deleteSession(id) -> 刷新列表
+```
+
+### 摘要生成
+
+- `SessionSummarizer` 使用与记忆提取相同的流式调用模式，系统提示要求只输出一句中文摘要、禁止工具。
+- `ChatManager` 在 Agent 自然完成（`onLoopComplete`）以及独立模式 Skill 结束时，用 `setTimeout(0)` 延迟调度后台摘要，避免同步占用主流程或干扰测试中的 Provider 调用计数。
+- 摘要写入会话 JSONL 的 `session_summary` 系统记录：读取旧文件、过滤已有摘要行、追加新记录；会话摘要不进入恢复历史。
+- `listSessions` 优先取最新 `session_summary`，无摘要时回退最近一条用户消息并截断到 100 字。
+
+### 删除与兼容
+
+- `session.ts` 新增 `deleteSession`，只删除目标 JSONL 存档；`ChatManager.deleteSession` 拒绝当前会话与运行期间删除。
+- 交互选择器替换无参数 `/session` 的表格输出；`buildSessionPresentation` 保留但列名与数据源改为摘要，供其他展示路径复用。
+
+### 验证
+
+- session 单测覆盖摘要写入、替换、列表回退与删除行为。
+- `SessionDialog` 专项测试覆盖方向键、Enter、Esc、Delete 与翻页。
+- App 集成测试覆盖 `/session` 打开选择器、恢复、退出与删除后的列表刷新。

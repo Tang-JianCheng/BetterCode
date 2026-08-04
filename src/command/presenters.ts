@@ -204,10 +204,10 @@ export function buildSessionPresentation(
         columns: [
           { key: 'id', label: '会话 ID' },
           { key: 'messages', label: '消息' },
-          { key: 'title', label: '首条任务' },
+          { key: 'summary', label: '摘要' },
         ],
         rows: sessions.slice(0, 10).map(session => [
-          session.id, String(session.messageCount), session.firstMessage || '无标题',
+          session.id, String(session.messageCount), session.summary || '无摘要',
         ]),
       }] : [{ type: 'text' as const, content: '没有可恢复的历史会话。', muted: true }]),
     ],

@@ -11,7 +11,6 @@ import type { CommandUIController } from '../command/types.js';
 import {
   buildMemoryPresentation,
   buildPermissionPresentation,
-  buildSessionPresentation,
   buildStatusPresentation,
   buildTextCommandPresentation,
 } from '../command/presenters.js';
@@ -41,6 +40,7 @@ import { InputBox } from './input-box.js';
 import { MessageList, type DisplayMessage } from './message-list.js';
 import { PermissionPrompt } from './permission-prompt.js';
 import { RewindDialog, type RewindAction } from './rewind-dialog.js';
+import { SessionDialog } from './session-dialog.js';
 import { detectTerminalCapabilities, terminalEnvironmentFromProcess } from './capabilities.js';
 import { StartupBrand } from './mascot.js';
 import {
@@ -55,9 +55,10 @@ export const HELP_TEXT = formatCommandHelp(COMMAND_REGISTRY);
 
 let presentationSequence = 0;
 
-// 流式输出按固定间隔合帧，避免每个 token 都触发一次整屏重绘，
-// 降低高刷终端（如 macOS 自带 Terminal）在长回复时因连续替换文本视图崩溃的概率。
+// 流式输出按固定间隔合帧，避免每个 token 都触发一次整屏重绘；
+// Apple Terminal 文本视图更脆弱，进一步放低重绘频率降低崩溃概率。
 const STREAMING_FLUSH_INTERVAL_MS = 60;
+const STREAMING_FLUSH_INTERVAL_APPLE_MS = 120;
 
 function conversationText(value: string): string {
   try {
@@ -132,7 +133,7 @@ export function formatSessionList(sessions: readonly SessionInfo[]): string {
   return [
     '历史会话（使用 /session <ID> 恢复）:',
     ...sessions.slice(0, 10).map(session =>
-      `  ${session.id} (${session.messageCount} 条) - ${session.firstMessage || '无标题'}`),
+      `  ${session.id} (${session.messageCount} 条) - ${session.summary || '无摘要'}`),
   ].join('\n');
 }
 
@@ -289,6 +290,8 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
   const [promptHistory, setPromptHistory] = useState(() => chatManager.getPromptHistory());
   const [rewindSnapshots, setRewindSnapshots] = useState(() => chatManager.getSnapshots());
   const [rewindDialogActive, setRewindDialogActive] = useState(false);
+  const [sessionDialogActive, setSessionDialogActive] = useState(false);
+  const [sessionDialogSessions, setSessionDialogSessions] = useState<SessionInfo[]>([]);
   const [skillRevision, setSkillRevision] = useState(() => skillManager.getSnapshot().revision);
 
   const commandRegistry = useMemo(() => {
@@ -301,6 +304,11 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
   const thinkingRef = useRef('');
   const hasThinkingRef = useRef(false);
   const streamingFlushTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
+  const streamingFlushIntervalRef = useRef(
+    capabilities.appleTerminal === true
+      ? STREAMING_FLUSH_INTERVAL_APPLE_MS
+      : STREAMING_FLUSH_INTERVAL_MS,
+  );
   const thinkingStageShownRef = useRef(false);
   const abortRef = useRef<AbortController | undefined>();
   const agentModeRef = useRef<AgentMode>('act');
@@ -316,7 +324,7 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
       setCurrentStreaming(textRef.current);
       setCurrentThinking(thinkingRef.current);
       setIsThinking(hasThinkingRef.current);
-    }, STREAMING_FLUSH_INTERVAL_MS);
+    }, streamingFlushIntervalRef.current);
   }, []);
 
   useInput((input, key) => {
@@ -677,53 +685,89 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
     }
   }, [appendNotice, chatManager, provider]);
 
+  const resumeSessionAndRender = useCallback(async (sessionId: string) => {
+    try {
+      const restored = await chatManager.resumeSession(sessionId);
+      const visible = restored.filter((message): message is Extract<typeof message, { role: 'user' | 'assistant' }> =>
+        message.role === 'user' || message.role === 'assistant');
+      const restoredEntries = visible.map(message => {
+        if (message.role === 'user') {
+          return {
+            item: identifyPresentation(createConversation({ role: 'user', content: message.content })),
+            recovered: false,
+          };
+        }
+        const parsed = tryParseMarkdown(message.content);
+        return {
+          item: identifyPresentation(createConversation({
+            role: 'assistant',
+            content: parsed.recovered ? conversationText(message.content) : message.content,
+            ...(parsed.recovered ? {} : { markdown: parsed.ast }),
+          })),
+          recovered: parsed.recovered,
+        };
+      });
+      const recoveredCount = restoredEntries.filter(entry => entry.recovered).length;
+      setMessages([
+        ...restoredEntries.map(entry => entry.item),
+        ...(recoveredCount > 0 ? [identifyPresentation(createNotice({
+          tone: 'warning',
+          title: 'Markdown 解析失败',
+          message: `恢复的助手消息中有 ${recoveredCount} 条按纯文本展示原文。`,
+          source: 'system',
+        }))] : []),
+        identifyPresentation(createNotice({
+          tone: 'success',
+          title: '会话已恢复',
+          message: `${sessionId}（${restored.length} 条消息）`,
+          source: 'command',
+        })),
+      ]);
+      setUsage(undefined);
+      setRewindSnapshots(chatManager.getSnapshots());
+    } catch (error) {
+      appendNotice(
+        '会话恢复失败',
+        error instanceof Error ? error.message : String(error),
+        'danger',
+      );
+    }
+  }, [appendNotice, chatManager]);
+
   const showOrResumeSession = useCallback(async (sessionId?: string) => {
     if (!sessionId) {
-      appendPresentation(buildSessionPresentation(
-        chatManager.getSessionId(),
-        chatManager.listSessions(),
-      ));
+      const sessions = chatManager.listSessions();
+      if (sessions.length === 0) {
+        appendNotice('无法恢复', '没有可恢复的历史会话。', 'warning');
+        return;
+      }
+      setSessionDialogSessions(sessions);
+      setSessionDialogActive(true);
       return;
     }
-    const restored = await chatManager.resumeSession(sessionId);
-    const visible = restored.filter((message): message is Extract<typeof message, { role: 'user' | 'assistant' }> =>
-      message.role === 'user' || message.role === 'assistant');
-    const restoredEntries = visible.map(message => {
-      if (message.role === 'user') {
-        return {
-          item: identifyPresentation(createConversation({ role: 'user', content: message.content })),
-          recovered: false,
-        };
-      }
-      const parsed = tryParseMarkdown(message.content);
-      return {
-        item: identifyPresentation(createConversation({
-          role: 'assistant',
-          content: parsed.recovered ? conversationText(message.content) : message.content,
-          ...(parsed.recovered ? {} : { markdown: parsed.ast }),
-        })),
-        recovered: parsed.recovered,
-      };
-    });
-    const recoveredCount = restoredEntries.filter(entry => entry.recovered).length;
-    setMessages([
-      ...restoredEntries.map(entry => entry.item),
-      ...(recoveredCount > 0 ? [identifyPresentation(createNotice({
-        tone: 'warning',
-        title: 'Markdown 解析失败',
-        message: `恢复的助手消息中有 ${recoveredCount} 条按纯文本展示原文。`,
-        source: 'system',
-      }))] : []),
-      identifyPresentation(createNotice({
-        tone: 'success',
-        title: '会话已恢复',
-        message: `${sessionId}（${restored.length} 条消息）`,
-        source: 'command',
-      })),
-    ]);
-    setUsage(undefined);
-    setRewindSnapshots(chatManager.getSnapshots());
-  }, [appendPresentation, chatManager]);
+    await resumeSessionAndRender(sessionId);
+  }, [appendNotice, chatManager, resumeSessionAndRender]);
+
+  const handleSessionSelect = useCallback((sessionId: string) => {
+    setSessionDialogActive(false);
+    void resumeSessionAndRender(sessionId);
+  }, [resumeSessionAndRender]);
+
+  const handleSessionDelete = useCallback((sessionId: string) => {
+    try {
+      chatManager.deleteSession(sessionId);
+      const remaining = chatManager.listSessions();
+      setSessionDialogSessions(remaining);
+      if (remaining.length === 0) setSessionDialogActive(false);
+      appendNotice('会话已删除', sessionId, 'success');
+    } catch (error) {
+      appendNotice(
+        '删除失败',
+        error instanceof Error ? error.message : String(error),
+        'danger',
+      );
+    }
+  }, [appendNotice, chatManager]);
 
   const showMemoryStatus = useCallback(() => {
     appendPresentation(buildMemoryPresentation(chatManager.getMemoryStatus()));
@@ -853,7 +897,16 @@ export function App({ provider, chatManager, skillManager, mcpStatus, agentDiagn
         capabilities={capabilities}
       />
 
-      {rewindDialogActive ? (
+      {sessionDialogActive ? (
+        <SessionDialog
+          sessions={sessionDialogSessions}
+          currentSessionId={chatManager.getSessionId()}
+          onSelect={handleSessionSelect}
+          onDelete={handleSessionDelete}
+          onCancel={() => setSessionDialogActive(false)}
+          capabilities={capabilities}
+        />
+      ) : rewindDialogActive ? (
         <RewindDialog
           snapshots={rewindSnapshots}
           onSelect={handleRewind}

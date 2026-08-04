@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   cleanExpiredSessions,
+  deleteSession,
   getSessionFilePath,
   listSessions,
   loadSession,
@@ -12,6 +13,7 @@ import {
   rebuildFromSession,
   saveCompactBoundary,
   saveMessage,
+  saveSessionSummary,
   saveSubAgentResult,
 } from './session.js';
 
@@ -49,7 +51,7 @@ test('会话读取跳过坏行和空正文', t => {
   assert.deepEqual(loadSession(workDir, id).map(message => message.content), ['有效消息', '仍然有效']);
 });
 
-test('会话列表使用首条用户消息并按修改时间倒序', t => {
+test('会话列表使用最近用户消息回退摘要并按修改时间倒序', t => {
   const workDir = root();
   t.after(() => rmSync(workDir, { recursive: true, force: true }));
   const first = newSessionId();
@@ -61,7 +63,33 @@ test('会话列表使用首条用户消息并按修改时间倒序', t => {
   utimesSync(getSessionFilePath(workDir, second), future, future);
   const sessions = listSessions(workDir);
   assert.equal(sessions[0].id, second);
-  assert.equal(sessions.find(item => item.id === first)?.firstMessage, '第一条用户消息');
+  assert.equal(sessions.find(item => item.id === first)?.summary, '第一条用户消息');
+});
+
+test('会话摘要写入并替换旧记录，列表优先取最新摘要', t => {
+  const workDir = root();
+  t.after(() => rmSync(workDir, { recursive: true, force: true }));
+  const id = newSessionId();
+  save(workDir, id, 'user', '旧用户消息');
+  save(workDir, id, 'user', '最新用户消息');
+  saveSessionSummary(workDir, id, '第一版摘要');
+  saveSessionSummary(workDir, id, '第二版摘要');
+
+  const sessions = listSessions(workDir);
+  assert.equal(sessions[0].summary, '第二版摘要');
+  assert.equal(loadSession(workDir, id).filter(message => message.type === 'session_summary').length, 1);
+  assert.equal(rebuildFromSession(loadSession(workDir, id)).some(message =>
+    message.content.includes('摘要')), false);
+});
+
+test('删除会话移除存档且不存在时返回 false', t => {
+  const workDir = root();
+  t.after(() => rmSync(workDir, { recursive: true, force: true }));
+  const id = newSessionId();
+  save(workDir, id, 'user', '待删除');
+  assert.equal(deleteSession(workDir, id), true);
+  assert.deepEqual(listSessions(workDir), []);
+  assert.equal(deleteSession(workDir, id), false);
 });
 
 test('最后一个压缩边界重建摘要、保留尾部和后续消息', t => {

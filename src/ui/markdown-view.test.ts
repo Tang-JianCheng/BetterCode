@@ -97,3 +97,16 @@ test('Apple Terminal 下正文与思考中的破折号以 ASCII 展示', () => {
   assert.doesNotMatch(thinkingFrame, /—/u);
   assert.match(thinkingFrame, /思路--草稿/u);
 });
+
+test('思考内容按列宽硬换行且不越过终端宽度', () => {
+  const view = render(React.createElement(MarkdownView, {
+    ast: parseMarkdown('正文'),
+    capabilities: { ...capabilities(60), appleTerminal: true },
+    thinking: '思'.repeat(120),
+  }));
+  const frame = view.lastFrame() ?? '';
+  view.unmount();
+  for (const line of frame.split('\n')) {
+    assert.ok(displayWidth(line) <= 60, `思考行超过 60 列: ${line.slice(0, 40)}`);
+  }
+});

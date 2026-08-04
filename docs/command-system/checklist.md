@@ -46,3 +46,16 @@
 - [x] 场景 4：输入 `/ses` 后按 Tab 补成 `/session `；输入能匹配多个命令的前缀时出现选择菜单。（证据：补全解析与菜单状态测试通过）
 - [x] 场景 5：输入 `/missing`，显示未知命令和 `/help` 引导，随后仍可正常发送普通任务。（证据：dispatcher 未知与普通输入测试通过）
 - [x] 场景 6：输入 `/session <id>`、`/permission strict`、`/compact` 和 `/clear`，各自复用原有能力且不进入普通对话分支。（证据：builtins 假控制器与既有 ChatManager 测试通过）
+
+## 增量：/session 交互选择器与会话摘要
+
+- [x] `/session` 无参数打开交互选择器，方向键选择、Enter 恢复、Esc 退出。（验证：SessionDialog 与 App 集成测试；覆盖 AC11）
+- [x] Delete/Backspace 删除选中会话并即时刷新列表，当前会话删除被拒绝。（验证：SessionDialog 与 App 删除测试；覆盖 AC12）
+- [x] 会话描述使用 `session_summary` 摘要，旧会话回退最近用户消息，不再显示首条任务。（验证：session 列表测试；覆盖 AC13）
+- [x] 摘要持久化为 `session_summary` 系统记录且更新替换旧记录，不影响恢复与压缩重建。（验证：session 单测与 manager 恢复测试；覆盖 AC14）
+
+**验收记录：**
+
+- 专项：session 摘要/删除、SessionDialog 交互与 App 集成测试通过。
+- 全量：`pnpm check` 退出码 0，全量测试通过；`git diff --check` 通过。
+- 手工：终端内 `/session` 选择、恢复、退出与删除均正常，摘要随新对话更新。

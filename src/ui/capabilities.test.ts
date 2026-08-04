@@ -8,6 +8,7 @@ import {
   terminalSafeText,
   truncateDisplay,
   truncateStart,
+  wrapDisplay,
 } from './capabilities.js';
 
 test('终端密度阈值保持确定性', () => {
@@ -70,4 +71,23 @@ test('识别 Apple Terminal 并把破折号替换为 ASCII 显示', () => {
   });
   assert.equal(terminalSafeText('a—b–c', false), 'a—b–c');
   assert.equal(terminalSafeText('a—b–c', true), 'a--b-c');
+});
+
+test('Apple Terminal 下破折号族字符统一替换为 ASCII', () => {
+  assert.equal(terminalSafeText('a―b−c‒d⸺e⸻f', true), 'a--b-c-d--e--f');
+  assert.equal(terminalSafeText('a―b−c‒d⸺e⸻f', false), 'a―b−c‒d⸺e⸻f');
+});
+
+test('wrapDisplay 按显示宽度硬换行并保留原换行', () => {
+  assert.deepEqual(wrapDisplay('abcdef', 3), ['abc', 'def']);
+  assert.deepEqual(wrapDisplay('模型 abcd', 5), ['模型 ', 'abcd']);
+  assert.deepEqual(wrapDisplay('第一行\n\n第二行', 8), ['第一行', '', '第二行']);
+  for (const columns of [20, 40, 80]) {
+    const lines = wrapDisplay('模型deepseek 中文换行测试 ' + 'A'.repeat(columns * 2), columns);
+    for (const line of lines) {
+      assert.ok(displayWidth(line) <= columns, `行超过 ${columns} 列: ${line}`);
+    }
+  }
+  assert.deepEqual(wrapDisplay('', 10), ['']);
+  assert.deepEqual(wrapDisplay('abc', 0), []);
 });
