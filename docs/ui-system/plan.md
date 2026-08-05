@@ -672,3 +672,7 @@ src/
 - `App` 删除 `thinkingRef`、`currentThinking`、`isThinking` 与“正在整理思路”活动态；流式合帧只刷新正文。
 - `MessageList`、`PresentationView`、`MarkdownView` 删除思考分区渲染，`ConversationPresentation` 删除 `thinking` 字段。
 - Provider 协议层保留 `thinking_delta` 解析能力，但 Agent 层不再对外透传，避免 DeepSeek 等兼容接口的思考内容进入终端。
+
+## 增量：Apple Terminal 系统级崩溃提示
+
+- 启动诊断新增 `formatAppleTerminalStabilityNotice`：仅 Apple Terminal 返回提示，说明崩溃来自系统 Terminal/AppKit 菜单快捷键更新（切换输入法触发），并非 BetterCode 渲染，并给出 iTerm2 / VS Code 终端 / Warp 建议。

@@ -443,3 +443,8 @@
 
 - [x] **C97：回归与提交**
   全量测试通过，`git diff --check` 通过，创建中文提交。（验证：本次验收记录）
+
+## 增量：Apple Terminal 系统级崩溃提示
+
+- [x] **C98：Apple Terminal 稳定性提示**
+  检测到 Apple Terminal 时启动阶段出现“终端稳定性提示”，其他终端不出现；提示说明系统 Terminal/AppKit 菜单更新崩溃风险并给出替代终端建议。（验证：`src/ui/app.test.ts`；覆盖 F25、AC44）

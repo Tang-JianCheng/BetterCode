@@ -141,6 +141,14 @@ export function formatContextWindowNotice(provider: LLMProvider): string | undef
     : undefined;
 }
 
+export function formatAppleTerminalStabilityNotice(appleTerminal: boolean): string | undefined {
+  if (!appleTerminal) return undefined;
+  return [
+    '检测到 macOS 自带 Terminal。该终端在切换输入法等系统事件时存在 AppKit 菜单更新崩溃风险。',
+    '建议改用 iTerm2、VS Code 终端或 Warp 运行 BetterCode。',
+  ].join('\n');
+}
+
 export function formatSessionList(sessions: readonly SessionInfo[]): string {
   if (sessions.length === 0) return '没有可恢复的历史会话。';
   return [
@@ -295,6 +303,10 @@ export function App({
     const windowNotice = formatContextWindowNotice(provider);
     if (windowNotice) initial.push(identifyPresentation(createNotice({
       tone: 'info', title: '上下文窗口', message: windowNotice, source: 'system',
+    })));
+    const terminalNotice = formatAppleTerminalStabilityNotice(capabilities.appleTerminal === true);
+    if (terminalNotice) initial.push(identifyPresentation(createNotice({
+      tone: 'warning', title: '终端稳定性提示', message: terminalNotice, source: 'system',
     })));
     if (initialPermissionStatus.diagnostics.length > 0) {
       initial.push(identifyPresentation(buildPermissionPresentation(initialPermissionStatus)));

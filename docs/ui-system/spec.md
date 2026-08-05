@@ -329,3 +329,17 @@ macOS 自带 Terminal 的文本视图在流式重绘含 U+2014 破折号的 UTF-
 
 - AC42：模型返回 `thinking_delta` 时，终端不输出任何思考过程内容，最终回复只包含正文。
 - AC43：流式阶段与历史消息均无思考分区，Apple Terminal 加固中涉及 thinking 的显示出口同步移除。
+
+## 增量：Apple Terminal 系统级崩溃提示
+
+### 变更背景
+
+2026-08-05 的崩溃报告显示 `Terminal.app` 在切换输入法等系统事件时，其 AppKit 菜单快捷键更新逻辑（`NSMenuShortcutUpdater` / `NSLocalizedKeyboardShortcuts`）会触发 PAC 异常并让整个终端进程退出。崩溃发生在系统进程内部，BetterCode 无法从应用层修复，只能提前提示用户更换稳定终端。
+
+### 变更内容
+
+- F25：检测到 `TERM_PROGRAM=Apple_Terminal` 时，启动阶段展示稳定性提示，说明该终端存在系统级菜单更新崩溃风险，并建议改用 iTerm2、VS Code 终端或 Warp 运行 BetterCode。
+
+### 验收补充
+
+- AC44：Apple Terminal 下启动出现“终端稳定性提示”，其他终端不出现。

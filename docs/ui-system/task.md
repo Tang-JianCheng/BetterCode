@@ -645,6 +645,20 @@ T5、T6 和 T8 在各自依赖满足后可并行；T15 与 T17 共享交互和�
 
 **验证：** `pnpm check` 与 `git diff --check` 通过。
 
+## T41：Apple Terminal 系统级崩溃提示
+
+**文件：** `src/ui/app.tsx`、`src/ui/app.test.ts`、`docs/ui-system/*.md`
+
+**依赖：** T40
+
+**步骤：**
+
+1. 新增 `formatAppleTerminalStabilityNotice` 纯函数。
+2. App 初始消息在 Apple Terminal 下追加“终端稳定性提示”。
+3. 补充纯函数与 App 渲染测试。
+
+**验证：** `pnpm check` 与 `git diff --check` 通过。
+
 ## T39：Apple Terminal 再次加固
 
 **文件：** `src/ui/capabilities.ts`、`src/ui/presentation-view.tsx`、`src/ui/markdown-view.tsx`、`src/ui/app.tsx`、`src/ui/activity-indicator.tsx`、对应测试、`docs/ui-system/spec.md`、`docs/ui-system/plan.md`、`docs/ui-system/task.md`、`docs/ui-system/checklist.md`

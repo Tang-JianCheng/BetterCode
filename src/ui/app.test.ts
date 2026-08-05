@@ -19,6 +19,7 @@ import {
   formatSkillStartupStatus,
   formatAgentStartupStatus,
   formatCcSwitchStartupStatus,
+  formatAppleTerminalStabilityNotice,
   formatSubAgentEvent,
   formatSessionList,
   formatStatus,
@@ -328,6 +329,28 @@ test('只有默认上下文窗口会显示一次配置提示', () => {
     ...base,
     contextWindowIsDefault: false,
   }), undefined);
+});
+
+test('Apple Terminal 稳定性提示只在该终端展示', () => {
+  assert.equal(formatAppleTerminalStabilityNotice(false), undefined);
+  assert.match(formatAppleTerminalStabilityNotice(true) ?? '', /iTerm2|VS Code 终端|Warp/u);
+});
+
+test('Apple Terminal 下启动出现终端稳定性提示', async () => {
+  const previous = process.env.TERM_PROGRAM;
+  process.env.TERM_PROGRAM = 'Apple_Terminal';
+  try {
+    const dependencies = createAppDependencies();
+    const view = render(React.createElement(App, dependencies));
+    await flushAppInput();
+    const frame = view.lastFrame() ?? '';
+    assert.match(frame, /终端稳定性提示/u);
+    assert.match(frame, /AppKit 菜单更新崩溃风险/u);
+    view.unmount();
+  } finally {
+    if (previous === undefined) delete process.env.TERM_PROGRAM;
+    else process.env.TERM_PROGRAM = previous;
+  }
 });
 
 test('子 Agent 诊断与后台事件只展示必要通知', () => {
