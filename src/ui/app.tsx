@@ -329,8 +329,6 @@ export function App({
     return initial;
   });
   const [currentStreaming, setCurrentStreaming] = useState('');
-  const [currentThinking, setCurrentThinking] = useState('');
-  const [isThinking, setIsThinking] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [activity, setActivity] = useState<ActivityState | undefined>();
   const [usage, setUsage] = useState<TokenUsage | undefined>();
@@ -352,15 +350,12 @@ export function App({
   const commandDispatcher = useMemo(() => new CommandDispatcher(commandRegistry), [commandRegistry]);
 
   const textRef = useRef('');
-  const thinkingRef = useRef('');
-  const hasThinkingRef = useRef(false);
   const streamingFlushTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>();
   const streamingFlushIntervalRef = useRef(
     capabilities.appleTerminal === true
       ? STREAMING_FLUSH_INTERVAL_APPLE_MS
       : STREAMING_FLUSH_INTERVAL_MS,
   );
-  const thinkingStageShownRef = useRef(false);
   const abortRef = useRef<AbortController | undefined>();
   const agentModeRef = useRef<AgentMode>('act');
   const permissionResolverRef = useRef<{
@@ -373,8 +368,6 @@ export function App({
     streamingFlushTimerRef.current = setTimeout(() => {
       streamingFlushTimerRef.current = undefined;
       setCurrentStreaming(textRef.current);
-      setCurrentThinking(thinkingRef.current);
-      setIsThinking(hasThinkingRef.current);
     }, streamingFlushIntervalRef.current);
   }, []);
 
@@ -525,9 +518,6 @@ export function App({
     controller: AbortController,
   ) => {
     textRef.current = '';
-    thinkingRef.current = '';
-    hasThinkingRef.current = false;
-    thinkingStageShownRef.current = false;
     if (streamingFlushTimerRef.current !== undefined) {
       clearTimeout(streamingFlushTimerRef.current);
       streamingFlushTimerRef.current = undefined;
@@ -535,8 +525,6 @@ export function App({
     abortRef.current = controller;
     setIsStreaming(true);
     setCurrentStreaming('');
-    setCurrentThinking('');
-    setIsThinking(false);
     setActivity({ stage: 'preparing', label: '准备运行 Agent', startedAt: Date.now() });
     setUsage(undefined);
     setMessages(previous => [...previous, identifyPresentation(createConversation({
@@ -550,19 +538,6 @@ export function App({
         switch (event.type) {
           case 'text_delta':
             textRef.current += event.content;
-            hasThinkingRef.current = false;
-            scheduleStreamingFlush();
-            break;
-          case 'thinking_delta':
-            thinkingRef.current += event.content;
-            hasThinkingRef.current = true;
-            if (!thinkingStageShownRef.current) {
-              thinkingStageShownRef.current = true;
-              setActivity({
-                stage: 'thinking', label: '正在整理思路', iteration: event.iteration,
-                startedAt: Date.now(),
-              });
-            }
             scheduleStreamingFlush();
             break;
           case 'tool_call':
@@ -623,7 +598,6 @@ export function App({
       lastError = error instanceof Error ? error.message : String(error);
     } finally {
       const finalText = terminal?.finalText ?? '';
-      const finalThinking = thinkingRef.current;
       const completedMessages: DisplayMessage[] = [];
       if (finalText) {
         const parsed = tryParseMarkdown(finalText);
@@ -632,7 +606,6 @@ export function App({
           role: 'assistant',
           content,
           ...(parsed.recovered ? {} : { markdown: parsed.ast }),
-          ...(finalThinking ? { thinking: finalThinking } : {}),
         })));
         if (parsed.recovered) {
           completedMessages.push(identifyPresentation(createNotice({
@@ -664,11 +637,7 @@ export function App({
       permissionResolverRef.current = undefined;
       setPermissionRequest(undefined);
       textRef.current = '';
-      thinkingRef.current = '';
-      hasThinkingRef.current = false;
       setCurrentStreaming('');
-      setCurrentThinking('');
-      setIsThinking(false);
       setIsStreaming(false);
       setActivity(undefined);
     }
@@ -1010,8 +979,6 @@ export function App({
       <MessageList
         messages={messages}
         currentStreaming={currentStreaming}
-        currentThinking={currentThinking}
-        isThinking={isThinking}
         capabilities={capabilities}
       />
 

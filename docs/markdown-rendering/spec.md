@@ -138,3 +138,12 @@ full 和 compact 宽度使用紧凑表格布局；narrow 宽度降级为逐项�
 - AC12：`/help` 在 120/80/55 列下均不出现 `╭`、`╰` 或旧式 `│` 边框，标题和表格与助手回复一致。
 - AC13：命令文档与通知内容均可由 `MarkdownView` 渲染，宽度约束和 ASCII/无颜色降级保持有效。
 - AC14：`pnpm typecheck`、Markdown/UI 专项测试与全量测试通过；`git diff --check` 无冲突标记。
+
+## 增量：不再渲染思考内容
+
+- F19：`MarkdownView` 删除 `thinking` 入参与思考分区渲染，只渲染正文 Markdown AST。
+- F20：`ConversationPresentation` 删除 `thinking` 字段，最终助手消息不再携带思考文本。
+
+### 验收增量
+
+- AC15：无论模型是否返回 `thinking_delta`，Markdown 渲染只输出正文，无 `┊` 思考行。

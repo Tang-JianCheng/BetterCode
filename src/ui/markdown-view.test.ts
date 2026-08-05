@@ -103,34 +103,11 @@ test('彩色模式下树形行使用分类颜色渲染', () => {
   assert.doesNotMatch(frame, /├/u);
 });
 
-test('Apple Terminal 下正文与思考中的破折号以 ASCII 展示', () => {
+test('Apple Terminal 下正文中的破折号以 ASCII 展示', () => {
   const safe = frameText('正文——带破折号', { ...capabilities(80), appleTerminal: true });
   assert.doesNotMatch(safe, /—/u);
   assert.match(safe, /----/u);
 
   const normal = frameText('正文——带破折号', capabilities(80));
   assert.match(normal, /——/u);
-
-  const view = render(React.createElement(MarkdownView, {
-    ast: parseMarkdown('正文'),
-    capabilities: { ...capabilities(80), appleTerminal: true },
-    thinking: '思路—草稿',
-  }));
-  const thinkingFrame = view.lastFrame() ?? '';
-  view.unmount();
-  assert.doesNotMatch(thinkingFrame, /—/u);
-  assert.match(thinkingFrame, /思路--草稿/u);
-});
-
-test('思考内容按列宽硬换行且不越过终端宽度', () => {
-  const view = render(React.createElement(MarkdownView, {
-    ast: parseMarkdown('正文'),
-    capabilities: { ...capabilities(60), appleTerminal: true },
-    thinking: '思'.repeat(120),
-  }));
-  const frame = view.lastFrame() ?? '';
-  view.unmount();
-  for (const line of frame.split('\n')) {
-    assert.ok(displayWidth(line) <= 60, `思考行超过 60 列: ${line.slice(0, 40)}`);
-  }
 });

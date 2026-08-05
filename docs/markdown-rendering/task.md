@@ -270,3 +270,16 @@ T1 与 T5 无代码依赖但 T5 依赖 T2 的类型定义；T6 依赖 T4 和 T5�
 2. `pnpm test` 全量。
 3. `git diff --check`。
 4. 更新四份文档并创建中文提交，如 `功能：命令面板统一走 Markdown 渲染`。
+
+### T19：移除思考展示
+
+**文件：** `src/ui/markdown-view.tsx`、`src/ui/presentation-view.tsx`、`src/presentation/types.ts`、对应测试、`docs/markdown-rendering/*.md`
+
+**步骤：**
+
+1. `MarkdownView` 删除 `thinking` 入参与渲染分支。
+2. `PresentationView` 删除思考行与传参。
+3. 展示契约删除 `thinking` 字段，同步更新测试。
+4. 运行全量检查并创建中文提交。
+
+**验证：** `pnpm check` 与 `git diff --check`。

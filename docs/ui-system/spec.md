@@ -312,3 +312,20 @@ macOS 自带 Terminal 的文本视图在流式重绘含 U+2014 破折号的 UTF-
 - AC39：任意长度的流式文本与 thinking 在显示层都被硬换行，单行显示宽度不超过终端列宽。
 - AC40：Apple Terminal 下所有破折号族字符均以 ASCII 展示，普通终端保持原文。
 - AC41：非 Apple 终端渲染频率与动画频率保持不变。
+
+## 增量：不再展示思考过程内容
+
+### 变更背景
+
+通过 cc-switch 使用 DeepSeek 的 Anthropic 兼容接口时，接口会把模型的思考过程以 `thinking_delta` 返回，导致终端把思考内容当成输出的一部分展示。用户只需要最终回复，不需要思考过程内容。
+
+### 变更内容
+
+- F22：Provider 协议层仍解析 `thinking_delta`，但 `StreamCollector` 直接丢弃，不再转发为 Agent 事件，UI 不再流式展示思考内容。
+- F23：`ConversationPresentation` 删除 `thinking` 字段；`MessageList` 删除 `currentThinking` / `isThinking` 渲染分支，`PresentationView` 与 `MarkdownView` 删除思考分区，最终助手消息不再携带思考文本。
+- F24：活动反馈不再出现“正在整理思路”等思考阶段文案；模型请求阶段仍保留轻量状态提示。
+
+### 验收补充
+
+- AC42：模型返回 `thinking_delta` 时，终端不输出任何思考过程内容，最终回复只包含正文。
+- AC43：流式阶段与历史消息均无思考分区，Apple Terminal 加固中涉及 thinking 的显示出口同步移除。

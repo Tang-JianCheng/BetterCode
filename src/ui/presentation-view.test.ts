@@ -130,33 +130,19 @@ test('树形明细块渲染出缩进与分支线', () => {
   assert.match(renderItem(item, capabilities(100, false)), /     \|- mcp_demo: 421 tokens/u);
 });
 
-test('Apple Terminal 下用户消息与思考内容中的破折号被替换', () => {
+test('Apple Terminal 下用户消息中的破折号被替换', () => {
   const user = renderItem(createConversation({ role: 'user', content: '你好—世界' }), {
     ...capabilities(100), appleTerminal: true,
   });
   assert.doesNotMatch(user, /—/u);
   assert.match(user, /你好--世界/u);
-
-  const thinkingFrame = renderItem(createConversation({
-    role: 'assistant', content: '正文', thinking: '思考—草稿',
-  }), { ...capabilities(100), appleTerminal: true });
-  assert.doesNotMatch(thinkingFrame, /—/u);
-  assert.match(thinkingFrame, /思考--草稿/u);
 });
 
-test('纯文本消息与思考按列宽硬换行，避免超长单行', () => {
+test('纯文本消息按列宽硬换行，避免超长单行', () => {
   const content = 'A'.repeat(120) + ' ' + 'B'.repeat(50);
   const frame = renderItem(createConversation({ role: 'assistant', content }), capabilities(80));
   for (const line of frame.split('\n')) {
     assert.ok(displayWidth(line) <= 80, `行超过 80 列: ${line.slice(0, 40)}`);
   }
   assert.equal(frame.replace(/\n/gu, '').replace(/ /gu, ''), content.replace(/ /gu, ''));
-
-  const thinking = '思'.repeat(120);
-  const thinkingFrame = renderItem(createConversation({
-    role: 'assistant', content: '正文', thinking,
-  }), { ...capabilities(60), appleTerminal: true });
-  for (const line of thinkingFrame.split('\n')) {
-    assert.ok(displayWidth(line) <= 60, `思考行超过 60 列: ${line.slice(0, 40)}`);
-  }
 });

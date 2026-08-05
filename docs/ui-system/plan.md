@@ -665,3 +665,10 @@ src/
 - 新增 `wrapDisplay` 边界测试（ASCII、CJK、保留换行、超宽与空输入）与破折号族替换测试。
 - PresentationView / MarkdownView 新增“长文本与长 thinking 每行不越界”测试，并断言内容不丢失。
 - 运行 UI 专项测试、`pnpm check` 与 `git diff --check`；真实 Apple Terminal 复跑流式长回复与 `/session` 交互。
+
+## 增量：不再展示思考过程内容
+
+- `StreamCollector` 遇到 `thinking_delta` 直接丢弃，`CollectedTurn` 删除 `thinking` 字段，`AgentEvent` 删除 `thinking_delta` 变体。
+- `App` 删除 `thinkingRef`、`currentThinking`、`isThinking` 与“正在整理思路”活动态；流式合帧只刷新正文。
+- `MessageList`、`PresentationView`、`MarkdownView` 删除思考分区渲染，`ConversationPresentation` 删除 `thinking` 字段。
+- Provider 协议层保留 `thinking_delta` 解析能力，但 Agent 层不再对外透传，避免 DeepSeek 等兼容接口的思考内容进入终端。

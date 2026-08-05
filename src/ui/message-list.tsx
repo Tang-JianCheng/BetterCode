@@ -10,10 +10,6 @@ interface Props {
   messages: DisplayMessage[];
   /** 当前正在流式输出的文本 */
   currentStreaming: string;
-  /** 当前正在流式输出的 thinking 内容 */
-  currentThinking: string;
-  /** 是否正在展示 thinking */
-  isThinking: boolean;
   capabilities: TerminalCapabilities;
 }
 
@@ -23,8 +19,6 @@ interface Props {
 export function MessageList({
   messages,
   currentStreaming,
-  currentThinking,
-  isThinking,
   capabilities,
 }: Props) {
   return (
@@ -32,12 +26,6 @@ export function MessageList({
       {messages.map(message => (
         <PresentationView key={message.id} item={message.item} capabilities={capabilities} />
       ))}
-      {isThinking && currentThinking ? (
-        <PresentationView
-          item={{ kind: 'conversation', role: 'assistant', content: '', thinking: currentThinking }}
-          capabilities={capabilities}
-        />
-      ) : undefined}
       {currentStreaming ? (
         <PresentationView
           item={{ kind: 'conversation', role: 'assistant', content: currentStreaming }}

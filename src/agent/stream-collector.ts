@@ -8,7 +8,6 @@ import type { AgentEvent } from './types.js';
 
 export interface CollectedTurn {
   text: string;
-  thinking: string;
   toolCalls: ToolCall[];
   usage?: TokenUsage;
   status: 'completed' | 'cancelled' | 'stream_error';
@@ -24,7 +23,6 @@ export class StreamCollector {
     emit: (event: AgentEvent) => void,
   ): Promise<CollectedTurn> {
     let text = '';
-    let thinking = '';
     const toolCalls: ToolCall[] = [];
     let usage: TokenUsage | undefined;
     let sawDone = false;
@@ -39,8 +37,7 @@ export class StreamCollector {
             emit({ type: 'text_delta', iteration, content: event.content });
             break;
           case 'thinking_delta':
-            thinking += event.content;
-            emit({ type: 'thinking_delta', iteration, content: event.content });
+            // 思考过程内容不进入 Agent 事件流，避免在界面展示。
             break;
           case 'tool_call':
             toolCalls.push(event.call);
@@ -61,7 +58,7 @@ export class StreamCollector {
       streamError = error instanceof Error ? error.message : String(error);
     }
 
-    const base = { text, thinking, toolCalls, usage };
+    const base = { text, toolCalls, usage };
     if (signal.aborted) return { ...base, status: 'cancelled' };
     if (streamError) {
       return { ...base, status: 'stream_error', error: streamError };

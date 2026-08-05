@@ -20,10 +20,6 @@ function ConversationView({
   capabilities: TerminalCapabilities;
 }) {
   const appleTerminal = capabilities.appleTerminal === true;
-  const thinkingLines = wrapDisplay(
-    terminalSafeText(item.thinking ?? '', appleTerminal),
-    Math.max(8, capabilities.columns - 4),
-  );
   const contentLines = wrapDisplay(
     terminalSafeText(item.content, appleTerminal),
     Math.max(8, capabilities.columns - 2),
@@ -31,22 +27,12 @@ function ConversationView({
   if (item.role === 'assistant' && item.markdown) {
     return (
       <Box flexDirection="column" marginBottom={1}>
-        <MarkdownView ast={item.markdown} capabilities={capabilities} thinking={item.thinking} />
+        <MarkdownView ast={item.markdown} capabilities={capabilities} />
       </Box>
     );
   }
   return (
     <Box flexDirection="column" marginBottom={1}>
-      {item.thinking ? thinkingLines.map((line, lineIndex) => (
-        <Box key={`thinking-${lineIndex}`}>
-          <Text color={capabilities.color ? BETTERCODE_THEME.border : undefined}>
-            {capabilities.unicode ? '┊ ' : ': '}
-          </Text>
-          <Text dimColor color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-            {line}
-          </Text>
-        </Box>
-      )) : undefined}
       {contentLines.map((line, lineIndex) => (
         <Box key={`content-${lineIndex}`}>
           {item.role === 'user' && lineIndex === 0 ? (

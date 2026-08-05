@@ -84,13 +84,12 @@ test('collector forwards deltas while collecting a complete response', async () 
 
   const { events, result } = collectWith(provider);
   await Promise.resolve();
-  assert.deepEqual(events.map(event => event.type), ['thinking_delta', 'text_delta']);
+  assert.deepEqual(events.map(event => event.type), ['text_delta']);
   release?.();
 
   const turn = await result;
   assert.equal(turn.status, 'completed');
   assert.equal(turn.text, 'hello world');
-  assert.equal(turn.thinking, 'think ');
   assert.deepEqual(turn.toolCalls.map(call => call.id), ['one', 'two']);
   assert.deepEqual(turn.usage, {
     inputTokens: 10,
@@ -143,7 +142,6 @@ test('collector classifies provider errors, thrown failures and missing done', a
   }));
   assert.deepEqual(await explicit.result, {
     text: '',
-    thinking: '',
     toolCalls: [],
     usage: undefined,
     status: 'stream_error',

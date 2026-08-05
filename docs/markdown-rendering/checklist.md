@@ -137,3 +137,14 @@
 
 - Markdown/UI 专项：27 项通过。
 - 全量：`pnpm check` 退出码 0，共 466 项测试通过，无失败、跳过或挂起句柄。
+
+## 增量验收（不再渲染思考内容）
+
+- [x] **E6：MarkdownView 不再渲染思考**
+  `MarkdownView` 无 `thinking` 入参，输出中不出现 `┊` 思考行。（验证：markdown-view 测试；覆盖 F19、AC15）
+
+- [x] **E7：展示模型无思考字段**
+  `ConversationPresentation` 删除 `thinking`，助手最终回复只带正文与 Markdown AST。（验证：typecheck 与展示测试；覆盖 F20）
+
+- [x] **E8：全量回归**
+  `pnpm check` 通过，`git diff --check` 通过。（验证：本次验收记录）

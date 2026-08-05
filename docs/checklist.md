@@ -33,7 +33,7 @@
 - [ ] **场景 1: 基本对话** — 启动 BetterCode → 输入 "你好" → 观察到 AI 流式逐字返回回复 (AC1)
 - [ ] **场景 2: 多轮记忆** — 输入 "我叫小明" → 输入 "我叫什么名字？" → AI 回答包含 "小明" (AC2)
 - [ ] **场景 3: 协议切换** — 修改 config.yaml 的 protocol 从 anthropic 改为 openai → 重启 → 对话正常 (AC3)
-- [ ] **场景 4: Extended Thinking** — 使用 Anthropic 协议且 `thinking: true` → 对话时观察到 thinking 内容 (AC4)
+- [ ] **场景 4: Extended Thinking** — 使用 Anthropic 协议且 `thinking: true` → 请求包含 thinking 参数；终端不展示思考过程内容 (AC4)
 - [ ] **场景 5: 错误提示** — `api_key` 设为无效值 → 输入问题 → 终端显示中文错误信息，无堆栈 trace (AC5)
 - [ ] **场景 6: 命令支持** — 输入 `/help` 显示帮助 → 输入 `/clear` 清空历史 → 输入 `/exit` 退出
 - [ ] **场景 7: 多供应商切换** — 配置两个供应商 → `--provider <name>` 指定 → 使用指定供应商对话 (AC7)

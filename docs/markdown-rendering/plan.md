@@ -265,3 +265,9 @@ README.md                     （增量说明）
 - `DocumentView` 优先使用 `item.markdown`，否则调用 `presentationDocumentMarkdown(item)`，统一交给 `MarkdownView`。
 - `NoticeView` 保留首行 `MascotMark + 语气标签 · 标题`，正文用 `item.markdown ?? presentationNoticeMarkdown(item)`。
 - 删除旧 `dividerLine`、`formatKeyValues`、`formatTable` 和所有面板边框样式；`/help` 分组标题改用 heading 块。
+
+## 增量：移除思考展示
+
+- `MarkdownView` 删除 `thinking` prop 与思考行渲染；`PresentationView` 不再向 `MarkdownView` 传思考内容。
+- `ConversationPresentation` 删除 `thinking` 字段，`createConversation` 不再携带思考文本。
+- 相关“长 thinking 越界”与“Apple Terminal 思考破折号”测试改为只覆盖正文。

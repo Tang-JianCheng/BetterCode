@@ -51,7 +51,6 @@ export interface ConversationPresentation {
   kind: 'conversation';
   role: 'user' | 'assistant';
   content: string;
-  thinking?: string;
   /** 助手最终回复解析后的 Markdown AST；流式与用户消息不携带 */
   markdown?: MarkdownAst;
 }

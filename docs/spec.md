@@ -43,7 +43,7 @@
 - **AC1: 启动与对话** — 运行 `pnpm start`，终端出现对话界面。输入 "你好"，AI 流式返回回复，每个 token 逐个出现。
 - **AC2: 多轮对话** — 在同一会话中连续输入 "我叫小明"，再输入 "我叫什么名字？"，AI 能回答出 "小明"。
 - **AC3: YAML 配置切换** — 修改 `config.yaml`，将 `protocol` 从 `anthropic` 改为 `openai`（或反过来），重启后能正常调用对应的 API 后端。
-- **AC4: Extended Thinking** — 使用 Anthropic 协议且 `thinking: true` 时，API 请求中包含 extended thinking 参数，返回中可见 thinking 内容或标记。
+- **AC4: Extended Thinking** — 使用 Anthropic 协议且 `thinking: true` 时，API 请求中包含 extended thinking 参数；即使返回含思考内容，BetterCode 终端也不展示思考过程。
 - **AC5: 错误提示** — 配置 `api_key` 为无效值，启动后输入问题，终端显示明确的中文错误信息（如"API 认证失败，请检查 api_key 配置"），而非堆栈 trace。
 - **AC6: tmux 端到端** — 按照 CLAUDE.md 验收流程，在 tmux 中完成一次完整对话（启动 → 提问 → 流式回复 → 追问 → 退出），行为符合预期。
 - **AC7: 多供应商切换** — 配置文件中配置两个供应商，一个标记 `default: true`。分别验证：不传参时使用默认供应商、`--provider <name>` 指定其他供应商、无 default 标记且不传参时交互式选择。

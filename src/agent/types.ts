@@ -29,7 +29,6 @@ export type AgentProgressStage =
 
 export type AgentEvent = ContextEvent
   | { type: 'text_delta'; iteration: number; content: string }
-  | { type: 'thinking_delta'; iteration: number; content: string }
   | { type: 'tool_call'; iteration: number; call: ToolCall }
   | { type: 'permission_request'; iteration: number; request: PermissionRequest }
   | {

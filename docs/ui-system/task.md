@@ -630,6 +630,21 @@ T5、T6 和 T8 在各自依赖满足后可并行；T15 与 T17 共享交互和�
 
 **验证：** 19 项 UI 专项测试、`pnpm check`、`git diff --check` 与真实 TUI 启动。
 
+## T40：移除思考过程内容展示
+
+**文件：** `src/agent/stream-collector.ts`、`src/agent/types.ts`、`src/ui/app.tsx`、`src/ui/message-list.tsx`、`src/ui/presentation-view.tsx`、`src/ui/markdown-view.tsx`、`src/presentation/types.ts` 及对应测试、`docs/ui-system/*.md`、`docs/markdown-rendering/*.md`
+
+**依赖：** T39
+
+**步骤：**
+
+1. `StreamCollector` 丢弃 `thinking_delta`，`CollectedTurn` 删除 `thinking` 字段，`AgentEvent` 删除 `thinking_delta` 变体。
+2. `App` 删除思考 ref / state / 活动态，最终消息不再附加 thinking。
+3. `MessageList`、`PresentationView`、`MarkdownView` 删除思考分区，`ConversationPresentation` 删除 `thinking` 字段。
+4. 测试同步：collector 不再转发 thinking；PresentationView / MarkdownView 删除思考用例。
+
+**验证：** `pnpm check` 与 `git diff --check` 通过。
+
 ## T39：Apple Terminal 再次加固
 
 **文件：** `src/ui/capabilities.ts`、`src/ui/presentation-view.tsx`、`src/ui/markdown-view.tsx`、`src/ui/app.tsx`、`src/ui/activity-indicator.tsx`、对应测试、`docs/ui-system/spec.md`、`docs/ui-system/plan.md`、`docs/ui-system/task.md`、`docs/ui-system/checklist.md`

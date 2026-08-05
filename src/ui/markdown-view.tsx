@@ -7,7 +7,7 @@ import type {
   MarkdownSegmentStyle,
 } from '../markdown/types.js';
 import { renderMarkdown } from '../markdown/renderer.js';
-import { terminalSafeText, wrapDisplay, type TerminalCapabilities } from './capabilities.js';
+import { terminalSafeText, type TerminalCapabilities } from './capabilities.js';
 import { BETTERCODE_THEME, type ThemeColor } from './theme.js';
 
 const COLOR_MAP: Record<MarkdownColor, ThemeColor> = {
@@ -63,15 +63,11 @@ function SegmentText({
 export interface MarkdownViewProps {
   ast: MarkdownAst;
   capabilities: TerminalCapabilities;
-  thinking?: string;
 }
 
 /** 把已解析的 Markdown 行片段映射为 Ink 组件 */
-export function MarkdownView({ ast, capabilities, thinking }: MarkdownViewProps) {
+export function MarkdownView({ ast, capabilities }: MarkdownViewProps) {
   const appleTerminal = capabilities.appleTerminal === true;
-  const thinkingLines = thinking
-    ? wrapDisplay(terminalSafeText(thinking, appleTerminal), Math.max(8, capabilities.columns - 4))
-    : [];
   const lines = useMemo(() => renderMarkdown(ast, {
     columns: Math.max(20, capabilities.columns - 2),
     unicode: capabilities.unicode,
@@ -80,16 +76,6 @@ export function MarkdownView({ ast, capabilities, thinking }: MarkdownViewProps)
 
   return (
     <Box flexDirection="column">
-      {thinkingLines.map((line, lineIndex) => (
-        <Box key={`thinking-${lineIndex}`}>
-          <Text color={capabilities.color ? BETTERCODE_THEME.border : undefined}>
-            {capabilities.unicode ? '┊ ' : ': '}
-          </Text>
-          <Text dimColor color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-            {line}
-          </Text>
-        </Box>
-      ))}
       {lines.map((line, lineIndex) => (
         <Box key={`${lineIndex}-${line.indent ?? 0}`} paddingLeft={line.indent ?? 0}>
           <Text>

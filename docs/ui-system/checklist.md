@@ -432,3 +432,14 @@
 - 专项：`wrapDisplay`、破折号族替换、长文本与长 thinking 越界测试通过。
 - 全量：`pnpm check` 退出码 0，全量 498 项测试通过；`git diff --check` 通过。
 - 手工：真实 Apple Terminal 复跑流式长回复与 `/session` 交互，连续使用未再出现终端进程关闭；其他终端显示无变化。
+
+## 增量：不再展示思考过程内容
+
+- [x] **C95：思考内容不进入 Agent 事件**
+  Provider 的 `thinking_delta` 在 StreamCollector 被丢弃，`AgentEvent` 无思考事件，UI 无思考状态。（验证：stream-collector 测试；覆盖 AC42）
+
+- [x] **C96：展示模型无思考字段**
+  `ConversationPresentation` 删除 `thinking`，MessageList / PresentationView / MarkdownView 无思考分区，最终回复只渲染正文。（验证：presentation / markdown-view 测试；覆盖 F23、AC43）
+
+- [x] **C97：回归与提交**
+  全量测试通过，`git diff --check` 通过，创建中文提交。（验证：本次验收记录）
