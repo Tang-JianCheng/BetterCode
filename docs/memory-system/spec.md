@@ -135,3 +135,50 @@ BetterCode 默认是无状态的：每次启动都是全新会话，不知道用
 ### 集成- **AC24（系统提示注入）**：初始化时先调注入动作再追加身份系统提醒 → 对话首条消息是合并后的系统提醒，包含项目指令段、自动记忆段、当日日期段。
 - **AC25（幂等）**：同一个会话管理器实例上重复调用注入动作 → 仅注入一次。
 - **AC26（端到端崩溃恢复）**：对话几轮 → 杀掉进程 → 重启 → 恢复列表中含该会话 ID → 按 ID 恢复 → 后续消息追加在同一文件。
+
+## 增量：记忆治理（MemoryGovernor）
+
+### 变更背景
+
+自动笔记是"只进不出"：每轮提取都会新增记忆文件，但缺少去重、合并、矛盾协调与过期淘汰，长跑后 `.bettercode/memory/` 会积累重复、过时甚至互相矛盾的条目，`MEMORY.md` 索引还可能在 200 行 / 25KB 上限处被静默截断，部分记忆悄悄丢失。本章补一个后台治理器：在后台由一次 LLM 调用分四阶段（定位 → 收集信号 → 整理 → 修剪索引）梳理全部记忆，产出操作清单并落盘执行。
+
+### 目标
+
+- G9：自动识别并处理重复、过时、错误与互相矛盾的记忆条目，避免记忆库无限膨胀。
+- G10：治理全程尽力而为、不阻塞主流程；任何一步失败都不影响 Agent 主循环与会话。
+- G11：治理前先归档受影响条目的原文，误删可恢复。
+- G12：索引超限（200 行 / 25KB 被截断）时给出明确提示，而不是静默丢弃。
+
+### 功能需求
+
+- **F40（触发时机）**：`MemoryGovernor.maybeRun(provider)` 在满足以下全部条件时才在后台执行整理，任一不满足直接返回不执行：
+  - 记忆目录（项目级或用户级）存在，且至少有一篇笔记；
+  - 距上次**成功整理**超过 `minIntervalMs`（默认 24 小时）；
+  - 距上次**触发尝试**超过 `scanThrottleMs`（默认 10 分钟）；
+  - 会话存档目录 `.bettercode/sessions/` 下有效 `.jsonl` 文件数 ≥ `minSessionCount`（默认 5）；
+  - 成功获取治理锁（防并发）。
+- **F41（状态持久化）**：治理状态写入 `.bettercode/memory/.governance.json`（600 权限），字段含 `lastGovernedAt`、`lastAttemptAt`、`runCount`、`lastError`；每次 `maybeRun` 先更新 `lastAttemptAt`，成功整理后更新 `lastGovernedAt` 与 `runCount`。
+- **F42（治理锁）**：`.bettercode/memory/.governance.lock` 用排他创建（`flag: 'wx'`）实现；已存在且超过 `lockTimeoutMs`（默认 30 分钟）视为陈旧锁，删除后重试；获取失败返回"锁占用"不执行。
+- **F43（四阶段整理）**：`run(provider)` 构造一次无工具 LLM 调用，系统提示把治理过程划分为四个阶段并输出结构化操作清单：
+  - 阶段 1 定位：枚举全部记忆（name / type / description / mtime / 正文截断）；
+  - 阶段 2 收集信号：识别重复相似、过时过期、错误临时、互相矛盾；
+  - 阶段 3 整理：产出操作清单；
+  - 阶段 4 修剪索引：确保操作后的条目会被索引收录。
+- **F44（操作清单）**：LLM 只输出 JSON `{"actions":[{"action","targets","into","description","content","reason"}]}`，`action ∈ keep|delete|merge|update`。解析只取首个 `{}` 块，解析失败整轮静默跳过。
+- **F45（安全校验）**：执行前逐条校验——`targets` 必须命中已加载记忆文件（排除 `MEMORY.md`、隐藏文件、`@` 开头文件）；`merge` 必须有 `into` 与 `content`；`update` 必须有 `content` 且 `targets` 长度 1；`reason` 非空。非法操作丢弃并计入忽略数。
+- **F46（作用域保持）**：`merge` 与 `update` 沿用 `targets[0]` 的作用域（project/reference 写项目级、user/feedback 写用户级），保证双路路由不被治理破坏。
+- **F47（归档备份）**：执行前把将被 `delete` / `merge` 源 / `update` 覆盖的原文复制到 `.bettercode/memory/.archive/<时间戳>/<文件名>`，误删可手动恢复。
+- **F48（索引修剪与超限提示）**：整理完成后重建 `MEMORY.md` 索引；重建前按行数 / 字节上限预计算，若超限则记录被截断（排序后从尾部掉出）的记忆名，随治理结果返回 `indexOverflow` 提示。
+- **F49（触发接入）**：`ChatManager` 在每轮 Agent 自然完成后的后台任务里调用 `governor.maybeRun(provider)`，与记忆提取同位置、同生命周期；失败静默吞掉。
+- **F50（命令支持）**：`/memory` 面板在详情里展示治理状态（距上次整理、会话数门槛、最近运行结果与是否发生索引截断），便于用户感知。
+
+### 验收标准
+
+- **AC27（门控跳过）**：记忆目录为空、距上次整理不足 24h、会话数 < 5、或锁被占用 → `maybeRun` 返回 `{ ran: false, reason }`，不发起 LLM 调用。
+- **AC28（状态持久化）**：执行一次整理 → `.governance.json` 的 `lastGovernedAt` 更新、`runCount` 递增；再次立即 `maybeRun` 被时间门拦下。
+- **AC29（去重合并）**：mock 返回 `merge` 操作 → 合并后新文件出现、源文件删除、作用域与源一致；归档目录保留源原文。
+- **AC30（错误/过期删除）**：mock 返回 `delete` 操作 → 目标文件删除，`MEMORY.md` 不再含其条目。
+- **AC31（矛盾解决）**：mock 返回对同一主题的 `update` → 目标文件被覆盖为新正文，其余文件不变。
+- **AC32（非法操作拒绝）**：mock 返回指向 `MEMORY.md`、隐藏文件或未知文件的 `delete` → 被忽略，目标文件保留。
+- **AC33（索引超限提示）**：构造超过 200 行 / 25KB 的记忆集 → 整理后结果携带 `indexOverflow.overflow=true` 与被截断名单。
+- **AC34（触发接入不回归）**：默认会话数 < 5 时每轮完成后的后台 `maybeRun` 直接返回，不新增 LLM 调用（不影响既有提取调用计数）。

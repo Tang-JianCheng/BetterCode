@@ -708,3 +708,61 @@ T5、T6 和 T8 在各自依赖满足后可并行；T15 与 T17 共享交互和�
 5. 运行 UI 专项测试、全量检查和 120 列真彩终端手工验收。
 
 **验证：** 19 项 UI 专项测试、`pnpm check`、`git diff --check` 与真实 TUI 启动。
+
+## T42：终端 resize 自适应
+
+**文件：** `src/ui/app.tsx`、`src/ui/app.test.ts`
+
+**步骤：**
+
+1. `App` 增加 `resize` 事件监听（`stdout.on('resize')`），事件触发一次重渲染。
+2. 确认 `capabilities` 每次渲染用 `stdout.columns` 重算，折行、面板、边框随列宽更新。
+
+**验证：** resize 事件触发不崩溃；输入框与消息折行跟随新列宽。
+
+## T43：工具调用折叠视图
+
+**文件：** `src/presentation/types.ts`、`src/presentation/builders.ts`、`src/command/presenters.ts`、`src/ui/tool-trace.tsx`、`src/ui/presentation-view.tsx`、`src/ui/message-list.tsx`、`src/ui/app.tsx`、`src/ui/input-box.tsx`
+
+**步骤：**
+
+1. 新增 `ToolTracePresentation` 与 `createToolTrace`，`presentationToPlainText` 支持导出。
+2. 新增 `ToolTraceView`：折叠一行摘要、展开逐条明细、`live` 实时模式；`summarizeToolArguments` / `summarizeToolResult` / `toolResultStatus` 纯函数。
+3. `App` 在事件流里按 `callId` 累积轨迹，流式期间实时展示，停止后折叠保留并清空；`InputBox` 增加 `onEmptyEnter`，`toggleSignal` 自增信号穿透消息列表。
+
+**验证：** `tool-trace.test.ts`、`app.test.ts` 工具轨迹用例、全量检查。
+
+## T44：可开关的极简状态行
+
+**文件：** `src/command/builtins.ts`、`src/command/types.ts`、`src/ui/status-line.tsx`、`src/ui/app.tsx`
+
+**步骤：**
+
+1. 新增 `/statusline` 命令（别名 `sl`）与 `CommandUIController.toggleStatusLine`。
+2. 新增 `StatusLine` 组件并渲染在输入区底部，默认开启，流式期间也常驻；`/status` 一次性展示保留。
+3. 状态行通过 `chatManager.getContextUsage(activeProvider, agentMode)` 展示当前上下文真实占用与窗口容量（`上下文 <占用>/<容量>`），App 用 `useMemo` 在消息/模式变化时重算，避免流式合帧期间全量重复估算。
+
+**验证：** `app.test.ts` 状态行开关、上下文占用与窗口容量用例、命令测试。
+
+## T45：主题预设
+
+**文件：** `src/ui/theme.ts`、`src/config/types.ts`、`src/config/loader.ts`、`src/bootstrap/application.ts`
+
+**步骤：**
+
+1. `theme.ts` 三套预设，`BETTERCODE_THEME` 改 getter 转发，新增 `applyTheme` / `resolveThemeName`。
+2. `config.yaml` 支持 `ui.theme` 并严格校验；启动按 环境变量 > 配置 > 默认 应用。
+
+**验证：** `theme.test.ts`、`loader.test.ts` ui 用例、全量检查。
+
+## T46：Shift+Tab 循环切换权限模式
+
+**文件：** `src/ui/raw-input.ts`、`src/ui/input-box.tsx`、`src/ui/app.tsx`
+
+**步骤：**
+
+1. `RawInputParser` 将 `\x1b[Z`（Shift+Tab）从 `tab` 拆分为独立 `shifttab` 事件。
+2. `InputBox` 增加 `onShiftTab` 回调，`shifttab` 事件触发该回调且不参与补全。
+3. `App` 按 `strict → default → allow` 循环切换权限模式并通知；状态行实时显示新模式。
+
+**验证：** `raw-input.test.ts`、`input-box.test.ts`、`app.test.ts` Shift+Tab 用例、全量检查。

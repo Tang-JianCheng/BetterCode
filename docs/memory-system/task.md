@@ -267,3 +267,19 @@ T14 (TUI /rewind + FileHistory)     ── 依赖 T6/T10/T11
 T15 (测试)                           ── 依赖 T1/T2/T5
 T16 (启动清理)                       ── 依赖 T2/T11
 ```
+
+## T17：记忆治理 MemoryGovernor
+
+**文件：** `src/memory/governor.ts`、`src/memory/governor.test.ts`
+
+**步骤：**
+
+1. 实现 `MemoryGovernor`：状态读写（`.governance.json`）、治理锁（`.governance.lock` 排他创建 + 陈旧超时）、门控 `maybeRun`（目录存在 → 24h 时间门 → 10min 扫描节流 → 会话数 ≥5 → 锁）。
+2. 实现四阶段治理 prompt 与 LLM 调用（无工具、JSON 输出 `{"actions":[...]}`），解析只取首个 `{}` 块。
+3. 实现安全校验：`targets` 必须命中已加载记忆文件（排除 `MEMORY.md` / 隐藏文件），`merge`/`update` 的必填字段校验，非法操作丢弃并计数。
+4. 实现执行：统一归档 `.archive/<ts>/` 原文 → 逐条 `delete`/`merge`/`update`/`keep`，作用域沿用源；完成后 `rebuildIndex()`。
+5. 实现索引超限预计算（`MAX_ENTRYPOINT_LINES` / `MAX_ENTRYPOINT_BYTES`）→ 返回 `indexOverflow`。
+6. 接入 `ChatManager.scheduleMemoryGovernance`：每轮自然完成后的后台任务调用 `maybeRun(provider)`，失败静默。
+7. 编写单测：门控跳过、状态持久化、去重合并、错误删除、矛盾 update、非法操作拒绝、索引超限提示、归档备份。
+
+**验证：** `pnpm exec tsx --test src/memory/governor.test.ts src/memory/manager.test.ts` 与全量 `pnpm check`。

@@ -505,3 +505,102 @@ tests/
 | Conversation 长期记忆注入 | `injectLongTermMemory(instructions, memories)` + `ltmInjected` 守门 | 一次性写到首条 system-reminder；同一 `ConversationManager` 不重复注入；恢复会话时新建实例自然再次注入 |
 | `/resume` 列表上限 | 前 10 条 | 命令行回显场景下 10 条足够辨识；超出走列目录直接看 |
 | 命令派发 | `commands.ts` 注册 `local_ui` 类型 + handler 返回 token | 既能复用统一的命令注册管道，又把具体的 UI 状态变更集中在 `App.handleSlashCommand` 内，便于读 stream/state |
+
+## 增量：记忆治理（MemoryGovernor）
+
+### 架构概览
+
+新增 `src/memory/governor.ts`，独立于提取器，专做记忆库的整理与淘汰。治理是"尽力而为"的后台动作：门控决定是否跑、一次 LLM 调用产出操作清单、代码校验后落盘执行、归档原文、重建索引并报告截断。
+
+| 新增 | 模块 | 职责 |
+|------|------|------|
+| 新增 | `src/memory/governor.ts` | 门控（时间/扫描/会话/锁）、四阶段 prompt、操作解析与安全校验、执行（删除/合并/更新）、归档、索引修剪与超限提示 |
+| 修改 | `src/chat/manager.ts` | 每轮自然完成后的后台任务里调用 `governor.maybeRun(provider)` |
+| 修改 | `src/command/presenters.ts` | `/memory` 面板展示治理状态（可选） |
+
+### 数据流
+
+```
+[AgentLoop onLoopComplete]
+   └─ ChatManager.scheduleMemoryGovernance(provider)
+         └─ governor.maybeRun(provider)
+               ├─ 记忆目录存在?  → no → {ran:false}
+               ├─ 距上次成功整理 < 24h?  → yes → {ran:false}   // 时间门
+               ├─ 距上次尝试 < 10min?  → yes → {ran:false}     // 扫描节流
+               ├─ sessions/*.jsonl 数 < 5? → yes → {ran:false}  // 会话门
+               ├─ 获取 .governance.lock 失败? → yes → {ran:false} // 防并发
+               ├─ 更新 lastAttemptAt → 后台 run(provider)
+               │     ├─ 枚举全部记忆 → 构造四阶段 prompt
+               │     ├─ LLM 输出 {"actions":[...]}
+               │     ├─ 安全校验（排除 MEMORY.md/隐藏/未知文件）
+               │     ├─ 归档 .archive/<ts>/*.md
+               │     ├─ 执行 delete / merge / update / keep
+               │     ├─ rebuildIndex() → 检查超限 → indexOverflow
+               │     └─ 更新 lastGovernedAt / runCount
+               └─ finally 释放锁
+```
+
+### 核心数据结构
+
+```typescript
+export interface MemoryGovernanceOptions {
+  minIntervalMs?: number;    // 距上次成功整理最小间隔，默认 24h
+  scanThrottleMs?: number;   // 距上次触发尝试的节流，默认 10min
+  minSessionCount?: number;  // 会话门，默认 5
+  lockTimeoutMs?: number;    // 锁过期，默认 30min
+  maxCandidates?: number;    // 传给 LLM 的记忆上限，默认 60
+}
+
+export interface GovernancePlanAction {
+  action: 'keep' | 'delete' | 'merge' | 'update';
+  targets: string[];         // 被处理的文件名（不含 .md）
+  into?: string;             // merge 的目标文件名
+  description?: string;
+  content?: string;          // merge/update 的新正文
+  reason: string;
+}
+
+export interface GovernanceState {
+  lastGovernedAt?: string;
+  lastAttemptAt?: string;
+  runCount: number;
+  lastError?: string;
+}
+
+export interface GovernanceResult {
+  ran: boolean;
+  reason?: string;
+  actions?: readonly GovernancePlanAction[];
+  executed: { deleted: string[]; merged: string[]; updated: string[]; kept: string[] };
+  ignored: number;
+  archiveCount: number;
+  indexOverflow?: { overflow: boolean; droppedNames: string[] };
+}
+
+export class MemoryGovernor {
+  constructor(manager: MemoryManager, options?: MemoryGovernanceOptions);
+  maybeRun(provider: LLMProvider): Promise<GovernanceResult>;
+  run(provider: LLMProvider): Promise<GovernanceResult>;
+  state(): GovernanceState;
+}
+```
+
+### 模块设计
+
+- **状态文件** `.bettercode/memory/.governance.json`（600）：`loadState` 解析失败回退空状态；`maybeRun` 先写 `lastAttemptAt`（保证节流生效），成功整理后写 `lastGovernedAt` / `runCount`。
+- **治理锁** `.governance.lock`：`writeFileSync(path, data, { flag: 'wx' })`；`ENOENT` 目录不存在由上层门控挡住；`EEXIST` 读锁内容判断是否陈旧（超过 `lockTimeoutMs` 则删除重试一次）；任何其他异常都视为"获取失败"返回。
+- **四阶段 prompt**：系统提示写明四个阶段与输出约束；用户消息把每篇记忆编码为 `[name] (type) mtime=<ISO> description=<desc> content=<前 5000 字符>`；候选超过 `maxCandidates` 时按 mtime 倒序取前 `maxCandidates`。
+- **解析**：复用 `findRelevantMemories` 的 JSON 提取模式（`indexOf('{')` 到 `lastIndexOf('}')` → `JSON.parse`），失败静默返回空动作。
+- **执行**：先按文件收集待归档集合（delete 目标、merge 源、update 目标）统一归档到 `.archive/<时间戳>/`；随后逐条执行，每步 try/catch 隔离；`merge` 写 `into`（作用域沿用 `targets[0]`）、删源；`update` 覆盖 `targets[0]`；`keep` 仅计数。
+- **索引超限**：重建索引前按 `MAX_ENTRYPOINT_LINES / MAX_ENTRYPOINT_BYTES` 预计算排序后能收录的条数，超限的尾部记忆名进入 `droppedNames`。
+
+### 技术决策
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| 触发接入点 | `ChatManager.scheduleMemoryGovernance`（onLoopComplete 后台任务） | 与记忆提取同生命周期、同门控模式，最贴合"积累会话→整理" |
+| 门控顺序 | 目录 → 24h → 10min → 会话数 → 锁 | 先低成本条件、后高成本（锁文件）与 LLM 调用，尽早返回 |
+| 治理执行 | 一次 LLM 调用 + 结构化 JSON 清单，代码校验后落盘 | 可单测、可控、失败可隔离；不引入子 Agent 异步黑盒 |
+| 归档 | `.archive/<时间戳>/` 保留原文 | 治理可能误判，归档提供手动恢复 |
+| 作用域保持 | merge/update 沿用源记忆作用域 | 不破坏 project/user 双路路由 |
+| 索引超限提示 | 预计算 droppedNames 返回 | 让"静默截断"变成可见提示，用户可手动精简 |

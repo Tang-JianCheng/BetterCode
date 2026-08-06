@@ -66,10 +66,28 @@ export interface NoticePresentation {
   markdown?: MarkdownAst;
 }
 
+export interface ToolTraceEntry {
+  callId: string;
+  toolName: string;
+  status: 'running' | 'success' | 'error' | 'denied';
+  /** 工具参数的紧凑 JSON 摘要 */
+  args?: string;
+  /** 工具输出的摘要文本 */
+  result?: string;
+}
+
+export interface ToolTracePresentation {
+  kind: 'tool_trace';
+  source: 'agent' | 'team' | 'system';
+  title: string;
+  entries: readonly ToolTraceEntry[];
+}
+
 export type PresentationItem =
   | ConversationPresentation
   | PresentationDocument
-  | NoticePresentation;
+  | NoticePresentation
+  | ToolTracePresentation;
 
 export interface IdentifiedPresentation {
   id: string;

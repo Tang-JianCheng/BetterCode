@@ -2,6 +2,7 @@ import type {
   ConversationPresentation,
   NoticePresentation,
   PresentationDocument,
+  ToolTracePresentation,
 } from './types.js';
 import {
   presentationDocumentMarkdown,
@@ -55,4 +56,10 @@ export function createConversation(
   input: Omit<ConversationPresentation, 'kind'>,
 ): ConversationPresentation {
   return { ...input, kind: 'conversation' };
+}
+
+export function createToolTrace(
+  input: Omit<ToolTracePresentation, 'kind'>,
+): ToolTracePresentation {
+  return { ...input, title: requireTitle(input.title), kind: 'tool_trace' };
 }

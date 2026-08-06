@@ -1,5 +1,5 @@
 import type { AgentMode } from '../agent/types.js';
-import type { MemoryStatus } from '../chat/manager.js';
+import type { MemoryGovernanceStatus, MemoryStatus } from '../chat/manager.js';
 import type { ContextUsageEntry, ContextUsageSnapshot } from '../context/types.js';
 import type { MarkdownColor } from '../markdown/types.js';
 import type { PermissionMode, PermissionStatus } from '../permission/types.js';
@@ -42,21 +42,31 @@ function commandUsage(definition: CommandDefinition): string {
   return definition.usage || `/${definition.name}`;
 }
 
-function contextGridCells(contextWindow: number, columns?: number): number {
-  const target = Math.max(12, Math.round(contextWindow / 5_000));
-  const fit = Math.max(12, columns ? Math.floor((columns - 48) / 2) : 60);
-  return Math.min(target, fit);
+// 每个格子代表 5k Token，格子多些更直观
+const CONTEXT_CELL_TOKENS = 5_000;
+// 每行最多展示 20 个格子
+const CONTEXT_CELLS_PER_ROW = 20;
+// 并排布局（格子左、分类右）所需的最小列宽；更窄时回退为上下布局
+const CONTEXT_SIDE_BY_SIDE_MIN_COLUMNS = 76;
+
+function contextGridCellCount(contextWindow: number): number {
+  return Math.max(1, Math.ceil(contextWindow / CONTEXT_CELL_TOKENS));
 }
 
-function contextGridPrefix(
+function contextUsedCellCount(usedTokens: number, cellCount: number): number {
+  const used = Math.round(usedTokens / CONTEXT_CELL_TOKENS);
+  // 只要有用量就至少渲染 1 个占用格，避免大窗口下“全是空格子”看不出占用
+  if (usedTokens > 0 && used === 0) return 1;
+  return Math.max(0, Math.min(cellCount, used));
+}
+
+function contextGridColors(
   cellCount: number,
   usedCells: number,
-  usedGlyph: string,
-  freeGlyph: string,
   shares: readonly { color: MarkdownColor; tokens: number }[],
-): readonly { text: string; color?: MarkdownColor }[] {
+): MarkdownColor[] {
   const usedTokens = shares.reduce((sum, share) => sum + share.tokens, 0);
-  const cellColors: MarkdownColor[] = [];
+  const colors: MarkdownColor[] = [];
   if (usedTokens > 0) {
     const boundaries = shares.map(share => share.tokens / usedTokens * usedCells);
     let cumulative = 0;
@@ -66,32 +76,35 @@ function contextGridPrefix(
         cumulative += boundaries[categoryIndex];
         categoryIndex += 1;
       }
-      cellColors.push(shares[categoryIndex].color);
+      colors.push(shares[categoryIndex].color);
     }
   }
+  while (colors.length < cellCount) colors.push('muted');
+  return colors;
+}
+
+function contextGridRowPrefix(
+  colors: readonly MarkdownColor[],
+  rowIndex: number,
+  usedGlyph: string,
+  freeGlyph: string,
+): readonly { text: string; color?: MarkdownColor }[] {
+  const start = rowIndex * CONTEXT_CELLS_PER_ROW;
+  const rowColors = colors.slice(start, start + CONTEXT_CELLS_PER_ROW);
   const segments: { text: string; color?: MarkdownColor }[] = [];
-  let start = 0;
-  while (start < cellColors.length) {
-    const color = cellColors[start];
-    let end = start + 1;
-    while (end < cellColors.length && cellColors[end] === color) end += 1;
+  let cursor = 0;
+  while (cursor < rowColors.length) {
+    const color = rowColors[cursor]!;
+    const glyph = color === 'muted' ? freeGlyph : usedGlyph;
+    let end = cursor + 1;
+    while (end < rowColors.length && rowColors[end] === color) end += 1;
     if (segments.length > 0) segments.push({ text: ' ', color: 'muted' });
     segments.push({
-      text: Array.from({ length: end - start }, () => usedGlyph).join(' '),
+      text: Array.from({ length: end - cursor }, () => glyph).join(' '),
       color,
     });
-    start = end;
+    cursor = end;
   }
-  if (cellColors.length > 0 && usedCells < cellCount) {
-    segments.push({ text: ' ', color: 'muted' });
-  }
-  if (usedCells < cellCount) {
-    segments.push({
-      text: Array.from({ length: cellCount - usedCells }, () => freeGlyph).join(' '),
-      color: 'muted',
-    });
-  }
-  segments.push({ text: '   ', color: 'muted' });
   return segments;
 }
 
@@ -148,11 +161,9 @@ export function buildContextUsagePresentation(
   snapshot: ContextUsageSnapshot,
   options: ContextUsageRenderOptions = {},
 ): PresentationItem {
-  const cellCount = contextGridCells(snapshot.contextWindow, options.columns);
-  const usedCells = Math.max(0, Math.min(
-    cellCount,
-    Math.round((snapshot.usedTokens / snapshot.contextWindow) * cellCount),
-  ));
+  // 每格代表 5k Token，每行最多 20 格；占用格按实际用量渲染，杜绝“全空格子”
+  const cellCount = contextGridCellCount(snapshot.contextWindow);
+  const usedCells = contextUsedCellCount(snapshot.usedTokens, cellCount);
   const usedGlyph = options.unicode === false ? '#' : '⛁';
   const freeGlyph = options.unicode === false ? '.' : '⛶';
   const categoryShares = [
@@ -162,67 +173,85 @@ export function buildContextUsagePresentation(
     { color: 'brand' as MarkdownColor, tokens: snapshot.skillsTokens },
     { color: 'danger' as MarkdownColor, tokens: snapshot.messagesTokens },
   ];
-  const grid = (filled: number) => contextGridPrefix(
-    cellCount,
-    filled,
-    usedGlyph,
-    freeGlyph,
-    categoryShares,
-  );
+  const gridColors = contextGridColors(cellCount, usedCells, categoryShares);
+  const rowCount = Math.ceil(cellCount / CONTEXT_CELLS_PER_ROW);
+  const gridRowPrefixes: ReadonlyArray<readonly { text: string; color?: MarkdownColor }[]> =
+    Array.from({ length: rowCount }, (_, row) =>
+      contextGridRowPrefix(gridColors, row, usedGlyph, freeGlyph));
   const freeTokens = Math.max(0, snapshot.contextWindow - snapshot.usedTokens);
+  const usageLine = `${formatCompactTokens(snapshot.usedTokens)} / ${formatCompactTokens(snapshot.contextWindow)} tokens ` +
+    `(${usagePercent(snapshot.usedTokens, snapshot.contextWindow)})`;
+  // 分类汇总行：单占用/空闲图标 + 文字，颜色与分类一致
   const categoryLines: PresentationTreeLine[] = [
     {
-      prefixSegments: grid(usedCells),
-      content: `${snapshot.model}${contextWindowSuffix(snapshot.contextWindow)}`,
-      color: 'text',
-    },
-    {
-      prefixSegments: grid(0),
-      content: `${formatCompactTokens(snapshot.usedTokens)} / ${formatCompactTokens(snapshot.contextWindow)} tokens ` +
-        `(${usagePercent(snapshot.usedTokens, snapshot.contextWindow)})`,
-      color: 'text',
-    },
-    { prefixSegments: grid(0), content: '' },
-    { prefixSegments: grid(0), content: '*Estimated usage by category*' },
-    {
-      prefixSegments: grid(0),
       content: `${usedGlyph} System prompt: ${formatCompactTokens(snapshot.systemPromptTokens)} tokens ` +
         `(${usagePercent(snapshot.systemPromptTokens, snapshot.contextWindow)})`,
       color: 'info',
     },
     {
-      prefixSegments: grid(0),
       content: `${usedGlyph} System tools: ${formatCompactTokens(snapshot.systemToolsTokens)} tokens ` +
         `(${usagePercent(snapshot.systemToolsTokens, snapshot.contextWindow)}) · ${snapshot.systemToolCount} tools`,
       color: 'success',
     },
     {
-      prefixSegments: grid(0),
       content: `${usedGlyph} MCP tools: ${formatCompactTokens(snapshot.mcpToolsTokens)} tokens ` +
         `(${usagePercent(snapshot.mcpToolsTokens, snapshot.contextWindow)}) · ${snapshot.mcpToolCount} tools`,
       color: 'warning',
     },
     {
-      prefixSegments: grid(0),
       content: `${usedGlyph} Skills: ${formatCompactTokens(snapshot.skillsTokens)} tokens ` +
         `(${usagePercent(snapshot.skillsTokens, snapshot.contextWindow)})`,
       color: 'brand',
     },
     {
-      prefixSegments: grid(0),
       content: `${usedGlyph} Messages: ${formatCompactTokens(snapshot.messagesTokens)} tokens ` +
         `(${usagePercent(snapshot.messagesTokens, snapshot.contextWindow)}) · ${snapshot.messageCount} 条消息`,
       color: 'danger',
     },
     {
-      prefixSegments: grid(0),
       content: `${freeGlyph} Free space: ${formatCompactTokens(freeTokens)} tokens ` +
         `(${usagePercent(freeTokens, snapshot.contextWindow)})`,
       color: 'muted',
     },
   ];
+  // 右侧汇总区：模型、总占用、标题与六个分类
+  const rightLines: { content: string; color?: MarkdownColor }[] = [
+    { content: `${snapshot.model}${contextWindowSuffix(snapshot.contextWindow)}`, color: 'text' },
+    { content: usageLine, color: 'text' },
+    { content: '', color: 'text' },
+    { content: '*Estimated usage by category*', color: 'text' },
+    ...categoryLines,
+  ];
+  // 网格区宽度：每行格子数 * 2 - 1（格子间空格），用于窄屏对齐
+  const gridWidth = Math.min(CONTEXT_CELLS_PER_ROW, cellCount) * 2 - 1;
+  const blankPrefix = [{ text: ' '.repeat(Math.max(0, gridWidth)), color: 'muted' as const }];
+  const sideBySide = options.columns === undefined || options.columns >= CONTEXT_SIDE_BY_SIDE_MIN_COLUMNS;
+  const totalRows = Math.max(gridRowPrefixes.length, rightLines.length);
+  const lines: PresentationTreeLine[] = [];
+  for (let index = 0; index < totalRows; index += 1) {
+    const gridPrefix = gridRowPrefixes[index] ?? blankPrefix;
+    const right = rightLines[index];
+    if (sideBySide) {
+      lines.push({
+        prefixSegments: [...gridPrefix, { text: '  ', color: 'muted' }],
+        content: right?.content ?? '',
+        color: right?.color,
+      });
+    } else if (index < gridRowPrefixes.length) {
+      // 窄屏回退：网格在上，分类信息在下
+      lines.push({
+        prefixSegments: gridPrefix,
+        content: index === 0
+          ? `${snapshot.model}${contextWindowSuffix(snapshot.contextWindow)}`
+          : '',
+        color: 'text',
+      });
+    } else {
+      lines.push({ content: right?.content ?? '', color: right?.color });
+    }
+  }
   const blocks: PresentationBlock[] = [
-    { type: 'tree', lines: categoryLines },
+    { type: 'tree', lines },
     detailSection('System tools', snapshot.systemToolEntries, 'success'),
     detailSection('MCP tools', snapshot.mcpToolEntries, 'warning'),
     detailSection('Skills', snapshot.skillEntries, 'brand'),
@@ -362,16 +391,38 @@ export function buildStatusPresentation(status: CommandStatusSnapshot): Presenta
   });
 }
 
-export function buildMemoryPresentation(status: MemoryStatus): PresentationItem {
+export function buildMemoryPresentation(
+  status: MemoryStatus,
+  governance?: MemoryGovernanceStatus,
+): PresentationItem {
+  const entries = [
+    { label: '用户级', value: `${status.userCount} 条` },
+    { label: '项目级', value: `${status.projectCount} 条` },
+    { label: '用户目录', value: status.userDirectory },
+    { label: '项目目录', value: status.projectDirectory },
+  ];
+  if (governance) {
+    entries.push({
+      label: '上次整理',
+      value: governance.lastGovernedAt
+        ? new Date(governance.lastGovernedAt).toLocaleString()
+        : '从未',
+    });
+    entries.push({ label: '整理次数', value: String(governance.runCount) });
+    if (governance.indexOverflow.overflow) {
+      entries.push({
+        label: '索引截断',
+        value: `${governance.indexOverflow.droppedNames.length} 条记忆未被索引（超 200 行 / 25KB），可手动精简记忆文件`,
+      });
+    }
+    if (governance.lastError) {
+      entries.push({ label: '上次失败', value: governance.lastError });
+    }
+  }
   return createDocument({
     source: 'command', title: '长期记忆', tone: 'info', badge: 'MEMORY', blocks: [{
       type: 'key_value',
-      entries: [
-        { label: '用户级', value: `${status.userCount} 条` },
-        { label: '项目级', value: `${status.projectCount} 条` },
-        { label: '用户目录', value: status.userDirectory },
-        { label: '项目目录', value: status.projectDirectory },
-      ],
+      entries,
     }],
   });
 }
@@ -452,6 +503,13 @@ export function presentationToPlainText(item: PresentationItem): string {
   if (item.kind === 'conversation') return item.content;
   if (item.kind === 'notice') {
     return [item.title, item.message, ...(item.details ?? [])].filter(Boolean).join('\n');
+  }
+  if (item.kind === 'tool_trace') {
+    return [
+      item.title,
+      ...item.entries.map(entry =>
+        `- [${entry.status}] ${entry.toolName}${entry.args ? ` ${entry.args}` : ''}${entry.result ? ` · ${entry.result}` : ''}`),
+    ].join('\n');
   }
   const lines = [item.title];
   for (const block of item.blocks) {

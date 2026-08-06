@@ -9,6 +9,8 @@ import type {
   TeamConfig,
   TeamCustomTerminalConfig,
   TeamProcessTemplateConfig,
+  ThemeName,
+  UiConfig,
   WorktreeConfig,
   WorktreeCopyRuleConfig,
 } from './types.js';
@@ -43,6 +45,8 @@ const TEAM_PROCESS_FIELDS = new Set(['command', 'args']);
 const TEAM_TEMPLATE_PLACEHOLDERS = new Set(['worker_descriptor', 'cwd', 'pane_id']);
 const CC_SWITCH_FIELDS = new Set(['enabled', 'claude']);
 const CC_SWITCH_CLAUDE_FIELDS = new Set(['name', 'model', 'thinking', 'context_window']);
+const UI_FIELDS = new Set(['theme']);
+const UI_THEMES = new Set<ThemeName>(['dark', 'light', 'high-contrast']);
 
 /**
  * 校验单个 provider 配置，不合法时抛 Error。
@@ -403,6 +407,19 @@ function parseCcSwitch(value: unknown): CcSwitchConfig | undefined {
   };
 }
 
+function parseUi(value: unknown): UiConfig | undefined {
+  if (value === undefined) return undefined;
+  const raw = record(value, 'ui');
+  assertKnownFields(raw, UI_FIELDS, 'ui');
+  if (raw.theme !== undefined) {
+    if (typeof raw.theme !== 'string' || !UI_THEMES.has(raw.theme as ThemeName)) {
+      throw new Error(`ui.theme 必须是 dark、light 或 high-contrast，当前值: "${String(raw.theme)}"`);
+    }
+    return { theme: raw.theme as ThemeName };
+  }
+  return {};
+}
+
 /**
  * 读取并解析 YAML 配置文件。
  * @param path 配置文件路径，默认 ./config.yaml
@@ -473,11 +490,13 @@ export function loadConfig(path: string = './config.yaml'): AppConfig {
   const worktrees = parseWorktrees(obj.worktrees);
   const teams = parseTeams(obj.teams);
   const ccSwitch = parseCcSwitch(obj.cc_switch);
+  const ui = parseUi(obj.ui);
   if (agentModels) config.agent_models = agentModels;
   if (subagents) config.subagents = subagents;
   if (worktrees) config.worktrees = worktrees;
   if (teams) config.teams = teams;
   if (ccSwitch) config.cc_switch = ccSwitch;
+  if (ui && ui.theme) config.ui = ui;
 
   return config;
 }

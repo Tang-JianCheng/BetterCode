@@ -53,6 +53,17 @@ test('状态与记忆 presenter 保留结构化数据', () => {
   });
   assert.match(presentationToPlainText(status), /BetterCode 状态.*deepseek-chat.*PLAN.*暂无用量数据/su);
   assert.match(presentationToPlainText(buildMemoryPresentation(memory)), /用户级: 2 条/u);
+
+  const governance = {
+    lastGovernedAt: '2026-08-06T10:00:00.000Z',
+    runCount: 3,
+    indexOverflow: { overflow: true, droppedNames: ['zeta'] },
+  };
+  const governed = buildMemoryPresentation(memory, governance);
+  assert.match(presentationToPlainText(governed), /上次整理/u);
+  assert.match(presentationToPlainText(governed), /整理次数: 3/u);
+  assert.match(presentationToPlainText(governed), /索引截断/u);
+  assert.match(presentationToPlainText(governed), /1 条记忆未被索引/u);
 });
 
 test('命令错误使用危险通知而不是助手消息', () => {
@@ -113,12 +124,22 @@ test('上下文 presenter 渲染动态格子和分类下嵌套明细', () => {
   assert.equal(byContent(/Skills:/u)?.color, 'brand');
   assert.equal(byContent(/Messages:/u)?.color, 'danger');
   assert.equal(byContent(/Free space:/u)?.color, 'muted');
-  assert.ok((byContent(/System tools:/u)?.prefixSegments ?? []).length > 0);
+  // 分类行在并排布局中位于格子右侧：prefixSegments 是网格前缀，content 以单个图标开头
+  assert.ok((byContent(/System tools:/u)?.prefixSegments?.length ?? 0) > 0);
+  assert.match(byContent(/System tools:/u)?.content ?? '', /^# /u, 'ASCII 模式占用图标为 #');
+  assert.match(byContent(/Free space:/u)?.content ?? '', /^\. /u, 'ASCII 模式空闲图标为 .');
   assert.equal(grid.lines.some(line => line.branch), false);
-  const modelLine = byContent(/deepseek-v4-flash/u);
-  assert.ok(modelLine?.prefixSegments?.some(segment =>
+  // 网格：1M 窗口 200 格（5k/格）= 10 行，每行最多 20 格；分类信息并排在网格右侧
+  const gridRowCount = 10;
+  assert.equal(grid.lines.length, gridRowCount, '1M 窗口应渲染 10 行网格');
+  const modelLine = grid.lines[0];
+  assert.match(modelLine.content, /deepseek-v4-flash/u);
+  assert.ok(modelLine.prefixSegments?.some(segment =>
     ['info', 'success', 'warning', 'brand', 'danger'].includes(segment.color ?? '')));
-  assert.ok(modelLine?.prefixSegments?.some(segment => segment.color === 'muted'));
+  assert.ok(modelLine.prefixSegments?.some(segment => segment.color === 'muted'));
+  for (const line of grid.lines) {
+    assert.ok((line.prefixSegments?.length ?? 0) > 0, '每行都应有格子前缀');
+  }
 
   const colored = buildContextUsagePresentation({
     ...snapshot,
@@ -133,10 +154,13 @@ test('上下文 presenter 渲染动态格子和分类下嵌套明细', () => {
     ? colored.blocks.find((block): block is Extract<typeof block, { type: 'tree' }> =>
         block.type === 'tree')
     : undefined;
-  const coloredCells = coloredGrid?.lines[0].prefixSegments?.filter(segment =>
-    ['info', 'success', 'warning', 'brand', 'danger'].includes(segment.color ?? ''))
-    .map(segment => segment.color) ?? [];
-  assert.deepEqual(coloredCells, ['info', 'success', 'warning', 'brand', 'danger']);
+  const coloredCells = (coloredGrid?.lines ?? [])
+    .flatMap(line => line.prefixSegments ?? [])
+    .filter(segment =>
+      ['info', 'success', 'warning', 'brand', 'danger'].includes(segment.color ?? ''))
+    .map(segment => segment.color);
+  // 五类各占 24 格（120k / 5k），跨行渲染后颜色集合应覆盖全部五类
+  assert.deepEqual([...new Set(coloredCells)].sort(), ['brand', 'danger', 'info', 'success', 'warning']);
 
   const detailTrees = trees.slice(1);
   assert.ok(detailTrees.every(tree => tree.lines.some(line => line.branch)));

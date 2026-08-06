@@ -9,7 +9,7 @@ function fakeUi(messages: string[]): CommandUIController {
     showMessage: content => messages.push(content),
     showPresentation: item => messages.push(item.kind === 'notice'
       ? `${item.title}\n${item.message ?? ''}`
-      : item.kind === 'document' ? item.title : item.content),
+      : item.kind === 'document' || item.kind === 'tool_trace' ? item.title : item.content),
     async sendUserMessage() {},
     async runSkill() {},
     setAgentMode() {},
@@ -24,6 +24,7 @@ function fakeUi(messages: string[]): CommandUIController {
     showOrSetPermission() {},
     showStatus() {},
     showContextUsage() {},
+    toggleStatusLine() {},
     showSubAgentTasks() {},
     async manageTeam() {},
     rewindConversation() {},

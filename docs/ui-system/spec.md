@@ -343,3 +343,122 @@ macOS 自带 Terminal 的文本视图在流式重绘含 U+2014 破折号的 UTF-
 ### 验收补充
 
 - AC44：Apple Terminal 下启动出现“终端稳定性提示”，其他终端不出现。
+
+## 增量：输入框支持粘贴与 Shift+Enter 换行
+
+### 变更背景
+
+输入框此前基于 Ink 的 `useInput`，遇到含控制字符的粘贴内容会把整个分片丢弃（复制带换行的文本时表现为“无法粘贴”）；Enter 只能提交，无法在输入内容中插入换行。
+
+### 变更内容
+
+- F26：输入框改用 `RawInputParser` 直接解析 `internal_eventEmitter` 的原始终端分片，不再依赖 `useInput`。回车提交、Tab 补全、方向键历史/候选、Backspace/Esc 等既有行为保持不变；`Ctrl+C` / `Ctrl+B` 仍由应用层处理。
+- F27：输入框挂载时向真实终端发送括号粘贴模式序列（`\x1b[?2004h`，卸载时 `\x1b[?2004l`），粘贴内容按字面插入并统一换行符，不会因结尾换行触发提交；测试环境的假 stdout 不发送该序列。
+- F28：Shift+Enter（`\x1b[13;2u`）与 Option/Alt+Enter（`\x1b[13;3u`、`\x1b\r`）插入 `\n`，实现多行输入；Enter 仍提交，Ctrl+Enter 仍提交。无法区分的终端（如 Apple Terminal 把 Shift+Enter 当普通回车）按提交处理。
+- F29：输入内容按 `wrapDisplay` 逐行展示，光标位于最后一行行尾；光标作为行的兄弟 `Text` 节点渲染，避免嵌套在 `Text` 内导致 Ink 增量重绘时首次更新丢失光标。
+
+### 验收补充
+
+- AC45：复制带换行的文本粘贴进输入框按字面插入，不触发提交；按 Enter 才提交完整内容。
+- AC46：Shift+Enter 插入换行且不提交；候选列表关闭、历史导航等原有交互不受影响。
+- AC47：多行输入逐行展示，光标固定在最后一行行尾；`pnpm check` 相关专项测试通过。
+
+## 增量：输入框光标位置模型与多行编辑
+
+### 变更背景
+
+支持粘贴与 Shift+Enter 换行后，输入内容仍以纯字符串追加在尾部：左右/Home/End 事件被解析器识别却被直接忽略，Backspace 只删末字符，光标渲染固定在最后一行行尾。多行输入无法回头修改前面的行。
+
+### 变更内容
+
+- F30：输入框新增光标位置模型（`cursor` 为输入串内 UTF-16 下标，配 `cursorRef` 与批量事件处理保持同步）。文本、粘贴、换行都在光标处插入并前移光标。
+- F31：左右方向键按字素簇移动光标（`Intl.Segmenter`，CJK/组合字符一次移动一格，跳过视觉折行）；Home/End 跳转当前逻辑行（以 `\n` 分隔）首/尾；Backspace 删除光标前、Delete（`\x1b[3~`）删除光标后。`\x7f`（真实终端 Backspace 键发送的 DEL）按删除光标前处理。
+- F32：光标渲染不再固定在末行：新增 `buildInputLayout`（与 `wrapDisplay` 同规则的视觉行拆分，含每行字符起点）与 `cursorLocation`（光标 → 视觉行 + 行内偏移），光标作为行内兄弟 `Text` 渲染在对应位置。
+- F33：多行输入（输入含 `\n`）时在输入框顶部边框下方显示轻量提示「⏎ Shift+Enter 换行 · Enter 发送」（ASCII 环境无 `⏎`）。
+- F34：候选列表与历史交互不回归：候选打开时上下方向键仍用于选择；未开候选时上下仍走历史导航。
+
+### 验收补充
+
+- AC48：光标可在多行输入中左右移动、Home/End 跳行首尾，Backspace/Delete 分别删除前后字符，插入点跟随光标。
+- AC49：多行输入显示 Shift+Enter 换行提示，单行输入不显示；ASCII 环境不输出 `⏎`。
+- AC50：候选面板打开时上下键选择、历史导航、Tab 补全与 Esc 收起行为与改动前一致；`pnpm check` 相关专项测试通过。
+
+## 增量：终端 resize 自适应
+
+### 变更背景
+
+终端窗口缩放后，`capabilities.columns` 仍是启动时的旧值：折行、面板宽度、边框都按旧列宽渲染，从窄窗口拉宽时内容仍被硬换行，从宽窗口收窄时直接溢出。
+
+### 变更内容
+
+- F35：`App` 监听 `stdout` 的 `resize` 事件，事件触发一次重渲染；`capabilities` 每次渲染都用 `stdout.columns` 重算，折行宽度、面板、边框按新列宽布局。
+
+### 验收补充
+
+- AC51：终端窗口缩放后输入框、消息折行、面板与边框宽度跟随新列宽；`resize` 事件不崩溃。
+
+## 增量：工具调用折叠视图
+
+### 变更背景
+
+工具执行反馈只依赖 `ActivityIndicator` 的当前工具文本，历史工具调用没有记录；任务结束后用户无法回顾 Agent 执行了哪些工具、结果如何。
+
+### 变更内容
+
+- F36：新增 `ToolTracePresentation` 展示类型（`src/presentation/types.ts`），条目含工具名、执行状态（running/success/error/denied）、参数摘要与结果摘要；`presentationToPlainText` 支持其纯文本导出。
+- F37：新增 `ToolTraceView`（`src/ui/tool-trace.tsx`）：折叠时一行「▶ 工具调用 × N」，展开时逐条列出状态符号、工具名、参数与结果；`live` 模式（流式期间）始终展开并显示进行中状态。`summarizeToolArguments` / `summarizeToolResult` / `toolResultStatus` 为可测纯函数。
+- F38：`App` 在 Agent 事件流里累积工具轨迹：`tool_call` 追加 running 条目，`tool_result` 按 `callId` 更新状态与结果；流式期间在活动指示器下方实时展示，任务结束后以折叠展示项保留在消息列表并清空实时轨迹。
+- F39：输入为空且无候选时按 Enter 切换最近工具轨迹的折叠/展开（`InputBox` 新增 `onEmptyEnter` 回调；`toggleSignal` 自增信号穿透到 `MessageList`/`PresentationView`/`ToolTraceView`）。
+
+### 验收补充
+
+- AC52：任务期间实时显示工具轨迹，结束后折叠为「工具调用 × N」摘要，空 Enter 展开/收起明细。
+- AC53：拒绝类结果（`PERMISSION_*` / `HOOK_DENIED`）以单独状态标记，不误标为执行失败；ASCII 环境不输出 `✓✗⚙⛔▶▼` 等 Unicode 装饰。
+
+## 增量：可开关的极简状态行
+
+### 变更背景
+
+README 明确「不再常驻状态栏」，但运行信息只能通过 `/status` 一次性查询；部分场景希望输入区附近常驻一行极简状态又不影响整洁。
+
+### 变更内容
+
+- F40：新增 `/statusline` 命令（别名 `sl`），切换输入区底部常驻状态行显示，默认开启。
+- F41：新增 `StatusLine`（`src/ui/status-line.tsx`），展示 `供应商/模型 · [DEFAULT|PLAN] · 权限模式 · 上下文 <占用>/<容量> · 会话 ID`，按列宽截断；占用与容量来自 `chatManager.getContextUsage`（当前上下文的真实估算占用与窗口容量，紧凑 `k`/`m` 格式），消息或模式变化时重算刷新，流式期间也常驻；`/status` 的一次性展示保持不变。
+- F45（状态行实时性）：`agentMode` 同时维护 React state 与 ref，`/plan`、`/do` 切换触发重渲染，状态行模式实时更新。
+
+### 验收补充
+
+- AC54：`/statusline` 开/关常驻状态行，默认开启；状态行显示当前上下文真实占用与窗口容量（如 `上下文 20k/128k`），流式期间常驻，消息或模式变化后刷新。
+
+## 增量：主题预设
+
+### 变更背景
+
+`theme.ts` 是硬编码色板，`BETTERCODE_THEME` 为常量引用，无法切换；深色终端之外缺少亮色、高对比场景。
+
+### 变更内容
+
+- F42：`theme.ts` 提供 `dark` / `light` / `high-contrast` 三套预设，`BETTERCODE_THEME` 改为 getter 转发当前激活主题，现有组件 import 不变即可实时读到新色板；`applyTheme` / `currentThemeName` / `resolveThemeName` 提供解析与切换。
+- F43：`config.yaml` 新增 `ui.theme`（取值 `dark`、`light`、`high-contrast`），`AppConfig` 增加 `ui` 配置并在 `loader` 严格校验；启动时按 环境变量 `BETTERCODE_THEME` > `ui.theme` > 默认 `dark` 应用。
+- F44：`NO_COLOR` / 16 色降级仍由 `capabilities.color` 控制，主题只影响色板不改变降级逻辑；三套主题品牌色保持一致。
+
+### 验收补充
+
+- AC55：`BETTERCODE_THEME=light`、`BETTERCODE_THEME=high-contrast` 或 `ui.theme` 配置切换色板；非法值回退默认。
+- AC56：`ui.theme` 非法值或未知字段被配置校验拒绝；主题相关专项测试通过。
+
+## 增量：Shift+Tab 循环切换权限模式
+
+### 变更背景
+
+权限模式只能通过 `/permission [模式]` 手动切换，无法快速在 strict / default / allow 之间轮转。
+
+### 变更内容
+
+- F46：`RawInputParser` 把 `\x1b[Z`（Shift+Tab）从 `tab` 事件拆分为独立的 `shifttab` 事件；普通 Tab 仍用于命令补全，二者互不干扰。
+- F47：`InputBox` 新增 `onShiftTab` 回调；`App` 按 `strict → default → allow` 顺序循环切换权限模式（`chatManager.setPermissionMode` + 成功通知），状态行中的权限模式随切换实时刷新。
+
+### 验收补充
+
+- AC57：输入框聚焦时按 Shift+Tab 循环切换权限模式（strict → default → allow → strict），状态行实时更新；普通 Tab 补全行为不变。

@@ -134,3 +134,13 @@
 1. README 命令表增加 `/context`。
 2. 四份文档按最终实现同步。
 3. 全量 `pnpm check` 与 `git diff --check` 通过。
+
+## T11: 网格按 5k/格并排渲染
+
+**文件：** `src/command/presenters.ts`、`src/command/presenters.test.ts`
+
+1. 新增 `contextGridCellCount`（`ceil(contextWindow / 5_000)`）、`contextUsedCellCount`（`round(usedTokens / 5_000)`，有用量至少 1 格）、`contextGridColors`、`contextGridRowPrefix`，替换原 `contextGridCells` / `contextGridPrefix`。
+2. `buildContextUsagePresentation` 生成 `gridRowPrefixes`（每行 ≤20 格）与右侧 `rightLines`（模型名 / 总占用 / `*Estimated usage by category*` / 六个分类行），按 `totalRows` 逐行合并为同一 tree 实现并排；列宽 < 76 时回退上下布局。
+3. 测试断言：1M 窗口渲染 10 行网格且每行有格子前缀、首行既有占用色又有空格；分类行 `content` 以 `#`/`.` 开头；五类颜色跨行覆盖。
+
+**验证：** `pnpm test src/command/presenters.test.ts src/ui/app.test.ts` 与全量 `pnpm check`。

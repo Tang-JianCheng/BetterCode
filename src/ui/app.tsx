@@ -37,7 +37,7 @@ import type { SkillDiagnostic } from '../skill/types.js';
 import type { AgentDefinitionDiagnostic, SubAgentEvent } from '../subagent/types.js';
 import { formatTaskDetail, formatTaskList } from '../subagent/format.js';
 import { tryParseMarkdown } from '../markdown/parser.js';
-import { createConversation, createNotice } from '../presentation/builders.js';
+import { createConversation, createNotice, createToolTrace } from '../presentation/builders.js';
 import type { PresentationItem, PresentationTone } from '../presentation/types.js';
 import { InputBox } from './input-box.js';
 import { MessageList, type DisplayMessage } from './message-list.js';
@@ -52,6 +52,14 @@ import {
 } from './model-dialog.js';
 import { detectTerminalCapabilities, terminalEnvironmentFromProcess } from './capabilities.js';
 import { StartupBrand } from './mascot.js';
+import type { ToolTraceEntry } from '../presentation/types.js';
+import { StatusLine } from './status-line.js';
+import {
+  summarizeToolArguments,
+  summarizeToolResult,
+  toolResultStatus,
+  ToolTraceView,
+} from './tool-trace.js';
 import {
   ActivityIndicator,
   type ActivityStage,
@@ -293,6 +301,16 @@ export function App({
 }: Props) {
   const { exit } = useApp();
   const { stdout } = useStdout();
+  // 终端窗口缩放时重新渲染：capabilities 每次渲染都用 stdout.columns 重算，
+  // resize 事件只负责触发一次重渲染，让折行宽度、面板与边框按新列宽布局。
+  const [, setResizeTick] = useState(0);
+  useEffect(() => {
+    const onResize = () => setResizeTick(tick => tick + 1);
+    stdout.on('resize', onResize);
+    return () => {
+      stdout.off('resize', onResize);
+    };
+  }, [stdout]);
   const capabilities = detectTerminalCapabilities({
     ...terminalEnvironmentFromProcess(),
     columns: Math.max(20, (stdout.columns ?? 80) - 2),
@@ -344,6 +362,12 @@ export function App({
   const [isStreaming, setIsStreaming] = useState(false);
   const [activity, setActivity] = useState<ActivityState | undefined>();
   const [usage, setUsage] = useState<TokenUsage | undefined>();
+  // 状态行默认开启，可随时用 /statusline 关闭
+  const [statusLineVisible, setStatusLineVisible] = useState(true);
+  const [traceEntries, setTraceEntries] = useState<ToolTraceEntry[]>([]);
+  const [traceToggle, setTraceToggle] = useState(0);
+  // 工具轨迹在异步事件流里累积，用 ref 同步读取，避免 finally 里读到旧 state。
+  const traceRef = useRef<ToolTraceEntry[]>([]);
   const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | undefined>();
   const [promptHistory, setPromptHistory] = useState(() => chatManager.getPromptHistory());
   const [rewindSnapshots, setRewindSnapshots] = useState(() => chatManager.getSnapshots());
@@ -369,7 +393,11 @@ export function App({
       : STREAMING_FLUSH_INTERVAL_MS,
   );
   const abortRef = useRef<AbortController | undefined>();
+  // agentMode 同时用 state 和 ref：state 保证 /plan /do 等切换触发重渲染，
+  // ref 供事件流回调在重渲染前读到最新值。
+  const [agentMode, setAgentModeState] = useState<AgentMode>('act');
   const agentModeRef = useRef<AgentMode>('act');
+  agentModeRef.current = agentMode;
   const permissionResolverRef = useRef<{
     requestId: string;
     resolve: (choice: PermissionChoice) => void;
@@ -412,7 +440,7 @@ export function App({
   }, [appendPresentation]);
 
   const setAgentMode = useCallback((mode: AgentMode) => {
-    agentModeRef.current = mode;
+    setAgentModeState(mode);
   }, []);
 
   useEffect(() => chatManager.subscribeMemorySaved(names => {
@@ -557,12 +585,32 @@ export function App({
               stage: 'executing_tool', label: '准备调用工具', iteration: event.iteration,
               toolName: event.call.name, startedAt: Date.now(),
             });
+            {
+              const entry: ToolTraceEntry = {
+                callId: event.call.id,
+                toolName: event.call.name,
+                status: 'running',
+                args: summarizeToolArguments(event.call.arguments),
+              };
+              traceRef.current = [...traceRef.current, entry];
+              setTraceEntries([...traceRef.current]);
+            }
             break;
           case 'tool_result':
             setActivity({
               stage: 'executing_tool', label: '工具已返回', iteration: event.iteration,
               toolName: event.call.name, startedAt: Date.now(),
             });
+            traceRef.current = traceRef.current.map(entry => (
+              entry.callId === event.call.id
+                ? {
+                    ...entry,
+                    status: toolResultStatus(event.result),
+                    result: summarizeToolResult(event.result.output),
+                  }
+                : entry
+            ));
+            setTraceEntries([...traceRef.current]);
             break;
           case 'permission_request':
             setActivity({
@@ -636,6 +684,16 @@ export function App({
         message: errorMessage,
         source: 'agent',
       })));
+      if (traceRef.current.length > 0) {
+        // 本次任务的工具调用轨迹以折叠展示项保留在消息列表，按 Enter 展开/收起
+        completedMessages.push(identifyPresentation(createToolTrace({
+          title: '工具调用',
+          source: 'agent',
+          entries: [...traceRef.current],
+        })));
+      }
+      traceRef.current = [];
+      setTraceEntries([]);
       if (completedMessages.length > 0) {
         setMessages(previous => [...previous, ...completedMessages]);
       }
@@ -802,7 +860,10 @@ export function App({
   }, [appendNotice, chatManager]);
 
   const showMemoryStatus = useCallback(() => {
-    appendPresentation(buildMemoryPresentation(chatManager.getMemoryStatus()));
+    appendPresentation(buildMemoryPresentation(
+      chatManager.getMemoryStatus(),
+      chatManager.getMemoryGovernanceStatus(),
+    ));
   }, [appendPresentation, chatManager]);
 
   const showOrSetPermission = useCallback((mode?: PermissionMode) => {
@@ -813,6 +874,15 @@ export function App({
     chatManager.setPermissionMode(mode);
     appendNotice('权限模式已切换', mode, 'success');
   }, [appendNotice, appendPresentation, chatManager]);
+
+  // Shift+Tab 循环切换权限模式：strict → default → allow → strict
+  const cyclePermissionMode = useCallback(() => {
+    const order: readonly PermissionMode[] = ['strict', 'default', 'allow'];
+    const current = chatManager.getPermissionStatus().mode;
+    const next = order[(order.indexOf(current) + 1 + order.length) % order.length];
+    chatManager.setPermissionMode(next);
+    appendNotice('权限模式已切换', next, 'success');
+  }, [appendNotice, chatManager]);
 
   const showOrSwitchModel = useCallback(() => {
     const active = providers.find(item => item.name === activeProvider.name);
@@ -952,6 +1022,7 @@ export function App({
     showOrSetPermission,
     showStatus,
     showContextUsage,
+    toggleStatusLine: () => setStatusLineVisible(visible => !visible),
     showSubAgentTasks,
     manageTeam,
     rewindConversation,
@@ -984,6 +1055,18 @@ export function App({
     if (result.status === 'not_command') await sendAgentMessage(input);
   }, [chatManager, commandDispatcher, commandUi, sendAgentMessage]);
 
+  // 输入为空按 Enter 时切换最近的工具调用折叠视图；无工具轨迹时不做任何事。
+  const handleToggleTrace = useCallback(() => {
+    if (!messages.some(message => message.item.kind === 'tool_trace')) return;
+    setTraceToggle(tick => tick + 1);
+  }, [messages]);
+
+  // 状态栏的上下文占用快照：消息或模式变化时重算一次，流式合帧期间不重复全量估算。
+  const contextSnapshot = useMemo(
+    () => chatManager.getContextUsage(activeProvider, agentMode),
+    [activeProvider, agentMode, chatManager, messages],
+  );
+
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1}>
       <StartupBrand capabilities={capabilities} version="0.1.0" />
@@ -992,6 +1075,7 @@ export function App({
         messages={messages}
         currentStreaming={currentStreaming}
         capabilities={capabilities}
+        toggleSignal={traceToggle}
       />
 
       {modelDialogActive ? (
@@ -1034,6 +1118,9 @@ export function App({
           {activity ? (
             <ActivityIndicator activity={activity} capabilities={capabilities} />
           ) : <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>Agent 正在运行</Text>}
+          {traceEntries.length > 0 ? (
+            <ToolTraceView entries={traceEntries} capabilities={capabilities} live />
+          ) : undefined}
           <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>Ctrl+C 取消当前任务</Text>
           {chatManager.hasForegroundSubAgent() ? (
             <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
@@ -1042,15 +1129,32 @@ export function App({
           ) : undefined}
         </Box>
       ) : (
-        <InputBox
-          onSubmit={handleSubmit}
-          disabled={false}
-          history={promptHistory}
-          complete={input => commandRegistry.complete(input)}
-          capabilities={capabilities}
-          focused={!rewindDialogActive && !permissionRequest}
-        />
+        <Box flexDirection="column">
+          <InputBox
+            onSubmit={handleSubmit}
+            disabled={false}
+            history={promptHistory}
+            complete={input => commandRegistry.complete(input)}
+            capabilities={capabilities}
+            focused={!rewindDialogActive && !permissionRequest}
+            onEmptyEnter={handleToggleTrace}
+            onShiftTab={cyclePermissionMode}
+          />
+        </Box>
       )}
+      {statusLineVisible ? (
+        // 状态行固定在输入区底部，流式期间也常驻，展示当前上下文的真实占用与窗口容量
+        <StatusLine
+          providerName={activeProvider.name}
+          model={activeProvider.model}
+          agentMode={agentMode}
+          permissionMode={chatManager.getPermissionStatus().mode}
+          contextTokens={contextSnapshot.usedTokens}
+          contextWindow={contextSnapshot.contextWindow}
+          sessionId={chatManager.getSessionId()}
+          capabilities={capabilities}
+        />
+      ) : undefined}
     </Box>
   );
 }

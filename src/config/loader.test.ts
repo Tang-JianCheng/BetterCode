@@ -173,6 +173,39 @@ ${extra}`);
   }
 });
 
+test('ui 主题配置解析', async t => {
+  const file = await withConfig(t);
+  await writeFile(file, `providers:
+  - name: test
+    protocol: openai
+    model: model
+    base_url: https://example.test
+    api_key: key
+ui:
+  theme: high-contrast
+`);
+  const config = loadConfig(file);
+  assert.equal(config.ui?.theme, 'high-contrast');
+});
+
+test('ui 主题配置拒绝非法值与未知字段', async t => {
+  const cases = [
+    ['ui:\n  theme: neon\n', /dark、light 或 high-contrast/],
+    ['ui:\n  unknown: true\n', /未知字段/],
+  ] as const;
+  for (const [extra, expected] of cases) {
+    const file = await withConfig(t);
+    await writeFile(file, `providers:
+  - name: test
+    protocol: openai
+    model: model
+    base_url: https://example.test
+    api_key: key
+${extra}`);
+    assert.throws(() => loadConfig(file), expected);
+  }
+});
+
 test('cc_switch 配置解析与缺省 enabled', async t => {
   const file = await withConfig(t);
   await writeFile(file, `providers:

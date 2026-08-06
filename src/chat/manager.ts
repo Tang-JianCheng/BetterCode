@@ -18,6 +18,7 @@ import type { ContextManagerOptions } from '../context/types.js';
 import { FileHistory, type Snapshot } from '../filehistory/filehistory.js';
 import * as promptHistory from '../history/history.js';
 import { MemoryExtractor } from '../memory/extractor.js';
+import { MemoryGovernor } from '../memory/governor.js';
 import { MemoryManager } from '../memory/manager.js';
 import { SessionSummarizer } from '../session/summarizer.js';
 import {
@@ -51,6 +52,8 @@ export interface ChatManagerMemoryOptions {
   sessionSummaries?: boolean;
   userHome?: string;
   sessionPersistence?: boolean;
+  /** 是否启用后台记忆治理（去重合并/过期清理/矛盾解决），默认 true */
+  governance?: boolean;
 }
 
 export interface ChatManagerSkillOptions {
@@ -73,6 +76,14 @@ export interface MemoryStatus {
   projectDirectory: string;
   userCount: number;
   projectCount: number;
+}
+
+/** /memory 面板展示的记忆治理状态。 */
+export interface MemoryGovernanceStatus {
+  lastGovernedAt?: string;
+  runCount: number;
+  lastError?: string;
+  indexOverflow: { overflow: boolean; droppedNames: string[] };
 }
 
 export type RewindMode = 'code_and_conversation' | 'conversation_only' | 'code_only';
@@ -101,9 +112,11 @@ export class ChatManager {
   private readonly contextManager: ContextManager;
   private readonly rootDir: string;
   private readonly memoryManager: MemoryManager;
+  private readonly memoryGovernor: MemoryGovernor;
   private memoryExtractor: MemoryExtractor;
   private readonly sessionSummarizer = new SessionSummarizer();
   private readonly autoExtract: boolean;
+  private readonly governanceEnabled: boolean;
   private readonly sessionSummaries: boolean;
   private readonly sessionPersistence: boolean;
   private readonly memorySavedListeners = new Set<MemorySavedListener>();
@@ -128,9 +141,11 @@ export class ChatManager {
   ) {
     this.rootDir = toolRegistry.rootDir;
     this.autoExtract = memoryOptions.autoExtract ?? false;
+    this.governanceEnabled = memoryOptions.governance ?? true;
     this.sessionSummaries = memoryOptions.sessionSummaries ?? true;
     this.sessionPersistence = memoryOptions.sessionPersistence ?? true;
     this.memoryManager = new MemoryManager(this.rootDir, { userHome: memoryOptions.userHome });
+    this.memoryGovernor = new MemoryGovernor(this.memoryManager);
     this.memoryExtractor = new MemoryExtractor(this.memoryManager);
     this.fileHistory = new FileHistory(this.rootDir, this.sessionId);
     this.contextManager = new ContextManager(this.rootDir, contextOptions);
@@ -144,6 +159,7 @@ export class ChatManager {
         beforeToolExecution: call => this.trackToolEdit(call),
         onLoopComplete: (history, provider) => {
           this.scheduleMemoryExtraction(history, provider);
+          this.scheduleMemoryGovernance(history, provider);
           this.scheduleSessionSummary(history, provider);
         },
       },
@@ -470,6 +486,17 @@ export class ChatManager {
     };
   }
 
+  getMemoryGovernanceStatus(): MemoryGovernanceStatus {
+    const state = this.memoryGovernor.state();
+    const overflow = this.memoryGovernor.checkIndexOverflow();
+    return {
+      ...(state.lastGovernedAt ? { lastGovernedAt: state.lastGovernedAt } : {}),
+      runCount: state.runCount,
+      ...(state.lastError ? { lastError: state.lastError } : {}),
+      indexOverflow: overflow,
+    };
+  }
+
   subscribeMemorySaved(listener: MemorySavedListener): () => void {
     this.memorySavedListeners.add(listener);
     return () => this.memorySavedListeners.delete(listener);
@@ -735,6 +762,18 @@ export class ChatManager {
           }
         }
       })
+      .catch(() => {})
+      .finally(() => this.backgroundTasks.delete(task));
+    this.backgroundTasks.add(task);
+  }
+
+  private scheduleMemoryGovernance(history: readonly Message[], provider: LLMProvider): void {
+    if (!this.governanceEnabled || this.closed) return;
+    // 会话内容至少积累两轮再触发治理尝试；真正的门控（时间/会话数/锁）由 governor 把关。
+    if (history.length - this.memoryCursor < 2) return;
+    let task: Promise<void>;
+    task = this.memoryGovernor.maybeRun(provider)
+      .then(() => {})
       .catch(() => {})
       .finally(() => this.backgroundTasks.delete(task));
     this.backgroundTasks.add(task);

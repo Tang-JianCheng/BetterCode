@@ -46,12 +46,16 @@ function createAppDependencies() {
     history: Message[];
   } | undefined;
   const unsubscribe = () => undefined;
+  let permissionMode: 'strict' | 'default' | 'allow' = 'default';
   const chatManager = {
     getPermissionStatus: () => ({
-      mode: 'default',
+      mode: permissionMode,
       ruleCounts: { user: 0, project: 0, local: 0, session: 0 },
       diagnostics: [],
     }),
+    setPermissionMode: (mode: 'strict' | 'default' | 'allow') => {
+      permissionMode = mode;
+    },
     getPromptHistory: () => [...promptHistory],
     listSessions: () => [...sessionList],
     deleteSession: (sessionId: string) => {
@@ -90,6 +94,10 @@ function createAppDependencies() {
       projectDirectory: '/repo/.bettercode/memory',
       userCount: 0,
       projectCount: 0,
+    }),
+    getMemoryGovernanceStatus: () => ({
+      runCount: 0,
+      indexOverflow: { overflow: false, droppedNames: [] },
     }),
     recordPrompt: (input: string) => {
       promptHistory = [...promptHistory, input];
@@ -733,6 +741,12 @@ test('/model 对 cc-switch Provider 展示档位模型并可切换', async () =>
     providers,
   }));
   await flushAppInput();
+  // 状态行默认开启会显示“权限 default”，先关闭再验证档位面板本身不含 default 标记
+  view.stdin.write('/statusline');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
   view.stdin.write('/model');
   await flushAppInput();
   view.stdin.write('\r');
@@ -800,5 +814,166 @@ test('回滚恢复的助手消息渲染 Markdown', async () => {
   assert.doesNotMatch(frame, /# 标题/u);
   assert.match(frame, /链接 \(https:\/\/example\.com\)/u);
   assert.match(frame, /已回滚到/u);
+  view.unmount();
+});
+
+test('工具调用轨迹折叠保留，空 Enter 展开收起', async () => {
+  const dependencies = createAppDependencies();
+  dependencies.setAgentStream((async function* toolStream() {
+    yield { type: 'tool_call', iteration: 0, call: { id: 'r1', name: 'read_file', arguments: { path: 'src/a.ts' } } };
+    yield {
+      type: 'tool_result',
+      iteration: 0,
+      call: { id: 'r1', name: 'read_file', arguments: { path: 'src/a.ts' } },
+      result: { ok: true, output: '文件内容', metadata: {} },
+    };
+    yield { type: 'tool_call', iteration: 1, call: { id: 'r2', name: 'run_command', arguments: { command: 'pnpm test' } } };
+    yield {
+      type: 'tool_result',
+      iteration: 1,
+      call: { id: 'r2', name: 'run_command', arguments: { command: 'pnpm test' } },
+      result: { ok: false, output: '', metadata: {}, error: { code: 'EXECUTION_ERROR', message: '失败' } },
+    };
+    yield { type: 'stopped', reason: 'completed', iterations: 2, finalText: '' };
+  })());
+
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('分析一下');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  await waitForFrame(view, /▶ 工具调用 × 2/u);
+  const folded = view.lastFrame() ?? '';
+  assert.doesNotMatch(folded, /read_file/u, '折叠时不显示工具明细');
+
+  // 输入为空按 Enter 展开
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  await waitForFrame(view, /read_file/u);
+  assert.match(view.lastFrame() ?? '', /run_command/u);
+
+  // 再按一次 Enter 收起
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  await waitForFrame(view, /▶ 工具调用 × 2/u);
+  assert.doesNotMatch(view.lastFrame() ?? '', /read_file/u);
+  view.unmount();
+});
+
+test('/statusline 默认开启并可切换关闭', async () => {
+  const dependencies = createAppDependencies();
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /deepseek\/deepseek-chat · \[DEFAULT\]/u, '默认显示状态行');
+  assert.match(view.lastFrame() ?? '', /上下文 20k\/128k/u, '状态行显示真实上下文占用与窗口容量');
+  assert.match(view.lastFrame() ?? '', /会话 session-12345678/u);
+
+  // /plan 切换后状态行模式实时更新为 [PLAN]
+  view.stdin.write('/plan');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /\[PLAN\]/u);
+
+  // /do 恢复执行模式
+  view.stdin.write('/do');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /\[DEFAULT\]/u);
+
+  // /statusline 关闭后不再显示
+  view.stdin.write('/statusline');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.doesNotMatch(view.lastFrame() ?? '', /deepseek\/deepseek-chat · \[DEFAULT\]/u, '关闭后隐藏状态行');
+
+  // 再切换恢复显示
+  view.stdin.write('/statusline');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /deepseek\/deepseek-chat/u);
+  view.unmount();
+});
+
+test('流式期间状态行常驻并展示上下文真实占用', async () => {
+  let releaseStream = () => {};
+  const dependencies = createAppDependencies();
+  dependencies.setAgentStream((async function* streamingWithUsage(): AsyncGenerator<AgentEvent> {
+    yield { type: 'progress', iteration: 0, stage: 'requesting_model' };
+    yield { type: 'usage', iteration: 0, current: { totalTokens: 1500, inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 }, cumulative: { totalTokens: 1500, inputTokens: 1000, outputTokens: 500, cacheCreationInputTokens: 0, cacheReadInputTokens: 0 } };
+    await new Promise<void>(resolve => {
+      releaseStream = resolve;
+    });
+    yield { type: 'stopped', reason: 'completed', iterations: 0, finalText: '' };
+  })());
+
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('你好');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+
+  // 流式期间状态行常驻，展示当前上下文的真实估算占用与窗口容量
+  assert.match(view.lastFrame() ?? '', /上下文 20k\/128k/u);
+  assert.match(view.lastFrame() ?? '', /deepseek\/deepseek-chat/u);
+
+  releaseStream();
+  await flushAppInput();
+  await flushAppInput();
+  // 结束后状态行继续显示上下文占用
+  assert.match(view.lastFrame() ?? '', /上下文 20k\/128k/u);
+  view.unmount();
+});
+
+test('终端 resize 事件触发重渲染不崩溃', async () => {
+  const dependencies = createAppDependencies();
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdout.emit('resize');
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /BetterCode Agent v0\.1\.0/u);
+  view.stdout.emit('resize');
+  await flushAppInput();
+  view.unmount();
+});
+
+test('Shift+Tab 循环切换权限模式并实时刷新状态行', async () => {
+  const dependencies = createAppDependencies();
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  // 初始 default
+  assert.match(view.lastFrame() ?? '', /权限 default/u);
+
+  // Shift+Tab → allow
+  view.stdin.write('\u001B[Z');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /权限 allow/u);
+
+  // → strict
+  view.stdin.write('\u001B[Z');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /权限 strict/u);
+
+  // → default（循环回起点）
+  view.stdin.write('\u001B[Z');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /权限 default/u);
   view.unmount();
 });

@@ -11,6 +11,7 @@ import { terminalSafeText, wrapDisplay } from './capabilities.js';
 import { MarkdownView } from './markdown-view.js';
 import { MascotMark } from './mascot.js';
 import { BETTERCODE_THEME, TONE_LABELS, toneColor } from './theme.js';
+import { ToolTraceView } from './tool-trace.js';
 
 function ConversationView({
   item,
@@ -91,14 +92,25 @@ function NoticeView({
 export interface PresentationViewProps {
   item: PresentationItem;
   capabilities: TerminalCapabilities;
+  /** 传给工具折叠视图的外部折叠/展开切换信号 */
+  toggleSignal?: number;
 }
 
-export function PresentationView({ item, capabilities }: PresentationViewProps) {
+export function PresentationView({ item, capabilities, toggleSignal }: PresentationViewProps) {
   if (item.kind === 'conversation') {
     return <ConversationView item={item} capabilities={capabilities} />;
   }
   if (item.kind === 'document') {
     return <DocumentView item={item} capabilities={capabilities} />;
+  }
+  if (item.kind === 'tool_trace') {
+    return (
+      <ToolTraceView
+        entries={item.entries}
+        capabilities={capabilities}
+        toggleSignal={toggleSignal}
+      />
+    );
   }
   return <NoticeView item={item} capabilities={capabilities} />;
 }

@@ -448,3 +448,20 @@
 
 - [x] **C98：Apple Terminal 稳定性提示**
   检测到 Apple Terminal 时启动阶段出现“终端稳定性提示”，其他终端不出现；提示说明系统 Terminal/AppKit 菜单更新崩溃风险并给出替代终端建议。（验证：`src/ui/app.test.ts`；覆盖 F25、AC44）
+
+## 增量：终端 resize、工具折叠、状态行与主题
+
+- [x] **C99：终端 resize 自适应**
+  终端窗口缩放后输入框、消息折行、面板与边框宽度跟随新列宽；`resize` 事件触发重渲染不崩溃。（验证：`src/ui/app.test.ts`；覆盖 F35、AC51）
+- [x] **C100：工具调用折叠视图**
+  流式期间实时显示工具轨迹，结束后折叠为「工具调用 × N」摘要；空 Enter 展开/收起明细。（验证：`src/ui/tool-trace.test.ts`、`src/ui/app.test.ts`；覆盖 F36–F39、AC52）
+- [x] **C101：工具轨迹状态标记**
+  拒绝类结果（`PERMISSION_*` / `HOOK_DENIED`）以 `denied` 单独标记，不误标为执行失败；ASCII 环境不输出 `✓✗⚙⛔▶▼` 装饰。（验证：`src/ui/tool-trace.test.ts`；覆盖 F37、AC53）
+- [x] **C102：可开关极简状态行**
+  `/statusline` 开关输入区底部常驻状态行（模型 · 模式 · 权限 · 上下文占用/容量 · 会话），默认开启；占用与容量来自 `chatManager.getContextUsage`，消息或模式变化时刷新；`/status` 一次性展示保留。（验证：`src/ui/app.test.ts`；覆盖 F40–F41、F45、AC54）
+- [x] **C103：主题预设与解析**
+  `dark` / `light` / `high-contrast` 三套主题，`BETTERCODE_THEME` getter 转发实时生效；启动按 环境变量 > `ui.theme` > 默认 应用。（验证：`src/ui/theme.test.ts`；覆盖 F42–F43、AC55）
+- [x] **C104：ui 配置严格校验**
+  `ui.theme` 非法值或未知字段被配置校验拒绝。（验证：`src/config/loader.test.ts`；覆盖 F43、AC56）
+- [x] **C105：Shift+Tab 循环切换权限模式**
+  输入框聚焦时按 Shift+Tab 在 strict → default → allow 间循环切换，状态行实时更新；普通 Tab 补全不受影响。（验证：`src/ui/raw-input.test.ts`、`src/ui/input-box.test.ts`、`src/ui/app.test.ts`；覆盖 F46–F47、AC57）

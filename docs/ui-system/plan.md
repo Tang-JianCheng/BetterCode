@@ -676,3 +676,28 @@ src/
 ## 增量：Apple Terminal 系统级崩溃提示
 
 - 启动诊断新增 `formatAppleTerminalStabilityNotice`：仅 Apple Terminal 返回提示，说明崩溃来自系统 Terminal/AppKit 菜单快捷键更新（切换输入法触发），并非 BetterCode 渲染，并给出 iTerm2 / VS Code 终端 / Warp 建议。
+
+## 增量：终端 resize、工具折叠、状态行与主题
+
+### resize 自适应
+
+- `App` 监听 `stdout` 的 `resize` 事件触发重渲染，`capabilities` 每次渲染用 `stdout.columns` 重算；不改动检测逻辑，只补触发时机。
+
+### 工具调用折叠视图
+
+- 新增 `ToolTracePresentation` 与 `ToolTraceView`：折叠一行摘要、展开逐条明细，`live` 模式流式实时展示。
+- `App` 在事件流中按 `callId` 累积工具轨迹，停止后折叠保留到消息列表；`InputBox` 增加 `onEmptyEnter`（空输入 Enter 切换轨迹），`toggleSignal` 自增信号穿透到消息列表。
+- 拒绝类结果单独标记（`denied`），避免误导。
+
+### 可开关状态行
+
+- 新增 `/statusline` 命令与 `StatusLine` 组件，默认开启，切换显示在输入区底部（流式期间也常驻）；`/status` 一次性展示保留。
+- 状态行展示当前上下文的真实占用与窗口容量（`上下文 <占用>/<容量>`，来自 `chatManager.getContextUsage` 的 `usedTokens` / `contextWindow`，紧凑 `k`/`m` 格式），消息或模式变化时刷新。
+
+### 主题预设
+
+- `theme.ts` 三套预设（dark/light/high-contrast），`BETTERCODE_THEME` 改 getter 转发；`config.yaml` 新增 `ui.theme` 校验；启动按 环境变量 `BETTERCODE_THEME` > `ui.theme` > `dark` 应用。
+
+### 权限模式快捷键
+
+- `RawInputParser` 将 Shift+Tab（`\x1b[Z`）拆分为独立 `shifttab` 事件；`InputBox` 新增 `onShiftTab`，`App` 循环切换权限模式 strict → default → allow。

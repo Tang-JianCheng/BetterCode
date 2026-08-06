@@ -74,6 +74,7 @@ import { ConfiguredTerminalBackend } from '../team/backend/configured.js';
 import { CoroutineBackend } from '../team/backend/coroutine.js';
 import type { SpawnMemberInput } from '../team/backend/types.js';
 import { CoordinatorShellPolicy } from '../team/coordinator-shell.js';
+import { applyTheme, resolveThemeName } from '../ui/theme.js';
 
 export interface ApplicationArguments {
   providerName?: string;
@@ -208,6 +209,8 @@ export async function createApplication(options: CreateApplicationOptions): Prom
     const rootDir = path.resolve(workerDescriptor?.projectRoot ?? options.rootDir ?? process.cwd());
     const configPath = path.resolve(rootDir, workerDescriptor?.configPath ?? options.configPath);
     const appConfig = loadConfig(configPath);
+    // 主题解析：环境变量 BETTERCODE_THEME 优先，其次 config.yaml 的 ui.theme，最后默认 dark。
+    applyTheme(resolveThemeName(environment, appConfig.ui?.theme));
     const ccSwitchStatus: CcSwitchDiagnostic[] = [];
     if (!workerDescriptor) {
       const imported = loadCcSwitchProviders(appConfig, {

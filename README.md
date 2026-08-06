@@ -2,11 +2,70 @@
 
 BetterCode 是一个用于学习和交流的终端代码 Agent。它支持流式对话、内置工具、Agent Loop、Plan Mode、权限控制、MCP 工具发现、Skill、生命周期 Hook、长会话上下文管理和跨会话记忆。
 
+## 快速开始
+
+### 环境要求
+
+- Node.js 18+（推荐 20 及以上）
+- [pnpm](https://pnpm.io/zh/) 包管理器
+- 一个可用的 LLM 供应商 API Key（如 DeepSeek / Anthropic / OpenAI）
+
+### 安装依赖
+
+```bash
+pnpm install
+```
+
+### 启动
+
+```bash
+pnpm start
+```
+
+直接启动会进入供应商选择（若 `config.yaml` 未标记唯一默认供应商）。常用方式：
+
+```bash
+# 指定供应商启动（名称需与 config.yaml 中 providers 一致）
+pnpm start --provider deepseek-v4
+
+# 指定配置文件
+pnpm start --config ./config.yaml
+
+# 启动时指定权限模式
+pnpm start --permission-mode strict
+```
+
+### 配置供应商
+
+编辑项目根 `config.yaml`，用 `${ENV}` 引用环境变量，禁止硬编码 API Key：
+
+```yaml
+providers:
+  - name: deepseek-v4
+    protocol: openai
+    model: deepseek-v4-flash
+    context_window: 128000
+    base_url: https://api.deepseek.com
+    api_key: ${DEEPSEEK_API_KEY}
+    default: true
+```
+
+`--provider` > cc-switch 当前激活供应商 > `config.yaml` 的 `default: true` > 交互选择。若使用 [cc-switch](https://github.com/farion1231/cc-switch) 桌面版，启动时会自动导入其 Claude 供应商（见下文「cc-switch 适配」）。
+
+### 首次使用建议
+
+- 输入 `/help` 查看全部命令，`/status` 查看当前运行状态。
+- 输入 `/context` 查看上下文占用网格与分类明细。
+- 历史会话用 `/session` 查看与恢复；输入框支持粘贴、Shift+Enter 换行、左右/Home/End 移动光标。
+- 整体运行链路可参考 `docs/architecture-overview.md`。
+
 ## 终端界面
 
-BetterCode 启动时展示一次原创“小码”品牌区，运行期间使用轻量标记反馈模型请求、思考、工具执行、权限等待和上下文压缩状态。界面底部保持干净的输入工作区，不再常驻状态栏；模型、模式、权限、Token 和会话等运行信息通过 `/status` 按需查询。
+BetterCode 启动时展示一次 BETTERCODE 像素横幅，运行期间用轻量标记反馈模型请求、工具执行、权限等待和上下文压缩状态。界面底部保持干净的输入工作区；模型、模式、权限、Token 和会话等运行信息通过 `/status` 按需查询，也可用 `/statusline` 让一行极简状态行常驻输入区底部（默认开启，显示当前上下文占用与窗口容量）。
 
-`/help`、`/status`、`/memory`、`/permission`、`/session`、`/model`、`/tasks` 和 `/team` 使用结构化本地面板展示，不会伪装成模型回复。权限与回滚面板支持方向键、Enter 和 Esc；权限选择同时保留 `d/o/s/p` 快捷键。
+`/help`、`/status`、`/memory`、`/permission`、`/session`、`/model`、`/tasks` 和 `/team` 使用结构化本地面板展示，不会伪装成模型回复。权限与回滚面板支持方向键、Enter 和 Esc；权限选择同时保留 `d/o/s/p` 快捷键，输入框聚焦时按 `Shift+Tab` 可在 strict / default / allow 间循环切换权限模式。
+
+工具执行过程以渐进披露的方式展示：流式期间在活动指示器下方实时列出进行中的工具轨迹，一轮结束后折叠为「工具调用 × N」摘要，输入为空时按 Enter 展开/收起明细。
 
 界面默认面向现代 UTF-8 终端，并提供以下降级开关：
 
@@ -15,8 +74,9 @@ BetterCode 启动时展示一次原创“小码”品牌区，运行期间使用
 | `NO_COLOR=1` | 关闭颜色，保留文字和符号语义 |
 | `BETTERCODE_ASCII=1` | 使用 ASCII 边界、形象和活动标记 |
 | `BETTERCODE_REDUCE_MOTION=1` | 关闭计时动画，使用静态活动提示 |
+| `BETTERCODE_THEME` | 主题预设：`dark`、`light`、`high-contrast`，缺省 `dark` |
 
-`TERM=dumb` 会自动启用 ASCII、无颜色和低动态模式；CI 环境默认关闭动画。
+`TERM=dumb` 会自动启用 ASCII、无颜色和低动态模式；CI 环境默认关闭动画。主题也可在 `config.yaml` 通过 `ui.theme` 配置，环境变量优先级更高。
 
 ## Markdown 渲染
 
@@ -45,11 +105,12 @@ BetterCode 启动时展示一次原创“小码”品牌区，运行期间使用
 | `/do` | 切换回 `[DEFAULT]` 执行模式 |
 | `/session [ID]` | 查看近期会话或恢复指定会话 |
 | `/model` | 切换模型：cc-switch Provider 显示档位（Sonnet/Opus/Haiku/Fable），其他 Provider 显示列表 |
-| `/memory` | 查看用户级和项目级记忆状态 |
+| `/memory` | 查看用户级/项目级记忆与治理状态 |
 | `/permission [模式]` | 查看或切换权限模式 |
 | `/tasks [任务 ID]` | 查看当前会话的子 Agent 任务或单项详情 |
 | `/status` | 查看 Provider、模式、Token、会话和记忆状态 |
 | `/context` | 查看上下文占用、格子视图与分类明细 |
+| `/statusline` | 切换输入区底部常驻状态行（默认开启） |
 | `/review [范围]` | 使用内置 review Skill 独立审查代码 |
 
 旧命令 `/resume`、`/r` 和 `/permissions` 继续作为别名可用；`/rewind`、`/exit`、`/quit` 保持兼容。
@@ -256,7 +317,8 @@ cc_switch:
 - 项目指令支持单行 `@./path`、`@../path`、`@~/path` 和 `@/absolute/path` 引用；代码块内引用、循环引用和超过五层的引用会安全跳过。
 - 会话实时追加到 `.bettercode/sessions/<id>.jsonl`；使用 `/session` 查看最近会话，使用 `/session <id>` 恢复并继续写入原存档。
 - Agent 自然完成后在后台提取长期记忆。项目知识写入 `.bettercode/memory/`，用户偏好写入 `~/.bettercode/memory/`，项目索引位于 `.bettercode/memory/MEMORY.md`。
-- 使用 `/memory` 查看两级记忆数量和目录；使用 `/rewind` 将 Agent 修改的文件、对话或两者一起恢复到检查点。
+- 记忆库由后台治理器（`MemoryGovernor`）定期整理：距上次整理超 24 小时、会话存档 ≥5 个且拿到治理锁后，一次 LLM 调用按「定位 → 收集信号 → 整理 → 修剪索引」四阶段识别去重合并、错误删除、矛盾解决与过期整理；被删/覆盖的原文会先归档到 `.bettercode/memory/.archive/`，索引超出 200 行 / 25KB 时会给出截断提示。
+- 使用 `/memory` 查看两级记忆数量、目录与治理状态（上次整理时间、整理次数、索引是否截断）；使用 `/rewind` 将 Agent 修改的文件、对话或两者一起恢复到检查点。
 - 输入记录保存在 `.bettercode/prompt_history.jsonl`，输入框可用上下方向键回看最近 200 条记录。
 
 ## 上下文管理

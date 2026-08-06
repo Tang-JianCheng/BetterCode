@@ -120,6 +120,13 @@ function definitions(): CommandDefinition[] {
       },
     },
     {
+      name: 'statusline', aliases: ['sl'], description: '切换输入区常驻状态行', usage: '/statusline',
+      type: 'ui', handler: invocation => {
+        if (!noArguments(invocation)) return;
+        invocation.ui.toggleStatusLine();
+      },
+    },
+    {
       name: 'team', aliases: [], description: '管理长期团队',
       usage: '/team list|create <名称>|use <名称>|status|archive <名称>|restore <名称>',
       argumentHint: '<动作>', type: 'local',

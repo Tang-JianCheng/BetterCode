@@ -115,6 +115,12 @@ interface ContextUsageSnapshot extends ContextUsageBreakdown {
 - 新增 `detailSection(title, entries, color)` 辅助函数：System tools / MCP tools / Skills 有明细时各生成一个独立 `tree` 块，首行是 `**分类名**` 粗体标题，后续行复用 `treeEntryLine` 的 `├` 分支明细。
 - 无明细的分类不生成小节；所有块通过 `filter(Boolean)` 合并进文档 blocks，块与块之间沿用渲染器的空行分隔，明细区自然落在 Free space 行下方。
 
+## 增量：网格按 5k/格并排渲染
+
+- 视觉问题：原网格按 `context_window / 5_000` 取格数、按占比取整占用格，1M 窗口下 9.1k 用量（0.9%）`round(0.009 × 格数) = 0`，整个网格全是 `⛶` 空格子，占用完全看不出来；且单行格数可达 52 个，只剩框框。
+- 变更：每格代表 **5k Token**（`ceil(contextWindow / 5_000)`），**每行最多 20 格**，超过自动换行成多行；占用格 = `round(usedTokens / 5_000)` 且有用量至少 1 格。**分类汇总区并排在网格右侧**：同一行 = 格子前缀 + 模型名 / 总占用 / `*Estimated usage by category*` / 六个分类行（单 `⛁` / `⛶` 图标，颜色与分类一致）。
+- 实现：`contextGridCellCount` / `contextUsedCellCount` / `contextGridColors` / `contextGridRowPrefix` 替代原 `contextGridCells` / `contextGridPrefix`；`buildContextUsagePresentation` 生成 `gridRowPrefixes` 与右侧 `rightLines`，按 `totalRows` 逐行合并为同一 tree；列宽 < 64 时回退上下布局。
+
 ## 文件组织
 
 ```

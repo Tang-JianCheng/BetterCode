@@ -105,6 +105,14 @@ export interface TeamConfig {
   custom_terminals?: TeamCustomTerminalConfig[];
 }
 
+/** 主题预设名，用于 config.yaml 的 ui.theme 与 BETTERCODE_THEME 环境变量。 */
+export type ThemeName = 'dark' | 'light' | 'high-contrast';
+
+/** UI 配置：主题、状态行等。 */
+export interface UiConfig {
+  theme?: ThemeName;
+}
+
 /** config.yaml 顶层结构 */
 export interface AppConfig {
   providers: ProviderConfig[];
@@ -113,4 +121,5 @@ export interface AppConfig {
   subagents?: SubAgentConfig;
   worktrees?: WorktreeConfig;
   teams?: TeamConfig;
+  ui?: UiConfig;
 }

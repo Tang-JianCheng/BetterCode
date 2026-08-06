@@ -6,6 +6,8 @@ import type { CommandCompletion } from '../command/types.js';
 import type { TerminalCapabilities } from './capabilities.js';
 import { displayWidth } from './capabilities.js';
 import {
+  buildInputLayout,
+  cursorLocation,
   moveCompletionIndex,
   navigateHistory,
   resolveCompletion,
@@ -360,4 +362,245 @@ test('Apple Terminal 下输入内容与候选描述中的破折号以 ASCII 展�
   assert.doesNotMatch(frame, /—/u);
   assert.match(frame, /包含--破折号的说明/u);
   panel.unmount();
+});
+
+test('Shift+Enter 插入换行而不提交', async () => {
+  const submitted: string[] = [];
+  const view = render(React.createElement(InputBox, {
+    onSubmit: value => submitted.push(value),
+    disabled: false,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  view.stdin.write('第一行');
+  await flushInput();
+  view.stdin.write('\u001B[13;2u');
+  await flushInput();
+  view.stdin.write('第二行');
+  await flushInput();
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /第一行/u);
+  assert.match(frame, /第二行/u);
+  assert.deepEqual(submitted, [], 'Shift+Enter 不应提交');
+  view.unmount();
+});
+
+test('括号粘贴保留换行并原样插入，不触发提交', async () => {
+  const submitted: string[] = [];
+  const view = render(React.createElement(InputBox, {
+    onSubmit: value => submitted.push(value),
+    disabled: false,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  view.stdin.write('\u001B[200~第一行\r\n第二行\r\u001B[201~');
+  await flushInput();
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /第一行/u);
+  assert.match(frame, /第二行/u);
+  assert.deepEqual(submitted, [], '粘贴内容不应触发提交');
+  view.unmount();
+});
+
+test('粘贴后按回车才提交完整内容', async () => {
+  const submitted: string[] = [];
+  const view = render(React.createElement(InputBox, {
+    onSubmit: value => submitted.push(value),
+    disabled: false,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  view.stdin.write('\u001B[200~function demo() {}\u001B[201~');
+  await flushInput();
+  assert.deepEqual(submitted, [], '粘贴本身不应提交');
+  view.stdin.write('\r');
+  await flushInput();
+  assert.deepEqual(submitted, ['function demo() {}']);
+  view.unmount();
+});
+
+test('未使用括号粘贴的纯文本粘贴也能插入', async () => {
+  const view = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  view.stdin.write('import assert from "node:assert/strict";');
+  await flushInput();
+  assert.match(view.lastFrame() ?? '', /import assert/u);
+  view.unmount();
+});
+
+test('buildInputLayout 按显示宽度折行并保留字符起点', () => {
+  const layout = buildInputLayout('ab中文', 2);
+  assert.deepEqual(layout, [
+    { start: 0, text: 'ab' },
+    { start: 2, text: '中' },
+    { start: 3, text: '文' },
+  ]);
+  assert.equal(cursorLocation(layout, 3).lineIndex, 1);
+  assert.equal(cursorLocation(layout, 3).offset, 1);
+  assert.equal(cursorLocation(layout, 4).lineIndex, 2);
+  assert.equal(cursorLocation(layout, 4).offset, 1);
+});
+
+test('buildInputLayout 保留空行与逻辑行边界', () => {
+  const layout = buildInputLayout('第一行\n\n第三行', 80);
+  assert.deepEqual(layout, [
+    { start: 0, text: '第一行' },
+    { start: 4, text: '' },
+    { start: 5, text: '第三行' },
+  ]);
+  assert.equal(cursorLocation(layout, 4).lineIndex, 1);
+  assert.equal(cursorLocation(layout, 4).offset, 0);
+});
+
+test('左右方向键移动光标并在光标处插入', async () => {
+  const submitted: string[] = [];
+  const view = render(React.createElement(InputBox, {
+    onSubmit: value => submitted.push(value),
+    disabled: false,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  view.stdin.write('abc');
+  await flushInput();
+  view.stdin.write('\u001B[D'); // 光标移到 b、c 之间
+  await flushInput();
+  view.stdin.write('X');
+  await flushInput();
+  view.stdin.write('\r');
+  await flushInput();
+  assert.deepEqual(submitted, ['abXc']);
+  view.unmount();
+});
+
+test('Home 跳到逻辑行首，End 跳到逻辑行尾', async () => {
+  const submitted: string[] = [];
+  const view = render(React.createElement(InputBox, {
+    onSubmit: value => submitted.push(value),
+    disabled: false,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  view.stdin.write('abc');
+  await flushInput();
+  view.stdin.write('\u001B[H'); // Home → 行首
+  await flushInput();
+  view.stdin.write('Z');
+  await flushInput();
+  view.stdin.write('\u001B[F'); // End → 行尾
+  await flushInput();
+  view.stdin.write('Y');
+  await flushInput();
+  view.stdin.write('\r');
+  await flushInput();
+  assert.deepEqual(submitted, ['ZabcY']);
+  view.unmount();
+});
+
+test('Backspace 删除光标前字符，Delete 删除光标后字符', async () => {
+  const submitted: string[] = [];
+  const view = render(React.createElement(InputBox, {
+    onSubmit: value => submitted.push(value),
+    disabled: false,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  view.stdin.write('abc');
+  await flushInput();
+  view.stdin.write('\u001B[D');
+  await flushInput();
+  view.stdin.write('\u001B[D'); // 光标在 a、b 之间
+  await flushInput();
+  view.stdin.write('\u001B[3~'); // Delete 删除光标后的 b
+  await flushInput();
+  view.stdin.write('\x7f'); // Backspace 删除光标前的 a
+  await flushInput();
+  view.stdin.write('\r');
+  await flushInput();
+  assert.deepEqual(submitted, ['c']);
+  view.unmount();
+});
+
+test('光标移动到上一逻辑行后可在行首插入', async () => {
+  const submitted: string[] = [];
+  const view = render(React.createElement(InputBox, {
+    onSubmit: value => submitted.push(value),
+    disabled: false,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  view.stdin.write('第一行');
+  await flushInput();
+  view.stdin.write('\u001B[13;2u'); // Shift+Enter
+  await flushInput();
+  view.stdin.write('第二行');
+  await flushInput();
+  view.stdin.write('\u001B[H'); // Home → 第二行行首
+  await flushInput();
+  view.stdin.write('\u001B[D'); // 左移 → 第一行行尾
+  await flushInput();
+  view.stdin.write('\u001B[H'); // Home → 第一行行首
+  await flushInput();
+  view.stdin.write('X');
+  await flushInput();
+  view.stdin.write('\r');
+  await flushInput();
+  assert.deepEqual(submitted, ['X第一行\n第二行']);
+  view.unmount();
+});
+
+test('多行输入显示 Shift+Enter 换行提示', async () => {
+  const view = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    capabilities: capabilities(80),
+  }));
+  await flushInput();
+  view.stdin.write('第一行');
+  await flushInput();
+  assert.doesNotMatch(view.lastFrame() ?? '', /Shift\+Enter 换行/u);
+  view.stdin.write('\u001B[13;2u');
+  await flushInput();
+  const frame = view.lastFrame() ?? '';
+  assert.match(frame, /Shift\+Enter 换行/u);
+  assert.match(frame, /⏎/u);
+  view.unmount();
+
+  const ascii = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    capabilities: capabilities(80, false),
+  }));
+  await flushInput();
+  ascii.stdin.write('第一行');
+  await flushInput();
+  ascii.stdin.write('\u001B[13;2u');
+  await flushInput();
+  assert.match(ascii.lastFrame() ?? '', /> Shift\+Enter 换行/u);
+  ascii.unmount();
+});
+
+test('Shift+Tab 触发 onShiftTab 且不参与补全，普通 Tab 补全不变', async () => {
+  let shiftTabCount = 0;
+  const view = render(React.createElement(InputBox, {
+    onSubmit: () => undefined,
+    disabled: false,
+    complete,
+    capabilities: capabilities(80),
+    onShiftTab: () => { shiftTabCount += 1; },
+  }));
+  await flushInput();
+  view.stdin.write('/he');
+  await flushInput();
+  view.stdin.write('\u001B[Z'); // Shift+Tab 不应触发补全
+  await flushInput();
+  assert.equal(shiftTabCount, 1);
+  assert.match(view.lastFrame() ?? '', /❯ \/he█/u, 'Shift+Tab 不改写输入内容');
+  view.stdin.write('\t'); // 普通 Tab 仍补全
+  await flushInput();
+  assert.match(view.lastFrame() ?? '', /❯ \/help/u);
+  view.unmount();
 });

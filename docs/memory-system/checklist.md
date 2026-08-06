@@ -52,3 +52,17 @@
 - [ ] 场景 16（prompt 历史）：在 TUI 输入框按方向键上下 → 能回溯到上一次启动时输入过的命令；`cat .bettercode/prompt_history.jsonl` 每行是 `{"text":"..."}`，最多 200 行。
 - [ ] 场景 17（FileHistory 回滚）：让 Agent 修改一个文件 → `/rewind` → 选最早 snapshot → "Restore code and conversation" → 文件内容被回滚、`conv.truncateTo` 把 conversation 截短、TUI 出现 `⟲ Rewound to checkpoint. Restored N file(s)...`。
 - [ ] 场景 18（身份硬注入）：在 conversation 首条 system-reminder 后还能看到第二条独立的 `IDENTITY OVERRIDE: 你是 BetterCode...` system-reminder（确保身份覆盖即使在长期记忆段之后也独立存在）。
+
+## 增量：记忆治理
+
+- [x] `src/memory/governor.ts` 导出 `MemoryGovernor`，含 `maybeRun / run / state / checkIndexOverflow`；`MemoryGovernanceOptions` 常量默认 24h / 10min / 5 会话 / 30min 锁。
+- [x] 门控顺序正确：目录不存在、距上次整理 < 24h、距上次尝试 < 10min、会话数 < 5、锁占用时 `maybeRun` 均返回 `{ran:false}` 且不调 LLM。
+- [x] `.governance.json` 状态持久化：`lastAttemptAt` 每次触发更新、`lastGovernedAt`/`runCount` 成功整理后更新；解析失败回退空状态。
+- [x] 治理锁：`flag:'wx'` 排他创建；陈旧锁（>30min）删除重试；获取失败静默返回。
+- [x] 四阶段 prompt + JSON 清单解析：只取首个 `{}`，解析失败整轮静默。
+- [x] 安全校验：`targets` 排除 `MEMORY.md` / 隐藏 / 未知文件；`merge` 需 `into`+`content`、`update` 需 `content` 且单目标；非法操作忽略并计数。
+- [x] 执行正确：`delete` 删目标、`merge` 写 `into`（沿用源作用域）删源、`update` 覆盖目标、`keep` 计数；被处理文件原文先归档到 `.archive/<ts>/`。
+- [x] 索引超限提示：超 200 行 / 25KB 时结果携带 `indexOverflow` 与被截断名单。
+- [x] `ChatManager.scheduleMemoryGovernance`：onLoopComplete 后台任务调 `maybeRun(provider)`，失败静默；默认会话数 < 5 时不新增 LLM 调用。
+- [x] `/memory` 面板展示治理状态（上次整理 / 整理次数 / 索引截断提示）。
+- [x] `pnpm check`（602 通过，1 项为既有基线失败）、`git diff --check` 干净。

@@ -11,6 +11,8 @@ interface Props {
   /** 当前正在流式输出的文本 */
   currentStreaming: string;
   capabilities: TerminalCapabilities;
+  /** 传给工具折叠视图的外部折叠/展开切换信号 */
+  toggleSignal?: number;
 }
 
 /**
@@ -20,11 +22,17 @@ export function MessageList({
   messages,
   currentStreaming,
   capabilities,
+  toggleSignal,
 }: Props) {
   return (
     <Box flexDirection="column" marginBottom={1}>
       {messages.map(message => (
-        <PresentationView key={message.id} item={message.item} capabilities={capabilities} />
+        <PresentationView
+          key={message.id}
+          item={message.item}
+          capabilities={capabilities}
+          toggleSignal={toggleSignal}
+        />
       ))}
       {currentStreaming ? (
         <PresentationView
