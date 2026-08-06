@@ -32,7 +32,7 @@ test('启动动画完成后只通知一次且不在渲染阶段更新父组件',
     animationDuration: 30,
     onAnimationComplete: () => { completed += 1; },
   }));
-  const view = render(React.createElement(StartupBrand, { capabilities: animated, version: '0.1.0' }));
+  const view = render(React.createElement(StartupBrand, { capabilities: animated, version: '0.1.0', modelName: 'deepseek' }));
 
   try {
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -85,7 +85,7 @@ test('启动品牌按终端宽度降级并展示商业 CLI 状态', () => {
   assert.equal(bannerLines({
     ...modern, columns: 55, density: 'narrow', unicode: false,
   }).every(line => !/[█╭╰●▄]/u.test(line)), true);
-  const view = render(React.createElement(StartupBrand, { capabilities: modern, version: '0.1.0' }));
+  const view = render(React.createElement(StartupBrand, { capabilities: modern, version: '0.1.0', modelName: 'DeepSeek' }));
   const frame = view.lastFrame() ?? '';
   assert.match(frame, /✦ BetterCode Agent v0\.1\.0/u);
   assert.match(frame, /⚡ AI Coding Assistant/u);

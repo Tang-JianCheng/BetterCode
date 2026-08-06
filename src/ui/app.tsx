@@ -1069,7 +1069,7 @@ export function App({
 
   return (
     <Box flexDirection="column" paddingX={1} paddingTop={1}>
-      <StartupBrand capabilities={capabilities} version="0.1.0" />
+      <StartupBrand capabilities={capabilities} version="0.1.0" modelName={activeProvider.name} />
 
       <MessageList
         messages={messages}

@@ -22,7 +22,7 @@ test('受控终端帧可注入宽度和降级环境并安全卸载', () => {
     reduceMotion: true,
   });
   const view = render(React.createElement(Box, { flexDirection: 'column' },
-    React.createElement(StartupBrand, { capabilities, version: '0.1.0' }),
+    React.createElement(StartupBrand, { capabilities, version: '0.1.0', modelName: 'deepseek' }),
     React.createElement(InputBox, {
       capabilities,
       disabled: false,

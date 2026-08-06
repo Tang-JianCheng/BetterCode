@@ -8,6 +8,8 @@ import { LogoRenderer, PixelLogo } from './startup-banner.js';
 export interface StartupBrandProps {
   capabilities: TerminalCapabilities;
   version: string;
+  /** 启动时实际使用的模型/供应商名，展示在横幅上（写死 DeepSeek 的旧版残留） */
+  modelName: string;
 }
 
 export function bannerLines(capabilities: TerminalCapabilities): readonly string[] {
@@ -20,7 +22,7 @@ export function bannerLines(capabilities: TerminalCapabilities): readonly string
   }).render('BETTERCODE');
 }
 
-export function StartupBrand({ capabilities, version }: StartupBrandProps) {
+export function StartupBrand({ capabilities, version, modelName }: StartupBrandProps) {
   const [revealed, setRevealed] = useState(!capabilities.motion);
   useEffect(() => setRevealed(!capabilities.motion), [capabilities.motion]);
   const revealDetails = useCallback(() => setRevealed(true), []);
@@ -37,7 +39,7 @@ export function StartupBrand({ capabilities, version }: StartupBrandProps) {
           {revealed ? `${symbol('⚡', '>')} AI Coding Assistant` : ' '}
         </Text>
         <Text color={capabilities.color ? BETTERCODE_THEME.muted : undefined}>
-          {revealed ? `${symbol('◉', 'o')} Model: DeepSeek` : ' '}
+          {revealed ? `${symbol('◉', 'o')} Model: ${modelName}` : ' '}
         </Text>
         <Text color={capabilities.color ? BETTERCODE_THEME.success : undefined}>
           {revealed ? `${symbol('◉', 'o')} Ready` : ' '}
