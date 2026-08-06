@@ -37,6 +37,10 @@ pnpm start --permission-mode strict
 
 ### 配置供应商
 
+有两种方式：手动写在 `config.yaml`，或使用 [cc-switch](https://github.com/farion1231/cc-switch) 桌面版自动导入 Claude 供应商。
+
+#### 方式一：手动配置 `config.yaml`
+
 编辑项目根 `config.yaml`，用 `${ENV}` 引用环境变量，禁止硬编码 API Key：
 
 ```yaml
@@ -50,12 +54,27 @@ providers:
     default: true
 ```
 
-`--provider` > cc-switch 当前激活供应商 > `config.yaml` 的 `default: true` > 交互选择。若使用 [cc-switch](https://github.com/farion1231/cc-switch) 桌面版，启动时会自动导入其 Claude 供应商（见下文「cc-switch 适配」）。
+#### 方式二：使用 cc-switch（推荐，开箱即用）
+
+若你的机器上装了 [cc-switch](https://github.com/farion1231/cc-switch) 桌面版并已配置好 Claude 供应商，**无需在 `config.yaml` 里手写 Claude 供应商**：
+
+1. 在 `config.yaml` 开启 `cc_switch.enabled: true`（默认开启）：
+   ```yaml
+   cc_switch:
+     enabled: true
+   ```
+2. 直接 `pnpm start`。BetterCode 启动时读取 cc-switch 的 `~/.cc-switch/cc-switch.db`，**自动导入所有 Claude 供应商**，并把当前激活项标为默认供应商。
+3. 导入的供应商用 `/model` 在会话内切换；cc-switch 的档位（Sonnet / Opus / Haiku / Fable，含 `[1M]` 上下文标记）会一并展示。
+
+注意事项：cc-switch 中**新增或删除供应商后需要重启 BetterCode** 才会重新导入；已导入的供应商可随时用 `/model` 切换，无需重启。
+
+供应商选择优先级：`--provider` 命令行 > cc-switch 当前激活的默认供应商 > `config.yaml` 的 `default: true` > 交互选择。
 
 ### 首次使用建议
 
 - 输入 `/help` 查看全部命令，`/status` 查看当前运行状态。
 - 输入 `/context` 查看上下文占用网格与分类明细。
+- 用 cc-switch 导入的供应商可输入 `/model` 切换档位；手动配置的多供应商也在此切换。
 - 历史会话用 `/session` 查看与恢复；输入框支持粘贴、Shift+Enter 换行、左右/Home/End 移动光标。
 - 整体运行链路可参考 `docs/architecture-overview.md`。
 
