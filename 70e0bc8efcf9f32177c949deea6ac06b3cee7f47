@@ -1,0 +1,28 @@
+AGENTS.md
+  h_857541505025b0 1,3-17,20,27,32-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.13",
+  "base_commit_sha": "70e0bc8efcf9f32177c949deea6ac06b3cee7f47",
+  "prompts": {
+    "fbd0a7434a0e56c7": {
+      "agent_id": {
+        "tool": "known_human",
+        "id": "known_human_session",
+        "model": "unknown"
+      },
+      "human_author": "tangjiancheng <2771673595@qq.com>",
+      "messages": [],
+      "total_additions": 31,
+      "total_deletions": 5,
+      "accepted_lines": 0,
+      "overriden_lines": 0
+    }
+  },
+  "humans": {
+    "h_857541505025b0": {
+      "author": "tangjiancheng"
+    }
+  }
+}
