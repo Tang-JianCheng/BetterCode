@@ -255,3 +255,17 @@ Server 按“用户级 `~/.bettercode/mcp.yaml` < 项目根 `.mcp.json` < 项目
 - **AC18：工具调用闭环。** 从 `.mcp.json` 发现的真实本地 HTTP MCP 工具能注册到统一 ToolRegistry，并通过现有适配器完成调用和关闭。（覆盖 F11）
 - **AC19：覆盖顺序稳定。** 三个来源存在同名 Server 时，项目原生 YAML 胜出；不存在同名项时三个来源完整合并。（覆盖 F12、N13）
 - **AC20：错误与路径隔离。** 非法 JSON、无效 Server、缺失环境变量和符号链接逃逸只产生脱敏诊断，不影响其他有效配置或内置工具。（覆盖 F12、N12）
+
+## 增量：/mcp 动态命令面板
+
+### 变更内容
+
+- F13：`McpManager` 新增 `listServerTools()`，返回每个配置 Server 的工具清单（名称、传输、是否连接、工具列表），供 `/mcp` 展示；连接失败的 Server 也包含在内并标记 `connected:false`。
+- F14：`BetterCodeApplication` 暴露 `mcpServerTools`，经 `index.tsx` 注入 `App`。
+- F15：新增 `/mcp` 命令（`type: ui`）与 `McpDialog` 动态面板：第一级列出全部 Server（名称左对齐、`传输 · N 工具 · 已连接/失败` 右对齐），Enter 进入选中 Server 的工具列表，第二级列出该 Server 的全部工具与描述；Esc 返回上一级，再按 Esc 退出。
+
+### 验收补充
+
+- AC21：`/mcp` 打开服务器面板，Enter 进入工具列表、Esc 逐级返回，方向键选择并整行高亮，超一页显示剩余数量。
+- AC22：连接失败的 Server 显示「失败」状态，无工具时 Enter 不进入工具页。
+- AC23：未配置任何 MCP Server 时 `/mcp` 给出提示而非空面板。

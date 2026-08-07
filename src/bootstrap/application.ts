@@ -18,7 +18,7 @@ import { createPermissionManager, createPermissionManagerFactory } from '../perm
 import type { PermissionMode } from '../permission/types.js';
 import { createMcpManager } from '../mcp/factory.js';
 import type { McpManager } from '../mcp/manager.js';
-import type { McpStartupStatus } from '../mcp/types.js';
+import type { McpServerToolListing, McpStartupStatus } from '../mcp/types.js';
 import { AgentTool } from '../subagent/agent-tool.js';
 import { AgentDefinitionManager } from '../subagent/definition-manager.js';
 import { SubAgentTaskManager } from '../subagent/task-manager.js';
@@ -88,6 +88,7 @@ export interface BetterCodeApplication {
   readonly chatManager?: ChatManager;
   readonly skillManager: SkillManager;
   readonly mcpStatus: McpStartupStatus;
+  readonly mcpServerTools: readonly McpServerToolListing[];
   readonly agentDiagnostics: ReturnType<AgentDefinitionManager['getSnapshot']>['diagnostics'];
   readonly ccSwitchStatus: readonly CcSwitchDiagnostic[];
   readonly providers: readonly ProviderSummary[];
@@ -497,6 +498,7 @@ export async function createApplication(options: CreateApplicationOptions): Prom
       chatManager,
       skillManager,
       mcpStatus,
+      mcpServerTools: mcpManager.listServerTools(),
       agentDiagnostics: agentSnapshot.diagnostics,
       ccSwitchStatus,
       providers: appConfig.providers.map(item => ({

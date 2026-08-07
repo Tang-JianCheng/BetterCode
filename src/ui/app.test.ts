@@ -45,6 +45,7 @@ function createAppDependencies() {
     changedFiles: string[];
     history: Message[];
   } | undefined;
+  let skills: { name: string; description: string; tools: string[]; mode: 'shared' | 'isolated'; history: number }[] = [];
   const unsubscribe = () => undefined;
   let permissionMode: 'strict' | 'default' | 'allow' = 'default';
   const chatManager = {
@@ -122,7 +123,7 @@ function createAppDependencies() {
       diagnostics: [],
       dedicatedToolNames: new Set(),
     }),
-    list: () => [],
+    list: () => [...skills],
     subscribe: () => unsubscribe,
     getActiveNames: () => [],
   } as unknown as SkillManager;
@@ -189,6 +190,9 @@ function createAppDependencies() {
     },
     setRewindResult: (value: { snapshot: Snapshot; changedFiles: string[]; history: Message[] }) => {
       rewindResult = value;
+    },
+    setSkills: (value: { name: string; description: string; tools: string[]; mode: 'shared' | 'isolated'; history: number }[]) => {
+      skills = value;
     },
   };
 }
@@ -975,5 +979,69 @@ test('Shift+Tab 循环切换权限模式并实时刷新状态行', async () => {
   await flushAppInput();
   await flushAppInput();
   assert.match(view.lastFrame() ?? '', /权限 default/u);
+  view.unmount();
+});
+
+test('/mcp 打开服务器面板并可进入工具列表', async () => {
+  const dependencies = createAppDependencies();
+  const view = render(React.createElement(App, {
+    ...dependencies,
+    mcpServerTools: [{
+      name: 'playwright',
+      transport: 'stdio',
+      connected: true,
+      tools: [
+        { name: 'browser_click', description: '点击', inputSchema: { type: 'object' }, readOnly: false },
+        { name: 'browser_navigate', description: '导航', inputSchema: { type: 'object' }, readOnly: false },
+      ],
+    }],
+  }));
+  await flushAppInput();
+  view.stdin.write('/mcp');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /\[MCP\] MCP 服务器/u);
+  assert.match(view.lastFrame() ?? '', /playwright/u);
+
+  view.stdin.write('\r'); // 进入工具列表
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /\[MCP\] playwright 工具/u);
+  assert.match(view.lastFrame() ?? '', /browser_click/u);
+  assert.match(view.lastFrame() ?? '', /browser_navigate/u);
+
+  view.stdin.write('\u001B'); // 返回服务器
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /\[MCP\] MCP 服务器/u);
+  view.stdin.write('\u001B'); // 退出
+  await flushAppInput();
+  view.unmount();
+});
+
+test('/skill 打开技能面板并支持方向键选择与运行', async () => {
+  const dependencies = createAppDependencies();
+  dependencies.setSkills([
+    { name: 'review', description: '审查代码', tools: [], mode: 'isolated', history: 0 },
+    { name: 'commit', description: '生成提交信息', tools: [], mode: 'shared', history: 0 },
+  ]);
+  const view = render(React.createElement(App, dependencies));
+  await flushAppInput();
+  view.stdin.write('/skill');
+  await flushAppInput();
+  view.stdin.write('\r');
+  await flushAppInput();
+  await flushAppInput();
+  assert.match(view.lastFrame() ?? '', /\[SKILL\] 可用 Skill/u);
+  assert.match(view.lastFrame() ?? '', /\/review/u);
+  assert.match(view.lastFrame() ?? '', /\/commit/u);
+
+  view.stdin.write('\u001B[B'); // 下移到 commit
+  await flushAppInput();
+  view.stdin.write('\r'); // Enter 运行 commit → 触发 runSkill
+  await flushAppInput();
+  await flushAppInput();
+  assert.doesNotMatch(view.lastFrame() ?? '', /\[SKILL\] 可用 Skill/u);
   view.unmount();
 });

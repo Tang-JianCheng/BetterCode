@@ -129,6 +129,8 @@ BetterCode 启动时展示一次 BETTERCODE 像素横幅，运行期间用轻量
 | `/tasks [任务 ID]` | 查看当前会话的子 Agent 任务或单项详情 |
 | `/status` | 查看 Provider、模式、Token、会话和记忆状态 |
 | `/context` | 查看上下文占用、格子视图与分类明细 |
+| `/mcp` | 动态面板查看 MCP 服务器及其工具 |
+| `/skill` | 动态面板查看并运行可用 Skill |
 | `/statusline` | 切换输入区底部常驻状态行（默认开启） |
 | `/review [范围]` | 使用内置 review Skill 独立审查代码 |
 

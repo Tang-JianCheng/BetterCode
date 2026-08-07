@@ -139,6 +139,32 @@ test('registry leaves no partial state when schema compilation fails', t => {
   assert.equal(registry.get('broken')?.name, 'broken');
 });
 
+test('registry 支持 draft-2020-12 元 schema 引用的外部工具 schema', t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const registry = new ToolRegistry(root);
+  // playwright MCP 工具的 schema 声明 2020-12 $schema 并 $ref 到官方元 schema，
+  // 修复前编译报 “no schema with key or ref ...2020-12/schema”。
+  const playwrightStyle: Tool = {
+    ...makeTool('pw', async () => createToolSuccess('ok')),
+    inputSchema: {
+      $schema: 'https://json-schema.org/draft/2020-12/schema',
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Navigateto URL' },
+      },
+      required: ['url'],
+    },
+  };
+
+  assert.doesNotThrow(() => registry.register(playwrightStyle), '2020-12 schema 应能编译注册');
+  assert.equal(registry.get('pw')?.name, 'pw');
+  const valid = registry.validate({ id: 'v', name: 'pw', arguments: { url: 'https://x' } });
+  assert.equal(valid?.error, undefined);
+  const invalid = registry.validate({ id: 'i', name: 'pw', arguments: {} });
+  assert.equal(invalid?.error?.code, 'INVALID_ARGUMENTS');
+});
+
 test('registry 原子替换 owner 工具并保留系统元数据', t => {
   const root = makeRoot();
   t.after(() => rmSync(root, { recursive: true, force: true }));

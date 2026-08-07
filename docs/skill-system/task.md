@@ -266,3 +266,15 @@ T7 -> T9 -> T10 -> T11 -> T12 -> T13 -> T14 -> T15
 T2 + T7 -> T16 -> T17
 全部 --------------------------------------> T18
 ```
+
+## T: /skill 命令与面板
+
+**文件：** `src/ui/skill-dialog.tsx`、`src/command/types.ts`、`src/command/builtins.ts`、`src/ui/app.tsx`
+
+**步骤：**
+
+1. `SkillDialog` 动态面板，数据来自 `skillManager.list()`。
+2. 注册 `/skill` 命令、`CommandUIController.showSkillList`，App 中 Enter 后调用 `runSkill(name, '', '/name')`。
+3. 测试覆盖 dialog、builtins/dispatcher、app 集成。
+
+**验证：** `pnpm exec tsx --test src/ui/skill-dialog.test.ts src/ui/app.test.ts` 与全量 `pnpm check`。

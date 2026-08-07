@@ -25,6 +25,8 @@ function fakeUi(messages: string[]): CommandUIController {
     showStatus() {},
     showContextUsage() {},
     toggleStatusLine() {},
+    showMcpTools() {},
+    showSkillList() {},
     showSubAgentTasks() {},
     async manageTeam() {},
     rewindConversation() {},

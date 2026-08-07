@@ -24,6 +24,8 @@ export interface CommandUIController {
   showStatus(): void;
   showContextUsage(): void;
   toggleStatusLine(): void;
+  showMcpTools(): void;
+  showSkillList(): void;
   showSubAgentTasks(taskId?: string): void;
   manageTeam(args: string): Promise<void>;
   rewindConversation(): void;

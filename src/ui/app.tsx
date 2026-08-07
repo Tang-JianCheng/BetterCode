@@ -60,6 +60,10 @@ import {
   toolResultStatus,
   ToolTraceView,
 } from './tool-trace.js';
+import { McpDialog } from './mcp-dialog.js';
+import { SkillDialog } from './skill-dialog.js';
+import type { McpServerToolListing } from '../mcp/types.js';
+import type { SkillMetadata } from '../skill/types.js';
 import {
   ActivityIndicator,
   type ActivityStage,
@@ -136,6 +140,7 @@ interface Props {
   chatManager: ChatManager;
   skillManager: SkillManager;
   mcpStatus?: McpStartupStatus;
+  mcpServerTools?: readonly McpServerToolListing[];
   agentDiagnostics?: readonly AgentDefinitionDiagnostic[];
   ccSwitchStatus?: readonly CcSwitchDiagnostic[];
   providers: readonly ModelOption[];
@@ -293,6 +298,7 @@ export function App({
   chatManager,
   skillManager,
   mcpStatus,
+  mcpServerTools = [],
   agentDiagnostics = [],
   ccSwitchStatus = [],
   providers,
@@ -377,6 +383,9 @@ export function App({
   const [activeProvider, setActiveProvider] = useState(provider);
   const [modelDialogActive, setModelDialogActive] = useState(false);
   const [modelTiers, setModelTiers] = useState<ModelTierOption[]>([]);
+  const [mcpDialogActive, setMcpDialogActive] = useState(false);
+  const [skillDialogActive, setSkillDialogActive] = useState(false);
+  const [skillDialogSkills, setSkillDialogSkills] = useState<SkillMetadata[]>([]);
   const [skillRevision, setSkillRevision] = useState(() => skillManager.getSnapshot().revision);
 
   const commandRegistry = useMemo(() => {
@@ -979,6 +988,29 @@ export function App({
     }));
   }, [activeProvider, appendPresentation, capabilities.columns, capabilities.unicode, chatManager]);
 
+  const showMcpTools = useCallback(() => {
+    if (mcpServerTools.length === 0) {
+      appendNotice('无法展示', '当前没有配置任何 MCP Server。', 'warning');
+      return;
+    }
+    setMcpDialogActive(true);
+  }, [appendNotice, mcpServerTools.length]);
+
+  const showSkillList = useCallback(() => {
+    const skills = skillManager.list();
+    if (skills.length === 0) {
+      appendNotice('无法展示', '当前没有可用 Skill。', 'warning');
+      return;
+    }
+    setSkillDialogSkills(skills);
+    setSkillDialogActive(true);
+  }, [appendNotice, skillManager]);
+
+  const runSkillFromDialog = useCallback((name: string) => {
+    setSkillDialogActive(false);
+    void runSkill(name, '', `/${name}`);
+  }, [runSkill]);
+
   const rewindConversation = useCallback(() => {
     const snapshots = chatManager.getSnapshots();
     if (snapshots.length === 0) {
@@ -1023,6 +1055,8 @@ export function App({
     showStatus,
     showContextUsage,
     toggleStatusLine: () => setStatusLineVisible(visible => !visible),
+    showMcpTools,
+    showSkillList,
     showSubAgentTasks,
     manageTeam,
     rewindConversation,
@@ -1043,6 +1077,8 @@ export function App({
     showOrSetPermission,
     showStatus,
     showContextUsage,
+    showMcpTools,
+    showSkillList,
     showSubAgentTasks,
     manageTeam,
     usage,
@@ -1103,6 +1139,19 @@ export function App({
           snapshots={rewindSnapshots}
           onSelect={handleRewind}
           onCancel={() => setRewindDialogActive(false)}
+          capabilities={capabilities}
+        />
+      ) : mcpDialogActive ? (
+        <McpDialog
+          servers={mcpServerTools}
+          onCancel={() => setMcpDialogActive(false)}
+          capabilities={capabilities}
+        />
+      ) : skillDialogActive ? (
+        <SkillDialog
+          skills={skillDialogSkills}
+          onSelect={runSkillFromDialog}
+          onCancel={() => setSkillDialogActive(false)}
           capabilities={capabilities}
         />
       ) : isStreaming ? (

@@ -139,6 +139,41 @@ test('管理器并行发现并按 Server 和远端工具名稳定注册', async 
   assert.equal(result.ok, true);
   assert.match(result.output, /zeta:alpha/);
   assert.equal(controls.get('zeta')?.callCount, 1);
+
+  const listings = manager.listServerTools();
+  assert.deepEqual(listings.map(item => item.name), ['alpha', 'zeta']);
+  const alpha = listings[0];
+  assert.equal(alpha?.connected, true);
+  assert.equal(alpha?.tools.length, 1);
+  assert.equal(alpha?.tools[0]?.name, 'zulu');
+  const zeta = listings[1];
+  assert.deepEqual(zeta?.tools.map(item => item.name).sort(), ['alpha', 'beta']);
+  await manager.close();
+});
+
+test('listServerTools 包含连接失败的 Server 且标记未连接', async t => {
+  const root = makeRoot();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const controls = new Map([
+    ['ok', controlledSession({ name: 'ok', tools: [makeTool('one')] })],
+    ['down', controlledSession({
+      name: 'down',
+      connectError: new McpStartupError('TRANSPORT_ERROR', 'spawn failed'),
+    })],
+  ]);
+  const manager = new McpManager(root, makeLoaded(['ok', 'down']), {
+    sessionFactory: config => controls.get(config.name)!.session,
+  });
+  await manager.initialize(createCoreToolRegistry(root));
+
+  const listings = manager.listServerTools();
+  assert.equal(listings.length, 2);
+  const ok = listings.find(item => item.name === 'ok');
+  const down = listings.find(item => item.name === 'down');
+  assert.equal(ok?.connected, true);
+  assert.equal(ok?.tools.length, 1);
+  assert.equal(down?.connected, false);
+  assert.equal(down?.tools.length, 0);
   await manager.close();
 });
 

@@ -218,7 +218,17 @@ export class AnthropicProvider implements LLMProvider {
       const block = toolBlocks.get(index);
       if (!block) return;
       toolBlocks.delete(index);
-      const parsed: unknown = JSON.parse(block.partialJson || '{}');
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(block.partialJson || '{}');
+      } catch (error) {
+        // 工具参数片段被上游截断时 partial_json 不完整，这里明确报出语义，
+        // 而不是让原始 SyntaxError 冒泡成难懂的“流式读取失败”。
+        throw new Error(
+          `工具 ${block.name} 的参数 JSON 不完整，可能是上游响应流被中断: ` +
+          `${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       if (!isJsonObject(parsed)) throw new Error('工具参数必须是 JSON 对象');
       completedCalls.set(index, {
         id: block.id || `tool-${index}`,

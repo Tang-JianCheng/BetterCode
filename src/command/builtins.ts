@@ -120,6 +120,20 @@ function definitions(): CommandDefinition[] {
       },
     },
     {
+      name: 'mcp', aliases: [], description: '查看 MCP 服务器与工具', usage: '/mcp',
+      type: 'ui', handler: invocation => {
+        if (!noArguments(invocation)) return;
+        invocation.ui.showMcpTools();
+      },
+    },
+    {
+      name: 'skill', aliases: [], description: '查看并运行可用 Skill', usage: '/skill',
+      type: 'ui', handler: invocation => {
+        if (!noArguments(invocation)) return;
+        invocation.ui.showSkillList();
+      },
+    },
+    {
       name: 'statusline', aliases: ['sl'], description: '切换输入区常驻状态行', usage: '/statusline',
       type: 'ui', handler: invocation => {
         if (!noArguments(invocation)) return;

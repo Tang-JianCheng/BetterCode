@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { Ajv, type ValidateFunction } from 'ajv';
 import { isToolFailure } from './errors.js';
 import {
@@ -33,7 +34,25 @@ export class ToolRegistry {
   private readonly tools = new Map<string, Tool>();
   private readonly validators = new Map<string, ValidateFunction>();
   private readonly registrations = new Map<string, ToolRegistrationOptions>();
-  private readonly ajv = new Ajv({ allErrors: true, strict: false });
+  // 注册 2019-09 与 2020-12 元 schema：外部 MCP 工具 schema 常声明
+  // $schema 并 $ref 到这些官方 dialect（如 playwright），否则编译报
+  // “no schema with key or ref”。ajv 的 refs 模块是 CJS，用 createRequire 取默认导出。
+  private readonly ajv = (() => {
+    const instance = new Ajv({ allErrors: true, strict: false });
+    try {
+      const require = createRequire(import.meta.url);
+      type MetaSchemaAdder = (this: Ajv) => Ajv;
+      const addMeta = (mod: string) => {
+        const adder = require(mod).default as unknown as MetaSchemaAdder;
+        adder.call(instance);
+      };
+      addMeta('ajv/dist/refs/json-schema-2019-09/index.js');
+      addMeta('ajv/dist/refs/json-schema-2020-12/index.js');
+    } catch {
+      // 元 schema 注册失败不致命，仅影响需要这些 dialect 的外部工具。
+    }
+    return instance;
+  })();
   private readonly options: ToolRuntimeOptions;
 
   constructor(rootDir: string, options: Partial<ToolRuntimeOptions> = {}) {

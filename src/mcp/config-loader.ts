@@ -259,7 +259,7 @@ export class McpConfigLoader {
     if (!isRecord(value)) throw new McpConfigError('Server 配置必须是对象');
     assertOnlyKeys(
       value,
-      ['type', 'transport', 'command', 'args', 'env', 'url', 'headers'],
+      ['type', 'transport', 'command', 'args', 'env', 'url', 'headers', 'timeout_ms'],
       '兼容 Server ',
     );
     if (
@@ -279,6 +279,7 @@ export class McpConfigLoader {
         command: value.command,
         args: value.args,
         env: value.env,
+        ...(value.timeout_ms === undefined ? {} : { timeout_ms: value.timeout_ms }),
       };
     }
     if (transport === 'http' || transport === 'streamable-http') {
@@ -286,6 +287,7 @@ export class McpConfigLoader {
         transport: 'http',
         url: value.url,
         headers: value.headers,
+        ...(value.timeout_ms === undefined ? {} : { timeout_ms: value.timeout_ms }),
       };
     }
     throw new McpConfigError('type 或 transport 必须是 stdio、http 或 streamable-http');
@@ -300,7 +302,7 @@ export class McpConfigLoader {
   ): McpServerConfig {
     if (!isRecord(value)) throw new McpConfigError('Server 配置必须是对象');
     if (value.transport === 'stdio') {
-      assertOnlyKeys(value, ['transport', 'command', 'args', 'env'], 'stdio Server ');
+      assertOnlyKeys(value, ['transport', 'command', 'args', 'env', 'timeout_ms'], 'stdio Server ');
       if (typeof value.command !== 'string' || !value.command.trim()) {
         throw new McpConfigError('stdio command 必须是非空字符串');
       }
@@ -315,10 +317,11 @@ export class McpConfigLoader {
         command: value.command,
         args,
         env: expanded.values,
+        ...(value.timeout_ms === undefined ? {} : { timeoutMs: this.parseTimeoutMs(value.timeout_ms) }),
       };
     }
     if (value.transport === 'http') {
-      assertOnlyKeys(value, ['transport', 'url', 'headers'], 'HTTP Server ');
+      assertOnlyKeys(value, ['transport', 'url', 'headers', 'timeout_ms'], 'HTTP Server ');
       if (typeof value.url !== 'string') throw new McpConfigError('HTTP url 必须是字符串');
       let parsedUrl: URL;
       try {
@@ -338,9 +341,17 @@ export class McpConfigLoader {
         transport: 'http',
         url: parsedUrl.toString(),
         headers: expanded.values,
+        ...(value.timeout_ms === undefined ? {} : { timeoutMs: this.parseTimeoutMs(value.timeout_ms) }),
       };
     }
     throw new McpConfigError('transport 必须是 stdio 或 http');
+  }
+
+  private parseTimeoutMs(value: unknown): number {
+    if (!Number.isInteger(value) || (value as number) < 1_000 || (value as number) > 600_000) {
+      throw new McpConfigError('timeout_ms 必须是 1000 到 600000 的整数');
+    }
+    return value as number;
   }
 
   private expandMap(

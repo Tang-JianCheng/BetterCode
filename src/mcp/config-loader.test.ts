@@ -273,3 +273,35 @@ test('MCP compatibility config rejects symlink escape and keeps user layer', t =
   assert.equal(loaded.diagnostics.some(item => item.file?.endsWith('.mcp.json')), true);
   assert.equal(JSON.stringify(loaded.diagnostics).includes('outside-secret'), false);
 });
+
+test('MCP server timeout_ms 在 yaml 与 .mcp.json 兼容层均生效且校验范围', t => {
+  const { root, home } = makeFixture(t);
+  writeConfig(home, `servers:
+  slow:
+    transport: stdio
+    command: node
+    timeout_ms: 90000
+`);
+  writeCompatibilityConfig(root, {
+    mcpServers: {
+      compat: { command: 'npx', args: ['x'], timeout_ms: 30000 },
+    },
+  });
+  const loaded = new McpConfigLoader(root, { userHome: home }).load();
+  const slow = loaded.servers.find(server => server.name === 'slow');
+  const compat = loaded.servers.find(server => server.name === 'compat');
+  assert.equal(slow?.timeoutMs, 90_000);
+  assert.equal(compat?.timeoutMs, 30_000);
+  assert.equal(loaded.diagnostics.length, 0);
+
+  // 越界 timeout_ms 产生诊断
+  writeConfig(home, `servers:
+  bad:
+    transport: stdio
+    command: node
+    timeout_ms: 999999
+`);
+  const bad = new McpConfigLoader(root, { userHome: home }).load();
+  assert.equal(bad.servers.some(server => server.name === 'bad'), false);
+  assert.match(bad.diagnostics[0]?.message ?? '', /timeout_ms/u);
+});

@@ -304,3 +304,21 @@ test('Anthropic provider Bearer 认证并归一化 /v1 结尾 base_url', async (
   assert.equal(headers?.authorization, 'Bearer token-abc');
   assert.equal('x-api-key' in (headers ?? {}), false);
 });
+
+test('Anthropic provider 工具参数片段被截断时给出明确错误而非裸 JSON 解析错误', async () => {
+  const fetchImpl = async () => responseFor([
+    'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool-1","name":"read_file"}}\n\n',
+    'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"path\\":\\"a"}}\n\n',
+    'data: {"type":"content_block_stop","index":0}\n\n',
+    'data: {"type":"message_stop"}\n\n',
+  ]);
+  const provider = new AnthropicProvider(config(), fetchImpl);
+  const events: StreamEvent[] = [];
+  await provider.chat(makeRequest(), event => events.push(event));
+  const error = events.find(event => event.type === 'error');
+  assert.ok(error && error.type === 'error', '应产生 error 事件');
+  assert.match(error.content, /read_file/u, '错误应包含工具名');
+  assert.match(error.content, /参数 JSON 不完整/u, '错误应说明参数不完整/上游截断');
+  assert.doesNotMatch(error.content, /^流式读取失败: Unterminated string/u, '不应再输出裸的 JSON 解析错误');
+  assert.equal(events.some(event => event.type === 'done'), false, '截断时不应视为成功完成');
+});

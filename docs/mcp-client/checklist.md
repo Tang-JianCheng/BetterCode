@@ -293,3 +293,8 @@
 
 - [x] **E8：已有项目配置直接生效**
   项目只提供常见 `mcpServers` 格式的 `.mcp.json`，启动 BetterCode 后能看到已连接 Server 和注册工具，模型可通过现有 Agent 工具调用路径直接使用，无需复制为 `.bettercode/mcp.yaml`。（验证：本地 HTTP 集成测试加实际项目配置加载摘要；覆盖 AC17、AC18）
+
+- [x] `McpManager.listServerTools()` 返回全部配置 Server 及工具，失败 Server 标记未连接
+- [x] `/mcp` 打开动态面板：Server 列表 → Enter 进入工具列表 → Esc 逐级返回/退出，方向键整行高亮、超一页显示剩余数量
+- [x] 无 Server 或失败 Server（无工具）给出提示/不进入工具页
+- [x] `pnpm check` 通过（仅剩既有基线失败）

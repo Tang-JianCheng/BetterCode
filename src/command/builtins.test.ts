@@ -31,6 +31,8 @@ function controller(events: string[]): CommandUIController {
     showStatus: () => events.push('status'),
     showContextUsage: () => events.push('context'),
     toggleStatusLine: () => events.push('statusline'),
+    showMcpTools: () => events.push('mcp'),
+    showSkillList: () => events.push('skill'),
     showSubAgentTasks: id => events.push(`tasks:${id ?? ''}`),
     async manageTeam(args) { events.push(`team:${args}`); },
     rewindConversation: () => events.push('rewind'),
@@ -42,7 +44,7 @@ test('默认注册中心包含团队命令和兼容隐藏命令', () => {
   const registry = createDefaultCommandRegistry();
   assert.deepEqual(registry.list().map(item => item.name), [
     'help', 'compact', 'clear', 'plan', 'do', 'session', 'model', 'memory',
-    'permission', 'tasks', 'status', 'context', 'statusline', 'team',
+    'permission', 'tasks', 'status', 'context', 'mcp', 'skill', 'statusline', 'team',
   ]);
   assert.equal(registry.get('resume')?.name, 'session');
   assert.equal(registry.get('permissions')?.name, 'permission');
@@ -60,7 +62,7 @@ test('计划、执行、状态和本地命令调用界面控制器', async () =>
   for (const command of [
     '/plan', '/do', '/compact', '/clear', '/session abc', '/model', '/memory',
     '/permission strict', '/tasks sa-1', '/status', '/team status', '/rewind', '/quit',
-    '/context', '/statusline',
+    '/context', '/mcp', '/skill', '/statusline',
   ]) {
     await dispatcher.dispatch(command, ui);
   }
@@ -73,6 +75,8 @@ test('计划、执行、状态和本地命令调用界面控制器', async () =>
   assert.equal(events.includes('permission:strict'), true);
   assert.equal(events.includes('status'), true);
   assert.equal(events.includes('context'), true);
+  assert.equal(events.includes('mcp'), true);
+  assert.equal(events.includes('skill'), true);
   assert.equal(events.includes('statusline'), true);
   assert.equal(events.includes('tasks:sa-1'), true);
   assert.equal(events.includes('team:status'), true);

@@ -53,6 +53,7 @@ async function main(): Promise<void> {
         chatManager: application.chatManager,
         skillManager: application.skillManager,
         mcpStatus: application.mcpStatus,
+        mcpServerTools: application.mcpServerTools,
         agentDiagnostics: application.agentDiagnostics,
         ccSwitchStatus: application.ccSwitchStatus,
         providers: application.providers,

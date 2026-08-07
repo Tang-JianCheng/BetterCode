@@ -1,4 +1,4 @@
-import { parseInlineMarkdown } from '../markdown/parser.js';
+import { parseInlineMarkdown, parseMarkdown } from '../markdown/parser.js';
 import type {
   MarkdownAst,
   MarkdownBlock,
@@ -109,7 +109,9 @@ export function presentationNoticeMarkdown(input: {
   details?: readonly string[];
 }): MarkdownAst | undefined {
   const blocks: MarkdownBlock[] = [];
-  if (input.message) blocks.push(paragraph(input.message));
+  // message 用完整 Markdown 解析：多段/列表结构（如 MCP 诊断的
+  // “段落 + - 列表 + 段落”）会全部保留；单段纯文本仍渲染为段落。
+  if (input.message) blocks.push(...parseMarkdown(input.message).blocks);
   if (input.details?.length) {
     blocks.push({
       type: 'list',

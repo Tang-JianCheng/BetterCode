@@ -641,3 +641,17 @@ T27 + T28 + T31 -> T32
 ```text
 T33 -> T34 -> T35
 ```
+
+## T: /mcp 命令与面板
+
+**文件：** `src/mcp/types.ts`、`src/mcp/manager.ts`、`src/bootstrap/application.ts`、`src/index.tsx`、`src/ui/mcp-dialog.tsx`、`src/command/types.ts`、`src/command/builtins.ts`、`src/ui/app.tsx`
+
+**步骤：**
+
+1. `McpServerToolListing` 类型 + `McpManager.listServerTools()`（初始化时记录每 Server 工具，含失败 server 标 `connected:false`）。
+2. `application` 暴露 `mcpServerTools`，`index.tsx` 注入 App props。
+3. `McpDialog` 两级动态面板（服务器 → 工具），遵循动态面板交互约束。
+4. 注册 `/mcp` 命令、`CommandUIController.showMcpTools`、App 接线。
+5. 测试覆盖 dialog、builtins/dispatcher、app 集成、manager 工具清单。
+
+**验证：** `pnpm exec tsx --test src/ui/mcp-dialog.test.ts src/mcp/manager.test.ts src/ui/app.test.ts` 与全量 `pnpm check`。

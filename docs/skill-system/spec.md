@@ -102,3 +102,13 @@ Skill 系统把可复用操作封装成带 YAML frontmatter 的 Markdown 文件�
 - AC10：Plan Mode 下即使白名单包含副作用工具也只暴露只读工具和 `load_skill`。
 - AC11：指定不存在 Provider、无效 frontmatter、空正文或重复专属工具只影响对应 Skill 并产生清晰诊断，除明确要求启动失败的冲突外不阻断其他 Skill。
 - AC12：类型检查、全量测试和差异检查全部通过，监听器和子进程测试结束后无悬挂句柄。
+
+## 增量：/skill 动态命令面板
+
+### 变更内容
+
+- F：新增 `/skill` 命令（`type: ui`）与 `SkillDialog` 动态面板：列出全部可用 Skill（`/名称` 左对齐、`共享/独立 · 描述` 右对齐），Enter 运行选中的 Skill，Esc 退出；方向键选择并整行高亮，超一页显示剩余数量。
+
+### 验收补充
+
+- AC：`/skill` 列出全部 Skill，方向键选择、Enter 运行、Esc 退出；无 Skill 时给出提示。

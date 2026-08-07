@@ -7,6 +7,8 @@ interface McpServerConfigBase {
   layer: McpConfigLayer;
   file: string;
   secretValues: readonly string[];
+  /** 可选：覆盖全局连接/发现超时（毫秒），用于首次下载慢或远程慢的 Server */
+  timeoutMs?: number;
 }
 
 export interface StdioMcpServerConfig extends McpServerConfigBase {
@@ -104,6 +106,14 @@ export interface McpStartupStatus {
   connectedServers: number;
   registeredTools: number;
   diagnostics: readonly McpDiagnostic[];
+}
+
+/** /mcp 命令展示用：单个 Server 及其工具清单。 */
+export interface McpServerToolListing {
+  name: string;
+  transport: 'stdio' | 'http';
+  connected: boolean;
+  tools: readonly McpRemoteTool[];
 }
 
 export class McpSessionError extends Error {

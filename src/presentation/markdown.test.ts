@@ -53,6 +53,30 @@ test('列表、分隔线和通知内容转换为对应 Markdown 块', () => {
   assert.equal(presentationNoticeMarkdown({}), undefined);
 });
 
+test('通知 message 保留多段与列表结构，不被截断成首段', () => {
+  const notice = presentationNoticeMarkdown({
+    message: [
+      'MCP 启动: 已连接 1/3 个 Server，注册 2 个工具。',
+      'MCP 诊断:',
+      '- github: 连接失败',
+      '- playwright: 启动失败',
+      '安全边界: 外部 MCP Server 不受沙箱保护。',
+    ].join('\n'),
+  });
+  assert.ok(notice);
+  assert.equal(notice.blocks[0].type, 'paragraph');
+  assert.equal(notice.blocks[1].type, 'list', '列表行应保留为列表块');
+  assert.ok(notice.blocks[1].type === 'list' &&
+    notice.blocks[1].items.length === 2, '两条诊断各为列表项');
+  // 列表项正文（含续行并入的安全边界）不应丢失
+  const listText = notice.blocks[1].type === 'list'
+    ? JSON.stringify(notice.blocks[1].items)
+    : '';
+  assert.match(listText, /github: 连接失败/u);
+  assert.match(listText, /playwright: 启动失败/u);
+  assert.match(listText, /安全边界/u);
+});
+
 test('树形块转换为带缩进与分支标记的 Markdown 树', () => {
   const blocks = presentationBlocksToMarkdown([{
     type: 'tree',

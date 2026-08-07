@@ -9,6 +9,7 @@ import {
   type McpDiagnostic,
   type McpRemoteTool,
   type McpServerConfig,
+  type McpServerToolListing,
   type McpSession,
   type McpSessionFactory,
   type McpSessionOptions,
@@ -30,9 +31,10 @@ interface DiscoveredServer {
 }
 
 const DEFAULT_OPTIONS: Omit<McpSessionOptions, 'rootDir'> = {
-  connectTimeoutMs: 10_000,
-  discoveryTimeoutMs: 10_000,
-  callTimeoutMs: 30_000,
+  // 连接/发现默认放宽到 60s：stdio Server 首次 npx 下载、远程 Server 握手都可能超过 10s。
+  connectTimeoutMs: 60_000,
+  discoveryTimeoutMs: 60_000,
+  callTimeoutMs: 60_000,
   maxStderrBytes: 8_192,
 };
 
@@ -44,6 +46,7 @@ export class McpManager {
   private readonly sessionFactory: McpSessionFactory;
   private readonly sessionOptions: McpSessionOptions;
   private readonly sessions = new Map<string, McpSession>();
+  private readonly serverTools = new Map<string, McpServerToolListing>();
   private status: McpStartupStatus;
   private initializePromise?: Promise<McpStartupStatus>;
   private closePromise?: Promise<readonly McpDiagnostic[]>;
@@ -85,6 +88,16 @@ export class McpManager {
     };
   }
 
+  /** /mcp 命令数据源：按名称排序的 Server 及工具清单。 */
+  listServerTools(): readonly McpServerToolListing[] {
+    return [...this.serverTools.values()]
+      .sort((left, right) => compareText(left.name, right.name))
+      .map(item => ({
+        ...item,
+        tools: [...item.tools].sort((left, right) => compareText(left.name, right.name)),
+      }));
+  }
+
   close(): Promise<readonly McpDiagnostic[]> {
     if (this.closePromise) return this.closePromise;
     this.closePromise = this.closeInternal();
@@ -101,6 +114,18 @@ export class McpManager {
     const discovered = settled.filter((item): item is DiscoveredServer => item !== undefined);
     discovered.sort((left, right) => compareText(left.config.name, right.config.name));
     for (const item of discovered) this.sessions.set(item.config.name, item.session);
+
+    // 记录每个 Server 的工具清单（含失败 server，connected=false），供 /mcp 展示。
+    const byName = new Map(discovered.map(item => [item.config.name, item] as const));
+    for (const config of this.loaded.servers) {
+      const item = byName.get(config.name);
+      this.serverTools.set(config.name, {
+        name: config.name,
+        transport: config.transport,
+        connected: item !== undefined,
+        tools: item ? [...item.tools] : [],
+      });
+    }
 
     let registeredTools = 0;
     for (const item of discovered) {
@@ -147,7 +172,13 @@ export class McpManager {
   ): Promise<DiscoveredServer | undefined> {
     let session: McpSession;
     try {
-      session = this.sessionFactory(config, this.sessionOptions);
+      // per-server timeout_ms 覆盖全局连接/发现超时（例如首次下载慢的 stdio Server）
+      session = this.sessionFactory(
+        config,
+        config.timeoutMs === undefined
+          ? this.sessionOptions
+          : { ...this.sessionOptions, connectTimeoutMs: config.timeoutMs, discoveryTimeoutMs: config.timeoutMs },
+      );
     } catch (error) {
       this.addDiagnostic({
         code: 'TRANSPORT_ERROR',
